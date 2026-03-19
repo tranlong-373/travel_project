@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 from database import get_connection
+from services.recommend import generate_reason
+from services.scoring import calculate_score
 
 app = FastAPI()
 class SearchRequest(BaseModel):
@@ -12,7 +14,7 @@ class SearchRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "Backend dang chay"}
+    return {"message": "Backend đang chạy"}
 
 @app.get("/test-db")
 def test_db():
@@ -25,9 +27,9 @@ def test_db():
         cursor.close()
         conn.close()
 
-        return {"message": "Ket noi database thanh cong", "result": row[0]}
+        return {"message": "Kết nối database thành công", "result": row[0]}
     except Exception as e:
-        return {"message": "Ket noi database that bai", "error": str(e)}
+        return {"message": "Kết nối database thất bại", "error": str(e)}
 
 @app.get("/accommodations")
 def get_accommodations():
@@ -60,7 +62,7 @@ def get_accommodations():
         return {"results": result}
 
     except Exception as e:
-        return {"message": "Lay du lieu that bai", "error": str(e)}
+        return {"message": "Lấy dữ liệu thất bại", "error": str(e)}
 
     # xử lí đầu vào 
 @app.post("/search")
@@ -102,19 +104,31 @@ def search_accommodations(request: SearchRequest):
                 "Rating": float(row.Rating),
                 "MaxPeople": row.MaxPeople
             })
+        
+        scored_result = []
+
+        for item in result:
+            score = calculate_score(item, request)
+            item["score"] = score
+            item["reason"] = generate_reason(item, request)
+            scored_result.append(item)
+
+        scored_result.sort(key=lambda x: x["score"], reverse=True)
+
+        top_results = scored_result[:5]
 
         cursor.close()
         conn.close()
 
         return {
-            "message": "Tim kiem thanh cong",
-            "count": len(result),
-            "results": result
+            "message": "Đề xuất thành công",
+            "count": len(top_results),
+            "results": top_results
         }
 
     except Exception as e:
         return {
-            "message": "Tim kiem that bai",
+            "message": "Tìm kiếm thất bại",
             "error": str(e)
         }
 # AI RECOMMENDATION  - 3 / xử lí đàu vào  / Đề cử (AI )   // Back end / # giao tiếp 
