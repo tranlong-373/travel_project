@@ -1,79 +1,80 @@
-from services.filter import filter_data
-from services.scoring import calculate_score
-from services.ranking import rank_data
+from typing import List, Dict, Any
+from services.filter import filter_accommodations
+from services.scoring import score_with_ai, generate_reasoning_with_ai
 
+def recommend_orchestrator(data: List[Dict[str, Any]], request_payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    \brief Mô-đun Điều phối cho đề xuất chỗ ở.
 
-# Tạo danh sách lý do giải thích vì sao chỗ ở được đề xuất
-# Dựa trên ngân sách, rating, loại chỗ ở, số người và khoảng cách
-def generate_reason(item, request):
-    reasons = []
+    \details Hàm này điều phối quá trình đề xuất bằng cách lọc,
+    chấm điểm, xếp hạng và định dạng kết quả.
 
-    # Giá thành so với ngân sách
-    if request.budget_max:
-        if item["PricePerNight"] <= request.budget_max:
-            reasons.append("giá phù hợp ngân sách")
-        else:
-            reasons.append("giá hơi cao so với ngân sách")
+    1. Lọc theo điều kiện (ngân sách, vị trí, tiện nghi).
+    2. Gọi dịch vụ AI để chấm điểm.
+    3. Sắp xếp kết quả top.
+    4. Định dạng dữ liệu đầu ra.
 
-    # Điểm đánh giá
-    if item["Rating"] >= 4.5:
-        reasons.append("đánh giá rất cao")
-    elif item["Rating"] >= 4:
-        reasons.append("đánh giá tốt")
-    else:
-        reasons.append("đánh giá trung bình")
+    \param data Danh sách từ điển chỗ ở.
+    \param request_payload Từ điển chứa bộ lọc, hồ sơ người dùng và giới hạn.
+    \return Từ điển với trạng thái, siêu dữ liệu và đề xuất.
+    """
+    filters = request_payload.get("filters", {})
+    user_profile = request_payload.get("user_profile", {})
+    top_n = request_payload.get("limit", 5)
 
-    # Kiểu chỗ ở
-    if request.type:
-        if item["AccommodationType"] == request.type:
-            reasons.append("đúng loại lưu trú mong muốn")
-        else:
-            reasons.append("không đúng loại lưu trú mong muốn")
+    # Bước 1: Lọc qua điều kiện từ request (ngân sách, vị trí, tiện nghi)
+    filtered_data = filter_accommodations(data, filters)
 
-    # Tiện nghi(nếu có)
-    """if hasattr(request, "amenities") and request.amenities:
-        item_amenities = item.get("Amenities", [])
-        matched = sum(1 for a in request.amenities if a in item_amenities)
-        if matched == len(request.amenities):
-            reasons.append("đủ tiện nghi mong muốn")
-        else:
-            reasons.append("thiếu một số tiện nghi mong muốn")"""
+    # Dữ liệu dự phòng nếu bộ lọc quá chặt và không trả về kết quả
+    if not filtered_data:
+        filtered_data = data
 
-    # Số người
-    if hasattr(request, "people") and request.people:
-        if item["MaxPeople"] >= request.people:
-            reasons.append("phù hợp số người hiện tại")
-        else:
-            reasons.append("có thể không đủ chỗ cho số người hiện tại")
+    # Bước 2: Gọi dịch vụ AI để chấm điểm 
+    scored_results = []
+    for item in filtered_data:
+        score = score_with_ai(user_profile, item)
 
-    # Khoảng cách đến trung tâm 
-    """if "distance" in item:
-        if item["distance"] <= 3:
-            reasons.append("gần trung tâm")
-        else:
-            reasons.append("hơi xa trung tâm")"""
+        # Bổ sung Lý do nếu điểm tốt hoặc tùy theo kịch bản
+        reasoning = generate_reasoning_with_ai(user_profile, item)
 
-    return ", ".join(reasons)
+        # Tạo đối tượng tạm thời để xếp hạng
+        new_item = item.copy()  # Sao chép đối tượng để không sửa db
+        new_item["ai_score"] = score
+        new_item["ai_reasoning"] = reasoning
+        scored_results.append(new_item)
 
+    # Bước 3: Sắp xếp Kết quả Top theo điểm AI (giảm dần)
+    ranked_results = sorted(scored_results, key=lambda x: x["ai_score"], reverse=True)
+    top_results = ranked_results[:top_n]
 
-# Hàm chính thực hiện recommendation
-# Gồm: filter → chấm điểm → xếp hạng → trả top kết quả
-def recommend(data, request):
-    # Lọc dữ liệu theo yêu cầu người dùng
-    filtered = filter_data(data, request)
+    # Bước 4: Logic ghép dữ liệu trả về 
+    response = {
+        "status": "success",
+        "metadata": {
+            "total_matches": len(scored_results),
+            "returned_count": len(top_results),
+        },
+        "recommendations": []
+    }
 
-    # Nếu không có kết quả thì fallback toàn bộ dữ liệu
-    if not filtered:
-        filtered = data  
+    for rank_idx, result in enumerate(top_results, start=1):
+        formatted_item = {
+            "rank": rank_idx,
+            "id": result.get("id"),
+            "name": result.get("name"),
+            "price": result.get("price"),
+            "score": result.get("ai_score"),
+            "reasoning": result.get("ai_reasoning"),
+            # Ghép thêm thông tin gốc 
+            "details": {
+                "location": {
+                    "lat": result.get("lat"),
+                    "lng": result.get("lng")
+                },
+                "amenities": result.get("amenities", []),
+                "description": result.get("description", "")
+            }
+        }
+        response["recommendations"].append(formatted_item)
 
-    # Chấm điểm và sinh lý do cho từng item
-    for item in filtered:
-        item["score"] = calculate_score(item, request)
-        item["reason"] = generate_reason(item, request)
-
-    # Gọi ranking service
-    ranked = rank_data(filtered)
-
-    # Trả về top 5 kết quả
-    limit = getattr(request, "limit", 5)
-    return ranked[:limit]
+    return response
