@@ -32,7 +32,7 @@ travel_project/
 └── README.md            # Tài liệu dự án
 ```
 
-## ⚙️ Cài đặt & Chạy dự án
+## Cài đặt & Chạy dự án
 
 **1. Cài đặt các thư viện yêu cầu:**
 Bạn cần đảm bảo `Python 3` đã được cài đặt, sau đó cài các dependencies cần thiết bằng pip (có thể thay đổi tuỳ vào file `requirements.txt` nếu có):
@@ -50,7 +50,7 @@ uvicorn Back_end:app --reload
 ```
 Server sẽ chạy ở địa chỉ mặc định: `http://127.0.0.1:8000`
 
-## 📖 Danh sách API Endpoints
+## Danh sách API Endpoints
 
 ### 1. Kiểm tra trạng thái hệ thống
 * **GET** `/`
@@ -84,7 +84,7 @@ Server sẽ chạy ở địa chỉ mặc định: `http://127.0.0.1:8000`
     }
     ```
 
-## 🔍 Tài liệu API tự động (Swagger UI)
+## Tài liệu API tự động (Swagger UI)
 Do sử dụng `FastAPI`, sau khi chạy bạn có thể xem các schema và gửi test requests trực quan qua trình duyệt:
 * **Mở trình duyệt truy cập Swagger UI:** `http://127.0.0.1:8000/docs` 
 * **Redoc UI (Format theo dạng docs tĩnh):** `http://127.0.0.1:8000/redoc`
