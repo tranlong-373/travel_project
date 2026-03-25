@@ -3,7 +3,7 @@
 Dự án Backend cho hệ thống gọi ý chỗ ở (Accommodation Recommendation), được xây dựng bằng **FastAPI** và **Python**, kết nối với cơ sở dữ liệu để lọc, đánh giá, và gợi ý chỗ ở phù hợp cho người dùng dựa trên nhiều tiêu chí (ngân sách, khoảng cách, tiện ích, hồ sơ người dùng).
 
 ## Tính năng nổi bật
-* **Lọc theo nhiều tiêu chí:** Tìm kiếm kết hợp theo ngân sách tối đa (budget), khoảng cách tính theo tọa độ người dùng thông qua bán kính (location/radius), và danh sách các tiện nghi mong muốn (amenities).
+* **Lọc theo nhiều tiêu chí:** Tìm kiếm kết hợp theo ngân sách tối đa (budget), khoảng cách tính theo tọa độ người dùng thông qua bán kính (location/radius), và danh sách các tiện nghi mong muốn.
 * **Gợi ý thông minh (Recommendation Orchestrator):** Đánh giá (Scoring) điểm phù hợp của chỗ ở dựa trên `user_profile` và các đặc trưng của từng địa điểm.
 * **RESTful API:** Các endpoint rõ ràng, chuẩn HTTP state trả về JSON đầy đủ chi tiết với validation được quản lý chặt chẽ qua `Pydantic`.
 * **Database Connection:** Kết nối trực tiếp để truy xuất và xử lý tập dữ liệu nhà ở (`Accommodations`).
@@ -24,6 +24,7 @@ travel_project/
 │   ├── recommend.py     # Luồng điều phối chính (Orchestrator), tích hợp Filter và Scoring
 │   ├── filter.py        # Logic lọc dữ liệu sơ bộ 
 │   ├── scoring.py       # Logic chấm điểm trọng số cho các chỗ ở
+│   ├── ranking.py       # Phân loại và sắp xếp thứ hạng (rank) hiển thị dựa trên điểm số (scoring)
 │   └── __init__.py
 ├── schemas/             # (Optional) Các Pydantic models bổ sung
 ├── mini_database.sql    # Script cơ sở dữ liệu dùng để khởi tạo
