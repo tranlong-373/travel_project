@@ -1,10 +1,19 @@
-import NavBar from "./Components/NavBar/NavBar";
 import React from 'react'
-import Header from "./Components/Header";
+import NavBar from './Components/NavBar'
+import { Routes, Route, useLocation } from 'react-router-dom';
+import Home from './pages/Home';
+import Login from './pages/Login';
 const App = () => {
+
+  const isOwnerPath = useLocation().pathname.includes("owner");
   return (
     <div>
-      <Header/>
+      {!isOwnerPath && <NavBar/>}
+      <div className='min-h-[70vh]'>
+        <Routes>
+          <Route path='/' element={<Home/>} />
+        </Routes>
+      </div>
     </div>
   )
 }
