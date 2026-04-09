@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>{{ accommodation.name }}</h2>
+<p>Area: {{ accommodation.area }}</p>
+<p>Price: {{ accommodation.price_per_night }} VND</p>
+<p>Capacity: {{ accommodation.capacity }}</p>
+<p>Rating: {{ accommodation.rating }}</p>
+{% endblock %}
