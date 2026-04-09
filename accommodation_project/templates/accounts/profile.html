@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>My Profile</h2>
+
+<p><strong>Username:</strong> {{ request.user.username }}</p>
+<p><strong>Email:</strong> {{ request.user.email }}</p>
+
+<form method="post">
+    {% csrf_token %}
+    
+    <p>
+        <label>Full Name:</label><br>
+        <input type="text" name="full_name" value="{{ profile.full_name }}">
+    </p>
+
+    <p>
+        <label>Phone:</label><br>
+        <input type="text" name="phone" value="{{ profile.phone }}">
+    </p>
+
+    <p>
+        <label>Address:</label><br>
+        <input type="text" name="address" value="{{ profile.address }}">
+    </p>
+
+    <button type="submit">Save Profile</button>
+</form>
+{% endblock %}
