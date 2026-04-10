@@ -31,19 +31,25 @@ python manage.py runserver
 
 
 // quá trình tích hợp API đễ dễ quản lí thì mọi người ĐỪNG tạo bằng new folder mà truy cập vào thư mục chứa file manage.py trong terminal
-gõ python manage.py startapp name_api
+gõ
+
+python manage.py startapp name_api
+
 nó sẽ tự cấu trúc file cho đồng bộ ( phải có django trước )
-Khi này sẽ sửa các file sau sửa phần settings trong accomodation_project.setting tìm  phần INSTALLED_APP vè thêm [ .... 'name_api',]
+Khi này sẽ sửa các file sau sửa phần
+
+settings trong accomodation_project.setting tìm  phần INSTALLED_APP vè thêm [ .... 'name_api',]
+
 rồi vào thư mục vừa tạo bằng startapp tìm phần views.py và gõ
 
 from django.http import JsonResponse
 from accommodations.models import Accommodation
-
 def accommodation_list(request):
     data = list(Accommodation.objects.values())
     return JsonResponse(data, safe=False)
 
-sau đó vào trong thư mục của api đó tạo file urls.py ( đồng bộ giữa các phần )
+sau đó vào trong thư mục của api đó
+tạo file urls.py ( đồng bộ giữa các phần )
 gõ :
 
 from django.urls import path
