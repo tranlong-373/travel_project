@@ -3,9 +3,89 @@
 {% block content %}
 <h2>Enter Your Preference</h2>
 
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Get Recommendation</button>
-</form>
+<div style="display: flex; gap: 40px; align-items: flex-start;">
+
+    <!-- CỘT TRÁI: FORM CŨ -->
+    <div style="flex: 1;">
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button type="submit">Get Recommendation</button>
+        </form>
+    </div>
+
+    <!-- CỘT PHẢI: AI CHAT -->
+    <div style="flex: 1; border: 1px solid #ccc; padding: 15px;">
+        <h3>AI Recommendation Assistant</h3>
+        <p>Ví dụ: Tôi cần khách sạn ở Quận 7 cho 2 người, dưới 1 triệu, có wifi.</p>
+
+        <textarea id="userText" rows="5" style="width: 100%;" placeholder="Nhập nhu cầu của bạn..."></textarea>
+        <br><br>
+        <button type="button" onclick="submitChat()">Phân tích bằng AI</button>
+
+        <hr>
+        <div id="resultBox"></div>
+    </div>
+</div>
+
+<script>
+let contextSlots = {};
+
+async function submitChat() {
+    const text = document.getElementById("userText").value.trim();
+    const resultBox = document.getElementById("resultBox");
+
+    if (!text) {
+        resultBox.innerHTML = "<p>Vui lòng nhập nội dung.</p>";
+        return;
+    }
+
+    try {
+        const response = await fetch("/chat-api/submit/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                text: text,
+                locale: "vi",
+                context_slots: contextSlots
+            })
+        });
+
+        const data = await response.json();
+        console.log(data);
+
+        if (data.slots) {
+            contextSlots = data.slots;
+        }
+
+        if (data.ready_for_recommendation && data.recommendation_url) {
+            resultBox.innerHTML = "<p>Đã đủ thông tin. Đang chuyển sang trang gợi ý...</p>";
+            window.location.href = data.recommendation_url;
+            return;
+        }
+
+        let html = "<h4>Kết quả phân tích</h4>";
+
+        if (data.slots) {
+            html += `<pre>${JSON.stringify(data.slots, null, 2)}</pre>`;
+        }
+
+        if (data.follow_up_question) {
+            html += `<p><strong>Cần hỏi thêm:</strong> ${data.follow_up_question}</p>`;
+        }
+
+        if (data.missing_slots && data.missing_slots.length > 0) {
+            html += `<p><strong>Thiếu:</strong> ${data.missing_slots.join(", ")}</p>`;
+        }
+
+        resultBox.innerHTML = html;
+
+    } catch (error) {
+        console.error(error);
+        resultBox.innerHTML = "<p>Có lỗi khi gọi AI API.</p>";
+    }
+}
+</script>
 {% endblock %}
