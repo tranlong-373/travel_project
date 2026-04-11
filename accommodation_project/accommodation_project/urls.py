@@ -1,9 +1,11 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.shortcuts import render
+from accommodations.models import Accommodation   # ← thêm dòng này
 
 def home(request):
-    return render(request, 'home.html')
+    accommodations = Accommodation.objects.all()[:8]   # ← thêm dòng này
+    return render(request, 'home.html', {'accommodations': accommodations})  # ← truyền data vào
 
 urlpatterns = [
     path('admin/', admin.site.urls),

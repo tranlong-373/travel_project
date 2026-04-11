@@ -1,6 +1,87 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h2>Home</h2>
-<p>Welcome to the accommodation recommendation system.</p>
+
+
+<div>
+
+    <div class="hero">
+        <div class="hero-content">
+            <p class="hero-badge">Experience Vietnam in Style</p>
+            <h1 class="hero-title">Unlock Your Dream Getaway</h1>
+            <p class="hero-sub">Vietnam Awaits Your Journey</p>
+    
+            <form method="GET" action="{% url 'accommodation_list' %}" class="search-form">
+    
+                <!-- Destination -->
+                <div class="search-field">
+                    <p class="search-label">Where</p>
+                    <input type="text" name="destination" placeholder="Destinations" class="search-input" />
+                </div>
+    
+                <!-- Check in -->
+                <div class="search-field">
+                    <p class="search-label">Check in</p>
+                    <input type="date" name="check_in" class="search-input" />
+                </div>
+    
+                <!-- Check out -->
+                <div class="search-field">
+                    <p class="search-label">Check out</p>
+                    <input type="date" name="check_out" class="search-input" />
+                </div>
+    
+                <!-- Guests -->
+                <div class="search-field">
+                    <p class="search-label">Guests</p>
+                    <input type="number" name="guests" min="1" max="4" placeholder="Add guests" class="search-input" />
+                </div>
+    
+                <!-- Button -->
+                <div class="search-btn-wrap">
+                    <button type="submit" class="search-btn">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                </div>
+    
+            </form>
+        </div>
+    </div>
+    
+    <div class="section-title">
+        <h1 class="section-heading">Popular Getaways</h1>
+        <p class="section-subtitle">Discover handpicked stays in Vietnam and beyond, where every journey becomes unforgettable.</p>
+
+    <div class="hotel-grid">
+        {% for room in accommodations %}
+        <a href="{% url 'accommodation_detail' room.pk %}" class="hotel-card">
+            <div class="hotel-body">
+                <div class="hotel-img-wrap">
+                <img src="{{ room.image_url}}" alt="{{ room.name }}" class="hotel-img" />
+            </div>
+            <div class="hotel-top">
+                <p class="hotel-name">{{ room.name }}</p>
+                <div class="hotel-rating">★ {{ room.rating }}</div>
+            </div>
+            <p class="hotel-address">
+                <i class="fa-solid fa-location-dot"></i>
+                {{ room.address }}
+            </p>
+            <div class="hotel-bottom">
+                <p class="hotel-price">
+                    <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
+                </p>
+                <button class="hotel-book-btn">Book Now</button>
+            </div>
+         </div>
+    </a>
+        {% empty %}
+            <p style="color:#94a3b8;">Chưa có dữ liệu.</p>
+        {% endfor %}
+    </div>
+
+    <a href="{% url 'accommodation_list' %}" class="view-all-btn">View All Destinations</a>
+    </div>
+</div>
+
 {% endblock %}

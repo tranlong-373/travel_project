@@ -1,11 +1,52 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>Register</h2>
 
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Register</button>
-</form>
+<div class="login">
+    <div class="login-form">
+        <h1>Register</h1>
+
+        <form method="POST" action="{% url 'register' %}">
+            {% csrf_token %}
+
+            <input type="text"
+                   name="username"
+                   placeholder="Username"
+                   value="{{ form.username.value|default:'' }}"
+                   required />
+            <input type="email"
+                   name="email"
+                   placeholder="Email"
+                   value="{{ form.email.value|default:'' }}"
+                   required />
+            <input type="password"
+                   name="password"
+                   placeholder="Password"
+                   required />
+            <input type="password"
+                   name="confirm_password"     
+                   placeholder="Confirm Password"
+                   required />
+
+            {% if form.errors %}
+                {% for field in form %}
+                    {% for error in field.errors %}
+                        <div class="error-msg">{{ error }}</div>
+                    {% endfor %}
+                {% endfor %}
+                {% for error in form.non_field_errors %}
+                    <div class="error-msg">{{ error }}</div>
+                {% endfor %}
+            {% endif %}
+
+            <button type="submit">Register</button>
+        </form>
+
+        <div class="form-switch">
+            <p>Already have account? <span onclick="window.location.href='{% url 'login' %}'">Sign In Now</span></p>
+        </div>
+    </div>
+</div>
+
 {% endblock %}

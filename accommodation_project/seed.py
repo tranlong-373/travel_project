@@ -19,7 +19,9 @@ data = [
         "capacity": 2,
         "rating": 4.5,
         "amenities": ["wifi", "điều hòa", "tivi"],
-        "description": "Khách sạn trung tâm"
+        "description": "Khách sạn trung tâm",
+        "image_url": "https://du-lich.chudu24.com/f/m/2303/29/khach-san-a-la-carte-ha-long-bay-quang-ninh.jpg"
+
     },
     {
         "name": "Homestay B",
@@ -30,7 +32,9 @@ data = [
         "capacity": 3,
         "rating": 4.2,
         "amenities": ["wifi", "bếp", "máy giặt"],
-        "description": "Không gian ấm cúng"
+        "description": "Không gian ấm cúng",
+        "image_url": "https://du-lich.chudu24.com/f/m/2303/29/khach-san-a-la-carte-ha-long-bay-quang-ninh.jpg"
+
     },
     {
         "name": "Căn hộ C",
@@ -41,7 +45,8 @@ data = [
         "capacity": 4,
         "rating": 4.8,
         "amenities": ["wifi", "hồ bơi", "gym"],
-        "description": "Căn hộ cao cấp"
+        "description": "Căn hộ cao cấp",
+        "image_url": "https://du-lich.chudu24.com/f/m/2303/29/khach-san-a-la-carte-ha-long-bay-quang-ninh.jpg"
     },
     {
         "name": "Nhà trọ D",
@@ -52,7 +57,8 @@ data = [
         "capacity": 2,
         "rating": 3.8,
         "amenities": ["wifi"],
-        "description": "Phù hợp sinh viên"
+        "description": "Phù hợp sinh viên",
+        "image_url": "https://du-lich.chudu24.com/f/m/2303/29/khach-san-a-la-carte-ha-long-bay-quang-ninh.jpg"
     },
     {
         "name": "Villa E",
@@ -63,13 +69,13 @@ data = [
         "capacity": 6,
         "rating": 4.9,
         "amenities": ["wifi", "hồ bơi", "bãi đỗ xe"],
-        "description": "Villa sang trọng"
+        "description": "Villa sang trọng",
+        "image_url": "https://du-lich.chudu24.com/f/m/2303/29/khach-san-a-la-carte-ha-long-bay-quang-ninh.jpg"
     }
 ]
 
 # nhân dữ liệu lên nhiều lần cho đủ số lượng
 for i in range(5):  
     for item in data:
-        Accommodation.objects.create(**item)
-
+        Accommodation.objects.get_or_create(name=item['name'], defaults=item)
 print("✅ Đã thêm dữ liệu thành công!")

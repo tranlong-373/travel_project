@@ -12,3 +12,7 @@ def accommodation_detail(request, pk):
     return render(request, 'accommodations/accommodation_detail.html', {
         'accommodation': accommodation
     })
+
+def home_view(request):
+    accommodations = Accommodation.objects.all()[:8]
+    return render(request, 'home.html', {'accommodations': accommodations})
