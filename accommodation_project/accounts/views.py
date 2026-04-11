@@ -1,10 +1,12 @@
-from django.shortcuts import render, redirect
+from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout
 from django.contrib.auth.forms import AuthenticationForm
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from .forms import RegisterForm
-from .models import Profile
+from .models import Profile, Favorite
+from accommodations.models import Accommodation
+
 
 def register_view(request):
     if request.method == 'POST':
@@ -50,6 +52,7 @@ def logout_view(request):
 @login_required
 def profile_view(request):
     profile, created = Profile.objects.get_or_create(user=request.user)
+    favorites = Favorite.objects.filter(user=request.user).select_related('accommodation')
 
     if request.method == 'POST':
         profile.full_name = request.POST.get('full_name', '')
@@ -58,4 +61,31 @@ def profile_view(request):
         profile.save()
         return redirect('profile')
 
-    return render(request, 'accounts/profile.html', {'profile': profile})
+    return render(request, 'accounts/profile.html', {
+        'profile': profile,
+        'favorites': favorites
+    })
+
+
+@login_required
+def add_favorite(request, accommodation_id):
+    accommodation = get_object_or_404(Accommodation, id=accommodation_id)
+
+    Favorite.objects.get_or_create(
+        user=request.user,
+        accommodation=accommodation
+    )
+
+    return redirect('accommodation_detail', pk=accommodation.id)
+
+
+@login_required
+def remove_favorite(request, accommodation_id):
+    accommodation = get_object_or_404(Accommodation, id=accommodation_id)
+
+    Favorite.objects.filter(
+        user=request.user,
+        accommodation=accommodation
+    ).delete()
+
+    return redirect('accommodation_detail', pk=accommodation.id)

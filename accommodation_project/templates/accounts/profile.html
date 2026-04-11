@@ -26,4 +26,23 @@
 
     <button type="submit">Save Profile</button>
 </form>
+
+<hr>
+
+<h3>Khách sạn yêu thích</h3>
+
+{% for item in favorites %}
+    <div style="border:1px solid #ccc; padding:10px; margin-bottom:10px;">
+        <p><strong>{{ item.accommodation.name }}</strong></p>
+        <p>Area: {{ item.accommodation.area }}</p>
+        <p>Price: {{ item.accommodation.price_per_night }} VND</p>
+        <p>Rating: {{ item.accommodation.rating }}</p>
+        <p>
+            <a href="/accommodations/{{ item.accommodation.id }}/">Xem chi tiết</a>
+        </p>
+    </div>
+{% empty %}
+    <p>Bạn chưa có khách sạn yêu thích nào.</p>
+{% endfor %}
+
 {% endblock %}
