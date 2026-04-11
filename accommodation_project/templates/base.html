@@ -31,6 +31,27 @@
                 <a href="/accounts/register/" class="register-btn">Register</a>
             {% endif %}
         </div>
+
+        <!-- CHATBOT BUTTON -->
+        <div class="chat-btn" id="chatBtn" onclick="toggleChat()">
+            <i class="fa-solid fa-comment-dots"></i>
+        </div>
+
+        <!-- CHATBOT WIDGET -->
+        <div class="chat-widget" id="chatWidget">
+            <div class="chat-header">
+                <span>Trợ lý tìm phòng</span>
+                <i class="fa-solid fa-xmark" onclick="toggleChat()"></i>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-msg bot">Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?</div>
+            </div>
+            <div class="chat-input-wrap">
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="if(event.key==='Enter') sendMessage()" />
+                <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+        </div>
+
     </nav>
 
 
@@ -58,5 +79,59 @@
 
     checkScroll();
     window.addEventListener('scroll', checkScroll);
+
+
+        let contextSlots = {};
+
+    function toggleChat() {
+        const widget = document.getElementById('chatWidget');
+        widget.classList.toggle('open');
+    }
+
+    function addMessage(text, type) {
+        const box = document.getElementById('chatMessages');
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + type;
+        div.textContent = text;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+
+        addMessage(text, 'user');
+        input.value = '';
+
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: text,
+                    locale: 'vi',
+                    context_slots: contextSlots
+                })
+            });
+
+            const data = await res.json();
+            contextSlots = data.slots || {};
+
+            if (data.ready_for_recommendation && data.recommendation_url) {
+                addMessage('Mình đã tìm được chỗ phù hợp cho bạn!', 'bot');
+                setTimeout(() => {
+                    window.location.href = data.recommendation_url;
+                }, 1000);
+            } else if (data.follow_up_question) {
+                addMessage(data.follow_up_question, 'bot');
+            } else {
+                addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
+            }
+        } catch (err) {
+            addMessage('Có lỗi xảy ra, vui lòng thử lại.', 'bot');
+        }
+    }
 </script>
 </html>

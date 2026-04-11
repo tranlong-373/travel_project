@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'preferences',
     'recommendations',
     'accounts',
+    'chat_api',
 ]
 
 MIDDLEWARE = [
@@ -77,24 +78,17 @@ WSGI_APPLICATION = 'accommodation_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-# DATABASES = {
-#     "default": {
-#         "ENGINE": "mssql",
-#         "NAME": "AccommodationDB",
-#         "HOST": "localhost",
-#         "PORT": "",
-#         "OPTIONS": {
-#             "driver": "ODBC Driver 18 for SQL Server",
-#             "trusted_connection": "yes",
-#             "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
-#         },
-#     }
-# }
-
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "mssql",
+        "NAME": "AccommodationDB",
+        "HOST": "localhost",
+        "PORT": "",
+        "OPTIONS": {
+            "driver": "ODBC Driver 18 for SQL Server",
+            "trusted_connection": "yes",
+            "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
+        },
     }
 }
 
@@ -139,3 +133,21 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+try:
+    from . import settings_local as local_settings
+
+    if hasattr(local_settings, "DATABASE_OVERRIDES"):
+        for key, value in local_settings.DATABASE_OVERRIDES.items():
+            if key == "OPTIONS" and isinstance(value, dict):
+                DATABASES["default"].setdefault("OPTIONS", {})
+                DATABASES["default"]["OPTIONS"].update(value)
+            else:
+                DATABASES["default"][key] = value
+
+    if hasattr(local_settings, "STATICFILES_DIRS"):
+        STATICFILES_DIRS = local_settings.STATICFILES_DIRS
+
+except ImportError:
+    pass

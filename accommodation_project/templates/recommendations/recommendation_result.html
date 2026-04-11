@@ -1,19 +1,77 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>Recommendation Result</h2>
 
-{% for item, score in results %}
-    <div>
-        <h3>{{ item.name }}</h3>
-        <p>Area: {{ item.area }}</p>
-        <p>Price: {{ item.price_per_night }} VND</p>
-        <p>Capacity: {{ item.capacity }}</p>
-        <p>Rating: {{ item.rating }}</p>
-        <p>Score: {{ score }}</p>
+<div class="rec-page">
+    <div class="section-title" style="margin-bottom: 32px;">
+        <h1 class="section-heading">Kết quả tìm kiếm</h1>
+        <p class="section-subtitle">
+            Khu vực: <strong>{{ preference.area }}</strong> &nbsp;|&nbsp;
+            Ngân sách: <strong>{{ preference.budget|floatformat:0 }}₫</strong> &nbsp;|&nbsp;
+            {{ preference.guest_count }} khách
+        </p>
     </div>
-    <hr>
-{% empty %}
-    <p>No suitable accommodation found.</p>
-{% endfor %}
+
+    <div class="acc-list">
+        {% for item, score in results %}
+        <a href="{% url 'accommodation_detail' item.pk %}" class="acc-card">
+
+            <div class="acc-img-wrap">
+                {% if item.image_url %}
+                    <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
+                {% else %}
+                    <div class="acc-img acc-img-placeholder">
+                        <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
+                    </div>
+                {% endif %}
+                <div class="rec-score-badge">{{ score|floatformat:0 }}% match</div>
+            </div>
+
+            <div class="acc-body">
+                <div class="acc-top">
+                    <div>
+                        <p class="acc-type">{{ item.accommodation_type }}</p>
+                        <p class="acc-name">{{ item.name }}</p>
+                        <p class="acc-address">
+                            <i class="fa-solid fa-location-dot"></i>
+                            {{ item.address }}, {{ item.area }}
+                        </p>
+                    </div>
+                    <div class="acc-rating">★ {{ item.rating }}</div>
+                </div>
+
+                <p class="acc-desc">{{ item.description }}</p>
+
+                <div class="acc-bottom">
+                    <div class="acc-info">
+                        <span><i class="fa-solid fa-user"></i> {{ item.capacity }} khách</span>
+                        {% for amenity in item.amenities %}
+                            <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="acc-price-wrap">
+                        <p class="acc-price">
+                            <span>{{ item.price_per_night|floatformat:0 }}₫</span>/night
+                        </p>
+                        <button class="hotel-book-btn">Book Now</button>
+                    </div>
+                </div>
+            </div>
+
+        </a>
+        {% empty %}
+            <div style="text-align:center; padding: 60px 20px;">
+                <p style="color:#94a3b8; font-size:16px;">Không tìm thấy chỗ ở phù hợp.</p>
+                <a href="/preferences/" class="view-all-btn" style="margin-top:16px; display:inline-block;">Thử lại</a>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div style="text-align:center; margin-top: 40px;">
+        <a href="/" class="view-all-btn">Về trang chủ</a>
+        <a href="/preferences/" class="view-all-btn" style="margin-left:12px;">Tìm kiếm lại</a>
+    </div>
+</div>
+
 {% endblock %}

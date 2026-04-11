@@ -1,0 +1,154 @@
+[
+  {
+    "name": "Landmark 81",
+    "aliases": [
+      "landmark 81"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 95
+  },
+  {
+    "name": "Bến Thành",
+    "aliases": [
+      "bến thành",
+      "ben thanh",
+      "cho ben thanh",
+      "chợ bến thành"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 95
+  },
+  {
+    "name": "Tân Sơn Nhất",
+    "aliases": [
+      "tân sơn nhất",
+      "tan son nhat",
+      "sân bay tân sơn nhất",
+      "san bay tan son nhat"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "airport",
+    "importance": 90
+  },
+  {
+    "name": "Chợ Rẫy",
+    "aliases": [
+      "chợ rẫy",
+      "cho ray",
+      "bệnh viện chợ rẫy",
+      "benh vien cho ray"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 85
+  },
+  {
+    "name": "Old Quarter",
+    "aliases": [
+      "old quarter",
+      "phố cổ hà nội",
+      "pho co ha noi",
+      "hanoi old quarter"
+    ],
+    "parent_area_id": "ha_noi",
+    "category": "landmark",
+    "importance": 95
+  },
+  {
+    "name": "Hoàn Kiếm",
+    "aliases": [
+      "hoan kiem",
+      "hoàn kiếm",
+      "hồ hoàn kiếm",
+      "ho hoan kiem"
+    ],
+    "parent_area_id": "ha_noi",
+    "category": "landmark",
+    "importance": 90
+  },
+  {
+    "name": "Nội Bài",
+    "aliases": [
+      "nội bài",
+      "noi bai",
+      "sân bay nội bài",
+      "san bay noi bai",
+      "noi bai airport"
+    ],
+    "parent_area_id": "ha_noi",
+    "category": "airport",
+    "importance": 85
+  },
+  {
+    "name": "Biển Sầm Sơn",
+    "aliases": [
+      "biển sầm sơn",
+      "bien sam son",
+      "bãi biển sầm sơn",
+      "sam son beach"
+    ],
+    "parent_area_id": "thanh_hoa",
+    "category": "beach",
+    "importance": 80
+  },
+  {
+    "name": "Bửu Long",
+    "aliases": [
+      "bửu long",
+      "buu long",
+      "khu du lịch bửu long",
+      "buu long tourist area"
+    ],
+    "parent_area_id": "dong_nai",
+    "category": "landmark",
+    "importance": 70
+  },
+  {
+    "name": "Núi Cấm",
+    "aliases": [
+      "núi cấm",
+      "nui cam",
+      "cam mountain"
+    ],
+    "parent_area_id": "an_giang",
+    "category": "landmark",
+    "importance": 75
+  },
+  {
+    "name": "Eo Gió",
+    "aliases": [
+      "eo gió",
+      "eo gio",
+      "ky co",
+      "kỳ co"
+    ],
+    "parent_area_id": "binh_dinh",
+    "category": "landmark",
+    "importance": 80
+  },
+  {
+    "name": "Đại Nội",
+    "aliases": [
+      "đại nội",
+      "dai noi",
+      "imperial city hue",
+      "hue imperial city"
+    ],
+    "parent_area_id": "hue",
+    "category": "unsupported_landmark",
+    "importance": 90
+  },
+  {
+    "name": "Phố cổ Hội An",
+    "aliases": [
+      "phố cổ hội an",
+      "pho co hoi an",
+      "hoi an ancient town"
+    ],
+    "parent_area_id": "hoi_an",
+    "category": "unsupported_landmark",
+    "importance": 90
+  }
+]

@@ -1,29 +1,93 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>My Profile</h2>
 
-<p><strong>Username:</strong> {{ request.user.username }}</p>
-<p><strong>Email:</strong> {{ request.user.email }}</p>
+<div class="profile-page">
 
-<form method="post">
-    {% csrf_token %}
-    
-    <p>
-        <label>Full Name:</label><br>
-        <input type="text" name="full_name" value="{{ profile.full_name }}">
-    </p>
+    <div class="profile-top">
 
-    <p>
-        <label>Phone:</label><br>
-        <input type="text" name="phone" value="{{ profile.phone }}">
-    </p>
+        <!-- Avatar + tên -->
+        <div class="profile-avatar-wrap">
+            <div class="profile-avatar">{{ request.user.username|slice:":1"|upper }}</div>
+            <h2 class="profile-username">{{ request.user.username }}</h2>
+            <p class="profile-email">{{ request.user.email }}</p>
+        </div>
 
-    <p>
-        <label>Address:</label><br>
-        <input type="text" name="address" value="{{ profile.address }}">
-    </p>
+        <!-- Form chỉnh sửa -->
+        <div class="profile-form-wrap">
+            <h3 class="profile-form-title">Thông tin cá nhân</h3>
+            <form method="post" class="profile-form">
+                {% csrf_token %}
 
-    <button type="submit">Save Profile</button>
-</form>
+                <div class="profile-field">
+                    <label>Full Name</label>
+                    <input type="text" name="full_name" value="{{ profile.full_name }}" placeholder="Nhập họ tên..." />
+                </div>
+
+                <div class="profile-field">
+                    <label>Phone</label>
+                    <input type="text" name="phone" value="{{ profile.phone }}" placeholder="Nhập số điện thoại..." />
+                </div>
+
+                <div class="profile-field">
+                    <label>Address</label>
+                    <input type="text" name="address" value="{{ profile.address }}" placeholder="Nhập địa chỉ..." />
+                </div>
+
+                <button type="submit" class="profile-save-btn">
+                    <i class="fa-solid fa-floppy-disk"></i> Lưu thay đổi
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Yêu thích -->
+    <div class="profile-favorites">
+        <h2 class="fav-title">
+            <i class="fa-solid fa-heart" style="color:#e53e3e;"></i>
+            Khách sạn yêu thích
+        </h2>
+
+        <div class="fav-grid">
+            {% for item in favorites %}
+            <a href="/accommodations/{{ item.accommodation.id }}/" class="hotel-card">
+                <div class="hotel-img-wrap">
+                    {% if item.accommodation.image_url %}
+                        <img src="{{ item.accommodation.image_url }}" alt="{{ item.accommodation.name }}" class="hotel-img" />
+                    {% else %}
+                        <div class="hotel-img" style="background:#f1f5f9; display:flex; align-items:center; justify-content:center;">
+                            <i class="fa-solid fa-building" style="font-size:32px; color:#cbd5e1;"></i>
+                        </div>
+                    {% endif %}
+                </div>
+                <div class="hotel-body">
+                    <div class="hotel-top">
+                        <p class="hotel-name">{{ item.accommodation.name }}</p>
+                        <div class="hotel-rating">★ {{ item.accommodation.rating }}</div>
+                    </div>
+                    <p class="hotel-address">
+                        <i class="fa-solid fa-location-dot"></i>
+                        {{ item.accommodation.area }}
+                    </p>
+                    <div class="hotel-bottom">
+                        <p class="hotel-price">
+                            <span>{{ item.accommodation.price_per_night|floatformat:0 }}₫</span>/night
+                        </p>
+                        <span class="hotel-book-btn">Xem chi tiết</span>
+                    </div>
+                </div>
+            </a>
+            {% empty %}
+            <div class="fav-empty">
+                <i class="fa-regular fa-heart" style="font-size:48px; color:#cbd5e1;"></i>
+                <p>Bạn chưa có khách sạn yêu thích nào.</p>
+                <a href="/accommodations/" class="view-all-btn">Khám phá ngay</a>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
 {% endblock %}

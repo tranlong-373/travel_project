@@ -50,7 +50,7 @@ data = [
     },
     {
         "name": "Nhà trọ D",
-        "accommodation_type": "room",
+        "accommodation_type": "hostel",
         "area": "Thủ Đức",
         "address": "Gần ĐH SPKT",
         "price_per_night": 200000,
@@ -62,7 +62,7 @@ data = [
     },
     {
         "name": "Villa E",
-        "accommodation_type": "villa",
+        "accommodation_type": "apartment",
         "area": "Quận 2",
         "address": "Thảo Điền",
         "price_per_night": 2000000,
