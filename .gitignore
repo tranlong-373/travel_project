@@ -1,3 +1,4 @@
+
 # Python
 __pycache__/
 *.py[cod]
@@ -25,3 +26,47 @@ accommodation_project/accommodation_project/settings_chat_api.py
 # Generated archives and parser dumps
 *.zip
 accommodation_project/chat_api_200_results.txt
+=======
+# ========================
+# Python
+# ========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ========================
+# Virtual Environment
+# ========================
+venv/
+env/
+.venv/
+
+# ========================
+# Django
+# ========================
+db.sqlite3
+*.log
+
+# ========================
+# Migration cache
+# ========================
+**/migrations/__pycache__/
+
+# ========================
+# VS Code / IDE
+# ========================
+.vscode/
+.idea/
+
+# ========================
+# OS files
+# ========================
+.DS_Store
+Thumbs.db
+
+# ========================
+# Environment variables
+# ========================
+.env
+

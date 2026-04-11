@@ -11,12 +11,18 @@ user text -> chat_api parse -> chat_api submit -> UserPreference -> recommendati
 `chat_api` không tự recommend trực tiếp. Module này dịch câu tự nhiên thành dữ liệu có cấu trúc. Recommender đọc dữ liệu sạch qua `UserPreference`, không đọc raw text của user.
 
 ## App Chính
-
 - `chat_api`: deterministic parser cho text tự nhiên, có `/api/chat/parse/` và `/api/chat/submit/`.
 - `preferences`: lưu nhu cầu đã chuẩn hóa vào model `UserPreference`.
 - `recommendations`: đọc `pref_id`, lấy `UserPreference`, tính score và render kết quả.
 - `accommodations`: lưu dữ liệu chỗ ở trong model `Accommodation`.
 - `accounts`: đăng ký, đăng nhập và profile user.
+
+## Cấu hình databse
+python manage.py makemigrations
+python manage.py migrate
+## Tạo tài khoản admin
+python manage.py createsuperuser
+(ở dòng nhập mật khẩu admin á khi nhập bằng terminal nó bị ẩn đi không có hiện nhưng mà mọi người cứ nhập rồi enter bình thường nhan)
 
 ## Flow Tổng Quát
 
