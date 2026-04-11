@@ -1,0 +1,98 @@
+[
+  {
+    "id": "tp_hcm",
+    "canonical_name": "tp hcm",
+    "type": "province_city",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "tp hcm",
+      "tphcm",
+      "hcm",
+      "hcmc",
+      "ho chi minh",
+      "ho chi minh city",
+      "tp ho chi minh",
+      "thanh pho ho chi minh",
+      "sai gon",
+      "saigon",
+      "sg",
+      "sài gòn",
+      "thành phố hồ chí minh",
+      "tp hồ chí minh",
+      "hồ chí minh"
+    ]
+  },
+  {
+    "id": "ha_noi",
+    "canonical_name": "hà nội",
+    "type": "province_city",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "ha noi",
+      "hanoi",
+      "hn",
+      "hà nội",
+      "thủ đô",
+      "thu do"
+    ]
+  },
+  {
+    "id": "thanh_hoa",
+    "canonical_name": "thanh hóa",
+    "type": "province",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "thanh hoa",
+      "thanh hóa",
+      "sam son",
+      "sầm sơn",
+      "tp thanh hoa",
+      "thanh hoa city"
+    ]
+  },
+  {
+    "id": "dong_nai",
+    "canonical_name": "đồng nai",
+    "type": "province",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "dong nai",
+      "đồng nai",
+      "bien hoa",
+      "biên hòa",
+      "long khanh",
+      "long khánh"
+    ]
+  },
+  {
+    "id": "an_giang",
+    "canonical_name": "an giang",
+    "type": "province",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "an giang",
+      "long xuyen",
+      "long xuyên",
+      "chau doc",
+      "châu đốc"
+    ]
+  },
+  {
+    "id": "binh_dinh",
+    "canonical_name": "bình định",
+    "type": "province",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "binh dinh",
+      "bình định",
+      "quy nhon",
+      "quy nhơn"
+    ]
+  }
+]

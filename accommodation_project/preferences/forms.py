@@ -1,6 +1,7 @@
 from django import forms
 
 TYPE_CHOICES = [
+    ('', 'No preference'),
     ('hotel', 'Hotel'),
     ('homestay', 'Homestay'),
     ('hostel', 'Hostel'),
@@ -20,7 +21,7 @@ class PreferenceForm(forms.Form):
     area = forms.CharField(max_length=100)
     budget = forms.IntegerField()
     guest_count = forms.IntegerField()
-    preferred_type = forms.ChoiceField(choices=TYPE_CHOICES)
+    preferred_type = forms.ChoiceField(choices=TYPE_CHOICES, required=False)
     required_amenities = forms.MultipleChoiceField(
         choices=AMENITY_CHOICES,
         widget=forms.CheckboxSelectMultiple,

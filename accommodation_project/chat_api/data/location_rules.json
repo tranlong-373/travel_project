@@ -1,0 +1,106 @@
+{
+  "multiple_choice_phrases": [
+    "hay",
+    "hoac",
+    "hoặc",
+    "or",
+    "either",
+    "deu duoc",
+    "đều được",
+    "cung duoc",
+    "cũng được"
+  ],
+  "unsupported_areas": [
+    {
+      "id": "hue",
+      "canonical_name": "huế",
+      "aliases": [
+        "hue",
+        "huế"
+      ]
+    },
+    {
+      "id": "da_nang",
+      "canonical_name": "đà nẵng",
+      "aliases": [
+        "da nang",
+        "đà nẵng",
+        "da nang airport",
+        "sân bay đà nẵng",
+        "san bay da nang"
+      ]
+    },
+    {
+      "id": "da_lat",
+      "canonical_name": "đà lạt",
+      "aliases": [
+        "da lat",
+        "đà lạt"
+      ]
+    },
+    {
+      "id": "hoi_an",
+      "canonical_name": "hội an",
+      "aliases": [
+        "hoi an",
+        "hội an"
+      ]
+    },
+    {
+      "id": "phu_quoc",
+      "canonical_name": "phú quốc",
+      "aliases": [
+        "phu quoc",
+        "phú quốc"
+      ]
+    },
+    {
+      "id": "phan_thiet",
+      "canonical_name": "phan thiết",
+      "aliases": [
+        "phan thiet",
+        "phan thiết"
+      ]
+    },
+    {
+      "id": "nha_trang",
+      "canonical_name": "nha trang",
+      "aliases": [
+        "nha trang"
+      ]
+    },
+    {
+      "id": "sapa",
+      "canonical_name": "sapa",
+      "aliases": [
+        "sapa",
+        "sa pa"
+      ]
+    },
+    {
+      "id": "vung_tau",
+      "canonical_name": "vũng tàu",
+      "aliases": [
+        "vung tau",
+        "vũng tàu"
+      ]
+    },
+    {
+      "id": "can_tho",
+      "canonical_name": "cần thơ",
+      "aliases": [
+        "can tho",
+        "cần thơ"
+      ]
+    },
+    {
+      "id": "mui_ne",
+      "canonical_name": "mũi né",
+      "aliases": [
+        "mui ne",
+        "mũi né"
+      ]
+    }
+  ],
+  "notes": "Small deterministic location reference for chat_api. Generic near-airport phrases are ignored unless a named airport alias appears."
+}
