@@ -18,7 +18,7 @@ data = [
         "price_per_night": 800000,
         "capacity": 2,
         "rating": 4.5,
-        "amenities": ["wifi", "điều hòa", "tivi"],
+        "amenities": ["wifi", "air_conditioner"],
         "description": "Khách sạn trung tâm"
     },
     {
@@ -29,7 +29,7 @@ data = [
         "price_per_night": 500000,
         "capacity": 3,
         "rating": 4.2,
-        "amenities": ["wifi", "bếp", "máy giặt"],
+        "amenities": ["wifi", "kitchen", "washing_machine"],
         "description": "Không gian ấm cúng"
     },
     {
@@ -40,12 +40,12 @@ data = [
         "price_per_night": 1000000,
         "capacity": 4,
         "rating": 4.8,
-        "amenities": ["wifi", "hồ bơi", "gym"],
+        "amenities": ["wifi", "pool"],
         "description": "Căn hộ cao cấp"
     },
     {
         "name": "Nhà trọ D",
-        "accommodation_type": "room",
+        "accommodation_type": "hostel",
         "area": "Thủ Đức",
         "address": "Gần ĐH SPKT",
         "price_per_night": 200000,
@@ -56,13 +56,13 @@ data = [
     },
     {
         "name": "Villa E",
-        "accommodation_type": "villa",
+        "accommodation_type": "apartment",
         "area": "Quận 2",
         "address": "Thảo Điền",
         "price_per_night": 2000000,
         "capacity": 6,
         "rating": 4.9,
-        "amenities": ["wifi", "hồ bơi", "bãi đỗ xe"],
+        "amenities": ["wifi", "pool", "parking"],
         "description": "Villa sang trọng"
     }
 ]
