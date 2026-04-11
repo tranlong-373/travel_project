@@ -1,40 +1,27 @@
 from django.shortcuts import render, get_object_or_404
-from accommodations.models import Accommodation
 from preferences.models import UserPreference
+from .services import calculate_matching_score, get_candidate_accommodations
 
 def recommendation_result(request, pref_id):
     preference = get_object_or_404(UserPreference, id=pref_id)
 
-    accommodations = Accommodation.objects.filter(
-        area__icontains=preference.area,
-        price_per_night__lte=preference.budget,
-        capacity__gte=preference.guest_count
-    )
+    accommodations = get_candidate_accommodations(preference)
 
     scored_results = []
 
     for item in accommodations:
-        score = 0
+        # Gọi thuật toán Matching Score. Rating mặc định của DB nằm sẵn trong item.rating
+        scored_results.append((item, calculate_matching_score(item, preference)))
 
-        if item.accommodation_type == preference.preferred_type:
-            score += 3
-
-        for amenity in preference.required_amenities:
-            if amenity in item.amenities:
-                score += 2
-
-        if item.rating >= 4.5:
-            score += 3
-        elif item.rating >= 4.0:
-            score += 2
-        elif item.rating >= 3.5:
-            score += 1
-
-        scored_results.append((item, score))
-
+    # Sắp xếp từ cao xuống thấp theo Score
     scored_results.sort(key=lambda x: x[1], reverse=True)
 
-    return render(request, 'recommendations/recommendation_result.html', {
+    # Nếu n < 5, biến count sẽ lấy chính n đó. Còn n >= 5 thì count bằng 5.
+    count = min(len(scored_results), 5)
+    final_output = scored_results[:count]
+
+    return render(request, 'recommendations/recommendation_result.html', 
+    {
         'preference': preference,
-        'results': scored_results[:5]
+        'results': final_output
     })

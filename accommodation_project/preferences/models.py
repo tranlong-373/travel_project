@@ -11,7 +11,7 @@ class UserPreference(models.Model):
     area = models.CharField(max_length=100)
     budget = models.IntegerField()
     guest_count = models.IntegerField()
-    preferred_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    preferred_type = models.CharField(max_length=20, choices=TYPE_CHOICES, blank=True, null=True)
     required_amenities = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
