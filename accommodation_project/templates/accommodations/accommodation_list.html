@@ -1,14 +1,60 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>Accommodation List</h2>
 
-<ul>
-    {% for item in accommodations %}
-        <li>
-            <a href="/accommodations/{{ item.id }}/">{{ item.name }}</a>
-            - {{ item.area }} - {{ item.price_per_night }} VND
-        </li>
-    {% endfor %}
-</ul>
+<div class="acc-list-page">
+
+    <div class="section-title">
+        <h1 class="section-heading">Accommodation List</h1>
+        <p class="section-subtitle">Tìm kiếm chỗ ở phù hợp với bạn tại Việt Nam.</p>
+    </div>
+
+    <div class="acc-list">
+        {% for room in accommodations %}
+        <a href="{% url 'accommodation_detail' room.pk %}" class="acc-card">
+
+            <div class="acc-img-wrap">
+                <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
+            </div>
+
+            <div class="acc-body">
+                <div class="acc-top">
+                    <div>
+                        <p class="acc-type">{{ room.accommodation_type }}</p>
+                        <p class="acc-name">{{ room.name }}</p>
+                        <p class="acc-address">
+                            <i class="fa-solid fa-location-dot"></i>
+                            {{ room.address }}, {{ room.area }}
+                        </p>
+                    </div>
+                    <div class="acc-rating">★ {{ room.rating }}</div>
+                </div>
+
+                <p class="acc-desc">{{ room.description }}</p>
+
+                <div class="acc-bottom">
+                    <div class="acc-info">
+                        <span><i class="fa-solid fa-user"></i> {{ room.capacity }} khách</span>
+                        {% for amenity in room.amenities %}
+                            <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                        {% endfor %}
+                    </div>
+                    <div class="acc-price-wrap">
+                        <p class="acc-price">
+                            <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
+                        </p>
+                        <button class="hotel-book-btn">Book Now</button>
+                    </div>
+                </div>
+            </div>
+
+        </a>
+        {% empty %}
+            <p style="color:#94a3b8;">Chưa có dữ liệu.</p>
+        {% endfor %}
+    </div>
+
+</div>
+
 {% endblock %}
