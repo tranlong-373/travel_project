@@ -10,7 +10,7 @@ def preference_form_view(request):
                 area=form.cleaned_data['area'],
                 budget=form.cleaned_data['budget'],
                 guest_count=form.cleaned_data['guest_count'],
-                preferred_type=form.cleaned_data['preferred_type'],
+                preferred_type=form.cleaned_data.get('preferred_type') or None,
                 required_amenities=form.cleaned_data['required_amenities'],
             )
             return redirect('recommendation_result', pref_id=preference.id)
