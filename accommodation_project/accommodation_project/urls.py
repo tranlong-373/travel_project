@@ -12,4 +12,6 @@ urlpatterns = [
     path('accommodations/', include('accommodations.urls')),
     path('preferences/', include('preferences.urls')),
     path('recommendations/', include('recommendations.urls')),
+    path('api/chat/', include('chat_api.urls')),
+    
 ]
