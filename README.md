@@ -22,6 +22,7 @@ python manage.py makemigrations
 python manage.py migrate
 ## Tạo tài khoản admin
 python manage.py createsuperuser
+(ở dòng nhập mật khẩu admin á khi nhập bằng terminal nó bị ẩn đi không có hiện nhưng mà mọi người cứ nhập rồi enter bình thường nhan)
 
 ##Nạp dữ liệu
 python seed.py
