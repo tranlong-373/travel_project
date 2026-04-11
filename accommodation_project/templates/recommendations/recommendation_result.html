@@ -4,16 +4,16 @@
 <h2>Recommendation Result</h2>
 
 {% for item, score in results %}
-    <div>
-        <h3>{{ item.name }}</h3>
-        <p>Area: {{ item.area }}</p>
-        <p>Price: {{ item.price_per_night }} VND</p>
-        <p>Capacity: {{ item.capacity }}</p>
-        <p>Rating: {{ item.rating }}</p>
-        <p>Score: {{ score }}</p>
-    </div>
-    <hr>
+<div>
+    <h3>{{ item.name }}</h3>
+    <p>Area: {{ item.area }}</p>
+    <p>Price: {{ item.price_per_night }} VND</p>
+    <p>Capacity: {{ item.capacity }}</p>
+    <p>Rating: {{ item.rating }}</p>
+    <p>Score: {{ score }}</p>
+</div>
+<hr>
 {% empty %}
-    <p>No suitable accommodation found.</p>
+<p>No suitable accommodation found.</p>
 {% endfor %}
 {% endblock %}
