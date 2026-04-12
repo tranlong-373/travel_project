@@ -24,6 +24,11 @@ python manage.py migrate
 python manage.py createsuperuser
 (ở dòng nhập mật khẩu admin á khi nhập bằng terminal nó bị ẩn đi không có hiện nhưng mà mọi người cứ nhập rồi enter bình thường nhan)
 
+## Thêm một API mới 
+Đưa terminal đến cùng cấp với file manage.py 
+Gõ : python manage.py startapp TEN_API 
+sau đó cập nhập một số setting cơ bản 
+
 ## Flow Tổng Quát
 
 1. Frontend gửi câu user vào `POST /api/chat/parse/`.
