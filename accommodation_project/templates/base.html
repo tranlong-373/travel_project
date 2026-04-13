@@ -55,7 +55,6 @@
     </nav>
 
 
-
     {% block content %}{% endblock %}
 
 </body>
@@ -70,7 +69,7 @@
             nav.classList.add('nav-scrolled');
             return;
         }
-        if (window.scrollY > 50) {
+        if (window.scrollY > 200) {
             nav.classList.add('nav-scrolled');
         } else {
             nav.classList.remove('nav-scrolled');

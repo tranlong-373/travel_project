@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from .extractors import (
@@ -26,6 +27,39 @@ INCLUDE_PARSE_DIAGNOSTICS = os.getenv("CHAT_API_INCLUDE_DIAGNOSTICS", "0") == "1
 logger = logging.getLogger(__name__)
 
 
+def _extract_area_fallback(text: str) -> str | None:
+    text_lower = text.lower().strip()
+
+    # Bắt các kiểu: quận 1, quan 1, q1, q.1, q 1, district 1
+    match = re.search(r"\b(?:quận|quan|q\.?|district)\s*(\d+)\b", text_lower)
+    if match:
+        return f"Quận {match.group(1)}"
+
+    # Một số khu vực phổ biến
+    if "thủ đức" in text_lower or "thu duc" in text_lower:
+        return "Thủ Đức"
+
+    if "gò vấp" in text_lower or "go vap" in text_lower:
+        return "Gò Vấp"
+
+    if "bình thạnh" in text_lower or "binh thanh" in text_lower:
+        return "Bình Thạnh"
+
+    if "tân bình" in text_lower or "tan binh" in text_lower:
+        return "Tân Bình"
+
+    if "phú nhuận" in text_lower or "phu nhuan" in text_lower:
+        return "Phú Nhuận"
+
+    if "quận 7" in text_lower or "quan 7" in text_lower:
+        return "Quận 7"
+
+    if "quận 1" in text_lower or "quan 1" in text_lower:
+        return "Quận 1"
+
+    return None
+
+
 def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | None) -> dict[str, Any]:
     if not context_slots:
         return slots_new
@@ -48,6 +82,22 @@ def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | Non
 def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, Any] | None = None) -> dict[str, Any]:
     raw = normalize_text(text)
     location = resolve_location(raw, locale=locale)
+
+    # Fallback nếu location_resolver chưa nhận ra khu vực
+    if location["location_status"] != "ok":
+        area_fallback = _extract_area_fallback(raw)
+        if area_fallback:
+            fallback_location = resolve_location(area_fallback, locale=locale)
+            if fallback_location["location_status"] == "ok":
+                location = fallback_location
+            else:
+                location = {
+                    **location,
+                    "location_status": "ok",
+                    "canonical_area": area_fallback,
+                    "follow_up_question": None,
+                }
+
     unsupported_type_candidates = find_unsupported_type_candidates(raw)
 
     slots_partial = {
@@ -65,6 +115,7 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
     if USE_NER_FALLBACK and location["location_status"] == "unresolved":
         try:
             from .nlu_ner import extract_area_by_ner
+
             ner_area = extract_area_by_ner(text)
             if ner_area:
                 ner_location = resolve_location(ner_area, locale=locale)
@@ -114,9 +165,9 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
         slots=slots,
     )
 
-    if location["follow_up_question"]:
+    if location.get("follow_up_question"):
         suggested_questions = [location["follow_up_question"]]
-    elif gate["follow_up_question"]:
+    elif gate.get("follow_up_question"):
         suggested_questions = [gate["follow_up_question"]]
 
     if gate["blocking_reasons"]:
@@ -142,15 +193,15 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
         "follow_up_question": suggested_questions[0] if suggested_questions else None,
         "parser_mode": "deterministic_fast",
         "location_status": location["location_status"],
-        "location_candidates": location["location_candidates"],
-        "canonical_area": location["canonical_area"],
+        "location_candidates": location.get("location_candidates", []),
+        "canonical_area": location.get("canonical_area"),
     }
 
     if INCLUDE_PARSE_DIAGNOSTICS:
         response["diagnostics"] = {
             "blocking_reasons": gate["blocking_reasons"],
             **gate["diagnostics"],
-            "location": location["debug"],
+            "location": location.get("debug", {}),
         }
         if unsupported_type_candidates:
             response["diagnostics"]["unsupported_type_candidates"] = unsupported_type_candidates

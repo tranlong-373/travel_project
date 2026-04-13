@@ -25,3 +25,5 @@ def recommendation_result(request, pref_id):
         'preference': preference,
         'results': final_output
     })
+def chat_recommendation_page(request):
+    return render(request, 'recommendations/chat_recommendation.html')

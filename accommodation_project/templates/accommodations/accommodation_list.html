@@ -7,54 +7,201 @@
 
     <div class="section-title">
         <h1 class="section-heading">Accommodation List</h1>
-        <p class="section-subtitle">Tìm kiếm chỗ ở phù hợp với bạn tại Việt Nam.</p>
+        <p class="section-subtitle">Discover the perfect place to stay in Vietnam.</p>
     </div>
 
-    <div class="acc-list">
-        {% for room in accommodations %}
-        <a href="{% url 'accommodation_detail' room.pk %}" class="acc-card">
+    <div class="acc-layout">
 
-            <div class="acc-img-wrap">
-                <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
+        <!-- FILTER SIDEBAR -->
+        <form method="GET" class="filter-sidebar" id="filterForm">
+            <div class="filter-header">
+                <span><i class="fa-solid fa-sliders"></i> Bộ lọc</span>
+                <a href="{% url 'accommodation_list' %}" class="filter-clear">Xóa tất cả</a>
             </div>
 
-            <div class="acc-body">
-                <div class="acc-top">
-                    <div>
-                        <p class="acc-type">{{ room.accommodation_type }}</p>
-                        <p class="acc-name">{{ room.name }}</p>
-                        <p class="acc-address">
-                            <i class="fa-solid fa-location-dot"></i>
-                            {{ room.address }}, {{ room.area }}
-                        </p>
-                    </div>
-                    <div class="acc-rating">★ {{ room.rating }}</div>
-                </div>
-
-                <p class="acc-desc">{{ room.description }}</p>
-
-                <div class="acc-bottom">
-                    <div class="acc-info">
-                        <span><i class="fa-solid fa-user"></i> {{ room.capacity }} khách</span>
-                        {% for amenity in room.amenities %}
-                            <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
-                        {% endfor %}
-                    </div>
-                    <div class="acc-price-wrap">
-                        <p class="acc-price">
-                            <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
-                        </p>
-                        <button class="hotel-book-btn">Book Now</button>
-                    </div>
-                </div>
+            <!-- Loại chỗ ở -->
+            <div class="filter-section">
+                <p class="filter-title">Loại chỗ ở</p>
+                <label class="filter-item">
+                    <input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /> Tất cả
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="type" value="hotel" {% if current_type == 'hotel' %}checked{% endif %} onchange="this.form.submit()" /> Khách sạn
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="type" value="homestay" {% if current_type == 'homestay' %}checked{% endif %} onchange="this.form.submit()" /> Homestay
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="type" value="hostel" {% if current_type == 'hostel' %}checked{% endif %} onchange="this.form.submit()" /> Hostel
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="type" value="apartment" {% if current_type == 'apartment' %}checked{% endif %} onchange="this.form.submit()" /> Căn hộ
+                </label>
             </div>
 
-        </a>
-        {% empty %}
-            <p style="color:#94a3b8;">Chưa có dữ liệu.</p>
-        {% endfor %}
+            <!-- Khoảng giá -->
+            <div class="filter-section">
+                <p class="filter-title">Khoảng giá / đêm</p>
+                <label class="filter-item">
+                    <input type="radio" name="price" value="" {% if not current_price %}checked{% endif %} onchange="this.form.submit()" /> Tất cả
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="price" value="0-500k" {% if current_price == '0-500k' %}checked{% endif %} onchange="this.form.submit()" /> Dưới 500.000₫
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="price" value="500k-1tr" {% if current_price == '500k-1tr' %}checked{% endif %} onchange="this.form.submit()" /> 500k – 1.000.000₫
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="price" value="1tr-2tr" {% if current_price == '1tr-2tr' %}checked{% endif %} onchange="this.form.submit()" /> 1tr – 2.000.000₫
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="price" value="2tr+" {% if current_price == '2tr+' %}checked{% endif %} onchange="this.form.submit()" /> Trên 2.000.000₫
+                </label>
+            </div>
+
+            <!-- Tiện nghi -->
+            <div class="filter-section">
+                <p class="filter-title">Tiện nghi</p>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="wifi"
+                        {% if 'wifi' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-wifi"></i> Wifi
+                </label>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="pool"
+                        {% if 'pool' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-person-swimming"></i> Hồ bơi
+                </label>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="parking"
+                        {% if 'parking' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-square-parking"></i> Đỗ xe
+                </label>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="air_conditioner"
+                        {% if 'air_conditioner' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-wind"></i> Điều hòa
+                </label>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="kitchen"
+                        {% if 'kitchen' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-kitchen-set"></i> Bếp
+                </label>
+                <label class="filter-item">
+                    <input type="checkbox" name="amenity" value="washing_machine"
+                        {% if 'washing_machine' in current_amenities %}checked{% endif %}
+                        onchange="this.form.submit()" />
+                    <i class="fa-solid fa-jug-detergent"></i> Máy giặt
+                </label>
+            </div>
+
+            <!-- Sắp xếp -->
+            <div class="filter-section">
+                <p class="filter-title">Sắp xếp</p>
+                <label class="filter-item">
+                    <input type="radio" name="sort" value="" {% if not current_sort %}checked{% endif %} onchange="this.form.submit()" /> Mặc định
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="sort" value="price_asc" {% if current_sort == 'price_asc' %}checked{% endif %} onchange="this.form.submit()" />
+                    <i class="fa-solid fa-arrow-up-wide-short"></i> Giá thấp → cao
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="sort" value="price_desc" {% if current_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" />
+                    <i class="fa-solid fa-arrow-down-wide-short"></i> Giá cao → thấp
+                </label>
+                <label class="filter-item">
+                    <input type="radio" name="sort" value="rating" {% if current_sort == 'rating' %}checked{% endif %} onchange="this.form.submit()" />
+                    <i class="fa-solid fa-star"></i> Đánh giá cao nhất
+                </label>
+            </div>
+
+        </form>
+
+        <!-- DANH SÁCH -->
+        <div class="acc-main">
+            <div class="acc-list">
+                {% for room in accommodations %}
+                <a href="{% url 'accommodation_detail' room.pk %}" class="acc-card">
+                    <div class="acc-img-wrap">
+                        <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
+                    </div>
+                    <div class="acc-body">
+                        <div class="acc-top">
+                            <div>
+                                <p class="acc-type">{{ room.accommodation_type }}</p>
+                                <p class="acc-name">{{ room.name }}</p>
+                                <p class="acc-address">
+                                    <i class="fa-solid fa-location-dot"></i>
+                                    {{ room.address }}, {{ room.area }}
+                                </p>
+                            </div>
+                            <div class="acc-rating">★ {{ room.rating }}</div>
+                        </div>
+                        <p class="acc-desc">{{ room.description }}</p>
+                        <div class="acc-bottom">
+                            <div class="acc-info">
+                                <span><i class="fa-solid fa-user"></i> {{ room.capacity }} khách</span>
+                                {% for amenity in room.amenities %}
+                                    <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                                {% endfor %}
+                            </div>
+                            <div class="acc-price-wrap">
+                                <p class="acc-price">
+                                    <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
+                                </p>
+                                <button class="hotel-book-btn">Book Now</button>
+                            </div>
+                        </div>
+                    </div>
+                </a>
+                {% empty %}
+                <div style="text-align:center; padding:60px 0; grid-column:1/-1;">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size:40px; color:#cbd5e1; display:block; margin-bottom:12px;"></i>
+                    <p style="color:#94a3b8; font-size:15px;">Không tìm thấy chỗ ở phù hợp.</p>
+                    <a href="{% url 'accommodation_list' %}" class="view-all-btn" style="margin-top:16px; display:inline-block;">Xóa bộ lọc</a>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- PAGINATION -->
+            {% if page_obj.paginator.num_pages > 1 %}
+            <div class="pagination">
+                {% if page_obj.has_previous %}
+                    <a href="?page={{ page_obj.previous_page_number }}&type={{ current_type }}&price={{ current_price }}&sort={{ current_sort }}&amenity={{ current_amenity }}" class="page-btn">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </a>
+                {% else %}
+                    <span class="page-btn disabled"><i class="fa-solid fa-chevron-left"></i></span>
+                {% endif %}
+
+                {% for num in page_obj.paginator.page_range %}
+                    {% if num == page_obj.number %}
+                        <span class="page-btn active">{{ num }}</span>
+                    {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+                        <a href="?page={{ num }}&type={{ current_type }}&price={{ current_price }}&sort={{ current_sort }}&amenity={{ current_amenity }}" class="page-btn">{{ num }}</a>
+                    {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                        <a href="?page={{ num }}&type={{ current_type }}&price={{ current_price }}&sort={{ current_sort }}&amenity={{ current_amenity }}" class="page-btn">{{ num }}</a>
+                    {% elif num == page_obj.number|add:"-3" or num == page_obj.number|add:"3" %}
+                        <span class="page-btn dots">...</span>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}&type={{ current_type }}&price={{ current_price }}&sort={{ current_sort }}&amenity={{ current_amenity }}" class="page-btn">
+                        <i class="fa-solid fa-chevron-right"></i>
+                    </a>
+                {% else %}
+                    <span class="page-btn disabled"><i class="fa-solid fa-chevron-right"></i></span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
     </div>
-
 </div>
 
 {% endblock %}

@@ -1,11 +1,179 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block content %}
-<h2>Enter Your Preference</h2>
 
-<form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Get Recommendation</button>
-</form>
+<div class="pref-page">
+
+    <div class="section-title" style="margin-bottom: 40px;">
+        <h1 class="section-heading">Find Recommendation</h1>
+        <p class="section-subtitle">Enter your details manually or let AI help you find results faster.</p>
+    </div>
+
+    <div class="pref-columns">
+
+        <!-- CỘT TRÁI: FORM THỦ CÔNG -->
+        <div class="pref-card">
+            <div class="pref-card-header">
+                <i class="fa-solid fa-sliders"></i>
+                <h3>Tìm kiếm thủ công</h3>
+            </div>
+
+            <form method="post" class="pref-form">
+                {% csrf_token %}
+
+                <div class="pref-field">
+                    <label>Khu vực</label>
+                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Ngân sách tối đa (₫/đêm)</label>
+                    <input type="number" name="budget" placeholder="Vd: 500000" min="0" required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Số khách</label>
+                    <input type="number" name="guest_count" placeholder="Vd: 2" min="1" required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Loại chỗ ở</label>
+                    <select name="preferred_type">
+                        <option value="">Không quan trọng</option>
+                        <option value="hotel">Khách sạn</option>
+                        <option value="homestay">Homestay</option>
+                        <option value="hostel">Hostel</option>
+                        <option value="apartment">Căn hộ</option>
+                    </select>
+                </div>
+
+                <div class="pref-field">
+                    <label>Tiện nghi cần có</label>
+                    <div class="amenity-checks">
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="wifi" /> Wifi
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="air_conditioner" /> Điều hòa
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="pool" /> Hồ bơi
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="parking" /> Đỗ xe
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="kitchen" /> Bếp
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="washing_machine" /> Máy giặt
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" class="pref-submit-btn">
+                    <i class="fa-solid fa-magnifying-glass"></i> Tìm kiếm
+                </button>
+            </form>
+        </div>
+
+        <!-- CỘT PHẢI: AI CHAT -->
+        <div class="pref-card ai-card">
+            <div class="pref-card-header">
+                <i class="fa-solid fa-robot"></i>
+                <h3>AI Recommendation</h3>
+            </div>
+
+            <p class="ai-hint">
+                <i class="fa-solid fa-lightbulb"></i>
+                Vd: <em>"Tôi cần khách sạn ở Quận 7 cho 2 người, dưới 500k, có wifi và hồ bơi"</em>
+            </p>
+
+            <div class="ai-chat-box" id="chatBox">
+                <div class="ai-msg bot">Xin chào! Mô tả nhu cầu của bạn và mình sẽ tìm ngay.</div>
+            </div>
+
+            <div class="ai-input-wrap">
+                <textarea id="userText" rows="2" placeholder="Nhập nhu cầu của bạn..." onkeydown="if(event.ctrlKey && event.key==='Enter') submitChat()"></textarea>
+                <button type="button" onclick="submitChat()" class="ai-send-btn">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+            <p class="ai-hint-small">Ctrl + Enter để gửi</p>
+        </div>
+
+    </div>
+</div>
+
+<script>
+let prefContextSlots = {};
+
+function addMsg(text, type) {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = 'ai-msg ' + type;
+    div.textContent = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+}
+
+function getCookie(name) {
+    let value = null;
+    document.cookie.split(';').forEach(c => {
+        c = c.trim();
+        if (c.startsWith(name + '=')) value = decodeURIComponent(c.slice(name.length + 1));
+    });
+    return value;
+}
+
+async function submitChat() {
+    const text = document.getElementById('userText').value.trim();
+    if (!text) return;
+
+    addMsg(text, 'user');
+    document.getElementById('userText').value = '';
+
+    const loading = document.createElement('div');
+    loading.className = 'ai-msg bot ai-loading';
+    loading.textContent = '...';
+    document.getElementById('chatBox').appendChild(loading);
+
+    try {
+        const res = await fetch('/chat_api/submit/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ text, locale: 'vi', context_slots: prefContextSlots })  // ← đổi
+        });
+
+        loading.remove();
+        const data = await res.json();
+        if (data.slots) prefContextSlots = data.slots;  // ← đổi
+
+        if (data.ready_for_recommendation && data.recommendation_url) {
+            addMsg('Đã đủ thông tin! Đang chuyển trang...', 'bot success');
+            setTimeout(() => window.location.href = data.recommendation_url, 1000);
+            return;
+        }
+
+        if (data.follow_up_question) {
+            addMsg(data.follow_up_question, 'bot');
+        } else {
+            addMsg('Bạn có thể mô tả thêm nhu cầu không?', 'bot');
+        }
+
+        if (data.missing_slots && data.missing_slots.length > 0) {
+            addMsg('Còn thiếu: ' + data.missing_slots.join(', '), 'bot hint');
+        }
+
+    } catch (err) {
+        loading.remove();
+        addMsg('Có lỗi xảy ra, vui lòng thử lại.', 'bot error');
+    }
+}
+</script>
+
 {% endblock %}

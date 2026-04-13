@@ -4,7 +4,6 @@
 
 
 <div>
-
     <div class="hero">
         <div class="hero-content">
             <p class="hero-badge">Experience Vietnam in Style</p>
@@ -82,6 +81,240 @@
 
     <a href="{% url 'accommodation_list' %}" class="view-all-btn">View All Destinations</a>
     </div>
+    
+    <!-- ===== REVIEWS SECTION ===== -->
+    <div class="reviews-section">
+        <div class="reviews-container">
+            <div class="section-title reviews-title">
+                <h1 class="section-heading">What Our Guests Say</h1>
+                <p class="section-subtitle">Discover why discerning travelers consistently choose us for their exclusive and luxurious accommodations around the world.</p>
+            </div>
+    
+            <div id="reviews-grid" class="reviews-grid">
+                <!-- Reviews will be rendered here by JS -->
+            </div>
+    
+            <div id="no-reviews" class="no-reviews" style="display:none;">
+                <p class="no-reviews-title">Chưa có lượt đánh giá nào</p>
+                <p class="no-reviews-sub">Hãy là người đầu tiên chia sẻ trải nghiệm của bạn!</p>
+            </div>
+    
+            <!-- Write review button -->
+            {% if user.is_authenticated %}
+            <button class="write-review-btn" id="toggleReviewForm">
+                <i class="fa-solid fa-pen"></i> Viết đánh giá
+            </button>
+    
+            <!-- Review Form -->
+            <div class="review-form-wrap" id="reviewFormWrap" style="display:none;">
+                <div class="review-form-card">
+                    <h3 class="review-form-title">Chia sẻ trải nghiệm của bạn</h3>
+                    <div class="review-star-picker" id="starPicker">
+                        <span class="star-pick" data-val="1">★</span>
+                        <span class="star-pick" data-val="2">★</span>
+                        <span class="star-pick" data-val="3">★</span>
+                        <span class="star-pick" data-val="4">★</span>
+                        <span class="star-pick" data-val="5">★</span>
+                    </div>
+                    <input type="hidden" id="selectedRating" value="0" />
+                    <textarea id="reviewContent" class="review-textarea" placeholder="Chia sẻ cảm nhận của bạn về dịch vụ, chỗ ở, trải nghiệm..."></textarea>
+                    <button class="review-submit-btn" id="submitReview">Gửi đánh giá</button>
+                    <p class="review-error" id="reviewError" style="display:none;"></p>
+                </div>
+            </div>
+            {% else %}
+            <p class="review-login-hint">
+                <a href="{% url 'login' %}">Login</a> to share your review.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ===== FOOTER ===== -->
+
+    <footer class="footer">
+        <div class="footer-top">
+            <div class="footer-brand">
+                <a href="/" class="footer-logo">Accommodation <span>Recommendation</span></a>
+                <p class="footer-desc">A smart platform that helps students and travelers find the best places to stay in Vietnam.</p>
+                <div class="footer-socials">
+                    <a href="#"><i class="fa-brands fa-facebook"></i></a>
+                    <a href="#"><i class="fa-brands fa-google"></i></a>
+                    <a href="#"><i class="fa-brands fa-youtube"></i></a>
+                    <a href="#"><i class="fa-brands fa-discord"></i></a>
+                    <a href="#"><i class="fa-brands fa-instagram"></i></a>
+                </div>
+            </div>
+
+            <div class="footer-links">
+                <h4>PAGES</h4>
+                <a href="/">Home</a>
+                <a href="/accommodations/">Accommodation List</a>
+                <a href="/preferences/">Find Recommendation</a>
+            </div>
+
+            <div class="footer-links">
+                <h4>ACCOUNT</h4>
+                <a href="/accounts/login/">Login</a>
+                <a href="/accounts/register/">Register</a>
+                <a href="/accounts/profile/">Profile</a>
+            </div>
+
+            <div class="footer-links">
+                <h4>CONTACT</h4>
+                <a href="https://www.fit.hcmus.edu.vn/" target="_blank">fit.hcmus.edu.vn</a>
+                <p style="color:#94a3b8; font-size:13px; margin-top:4px;">TP. Hồ Chí Minh, Việt Nam</p>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <p>© 2026 HCMUS — fit@hcmus.edu.vn</p>
+            <a href="#" class="footer-back-top">
+                <i class="fa-solid fa-arrow-up"></i> Lên đầu trang
+            </a>
+        </div>
+    </footer>
 </div>
+
+
+<script>
+(function () {
+    const STORAGE_KEY = 'quickstay_reviews';
+
+    function getReviews() {
+        try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+        catch { return []; }
+    }
+
+    function saveReviews(reviews) {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(reviews));
+    }
+
+    function renderStars(rating) {
+        let html = '';
+        for (let i = 1; i <= 5; i++) {
+            html += `<span style="color:${i <= rating ? '#f59e0b' : '#d1d5db'}">★</span>`;
+        }
+        return html;
+    }
+
+    function renderReviews() {
+        const reviews = getReviews();
+        const grid = document.getElementById('reviews-grid');
+        const noReviews = document.getElementById('no-reviews');
+        if (!grid) return;
+
+        if (reviews.length === 0) {
+            grid.style.display = 'none';
+            if (noReviews) noReviews.style.display = 'flex';
+            return;
+        }
+
+        grid.style.display = 'grid';
+        if (noReviews) noReviews.style.display = 'none';
+
+        grid.innerHTML = reviews.slice().reverse().map(r => `
+            <div class="review-card">
+                <div class="review-card-header">
+                    <div class="review-avatar">${r.name.charAt(0).toUpperCase()}</div>
+                    <span class="review-name">${escapeHtml(r.name)}</span>
+                </div>
+                <div class="review-stars">${renderStars(r.rating)}</div>
+                <p class="review-text">${escapeHtml(r.content)}</p>
+                <p class="review-date">${r.date}</p>
+            </div>
+        `).join('');
+    }
+
+    function escapeHtml(str) {
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(str));
+        return d.innerHTML;
+    }
+
+    // Star picker
+    let selectedRating = 0;
+    const starPicker = document.getElementById('starPicker');
+    const selectedRatingInput = document.getElementById('selectedRating');
+
+    if (starPicker) {
+        const stars = starPicker.querySelectorAll('.star-pick');
+        stars.forEach(star => {
+            star.addEventListener('mouseover', function () {
+                const val = parseInt(this.dataset.val);
+                stars.forEach((s, i) => {
+                    s.style.color = i < val ? '#f59e0b' : '#d1d5db';
+                });
+            });
+            star.addEventListener('mouseout', function () {
+                stars.forEach((s, i) => {
+                    s.style.color = i < selectedRating ? '#f59e0b' : '#d1d5db';
+                });
+            });
+            star.addEventListener('click', function () {
+                selectedRating = parseInt(this.dataset.val);
+                selectedRatingInput.value = selectedRating;
+                stars.forEach((s, i) => {
+                    s.style.color = i < selectedRating ? '#f59e0b' : '#d1d5db';
+                });
+            });
+        });
+    }
+
+    // Toggle form
+    const toggleBtn = document.getElementById('toggleReviewForm');
+    const formWrap = document.getElementById('reviewFormWrap');
+    if (toggleBtn && formWrap) {
+        toggleBtn.addEventListener('click', function () {
+            formWrap.style.display = formWrap.style.display === 'none' ? 'block' : 'none';
+        });
+    }
+
+    // Submit review
+    const submitBtn = document.getElementById('submitReview');
+    if (submitBtn) {
+        submitBtn.addEventListener('click', function () {
+            const content = document.getElementById('reviewContent').value.trim();
+            const rating = parseInt(document.getElementById('selectedRating').value);
+            const errEl = document.getElementById('reviewError');
+
+            if (!rating) {
+                errEl.textContent = 'Vui lòng chọn số sao.';
+                errEl.style.display = 'block';
+                return;
+            }
+            if (!content) {
+                errEl.textContent = 'Vui lòng nhập nội dung đánh giá.';
+                errEl.style.display = 'block';
+                return;
+            }
+            errEl.style.display = 'none';
+
+            const reviews = getReviews();
+            const now = new Date();
+            reviews.push({
+                name: '{{ user.username|default:"Khách" }}',
+                rating: rating,
+                content: content,
+                date: now.toLocaleDateString('vi-VN', { year: 'numeric', month: 'long', day: 'numeric' })
+            });
+            saveReviews(reviews);
+
+            // Reset form
+            document.getElementById('reviewContent').value = '';
+            selectedRating = 0;
+            document.getElementById('selectedRating').value = 0;
+            if (starPicker) {
+                starPicker.querySelectorAll('.star-pick').forEach(s => s.style.color = '#d1d5db');
+            }
+            if (formWrap) formWrap.style.display = 'none';
+
+            renderReviews();
+        });
+    }
+
+    renderReviews();
+})();
+</script>
 
 {% endblock %}
