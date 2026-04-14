@@ -1,4 +1,7 @@
-# Accommodation Recommendation Project
+# Accommodation Recommendation Project 
+
+Mọi người đọc file readme kĩ vào nha
+
 
 Project Django này quản lý dữ liệu chỗ ở và cung cấp flow gợi ý chỗ ở từ câu nhập tự nhiên của user.
 
