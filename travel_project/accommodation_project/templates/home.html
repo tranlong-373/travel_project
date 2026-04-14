@@ -1,0 +1,178 @@
+{% extends 'base.html' %}
+
+{% block content %}
+
+
+<div>
+    <div class="hero">
+        <div class="hero-content">
+            <p class="hero-badge">Experience Vietnam in Style</p>
+            <h1 class="hero-title">Unlock Your Dream Getaway</h1>
+            <p class="hero-sub">Vietnam Awaits Your Journey</p>
+    
+            <form method="GET" action="{% url 'accommodation_list' %}" class="search-form">
+    
+                <!-- Destination -->
+                <div class="search-field">
+                    <p class="search-label">Where</p>
+                    <input type="text" name="destination" placeholder="Destinations" class="search-input" />
+                </div>
+    
+                <!-- Check in -->
+                <div class="search-field">
+                    <p class="search-label">Check in</p>
+                    <input type="date" name="check_in" class="search-input" />
+                </div>
+    
+                <!-- Check out -->
+                <div class="search-field">
+                    <p class="search-label">Check out</p>
+                    <input type="date" name="check_out" class="search-input" />
+                </div>
+    
+                <!-- Guests -->
+                <div class="search-field">
+                    <p class="search-label">Guests</p>
+                    <input type="number" name="guests" min="1" max="4" placeholder="Add guests" class="search-input" />
+                </div>
+    
+                <!-- Button -->
+                <div class="search-btn-wrap">
+                    <button type="submit" class="search-btn">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                    </button>
+                </div>
+    
+            </form>
+        </div>
+    </div>
+    
+    <div class="section-title">
+        <h1 class="section-heading">Popular Getaways</h1>
+        <p class="section-subtitle">Discover handpicked stays in Vietnam and beyond, where every journey becomes unforgettable.</p>
+
+    <div class="hotel-grid">
+        {% for room in accommodations %}
+        <a href="{% url 'accommodation_detail' room.pk %}" class="hotel-card">
+            <div class="hotel-body">
+                <div class="hotel-img-wrap">
+                <img src="{{ room.image_url}}" alt="{{ room.name }}" class="hotel-img" />
+            </div>
+            <div class="hotel-top">
+                <p class="hotel-name">{{ room.name }}</p>
+                <div class="hotel-rating">★ {{ room.rating }}</div>
+            </div>
+            <p class="hotel-address">
+                <i class="fa-solid fa-location-dot"></i>
+                {{ room.address }}
+            </p>
+            <div class="hotel-bottom">
+                <p class="hotel-price">
+                    <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
+                </p>
+                <span class="hotel-book-btn">Xem chi tiết</span>
+            </div>
+         </div>
+    </a>
+        {% empty %}
+            <p style="color:#94a3b8;">Chưa có dữ liệu.</p>
+        {% endfor %}
+    </div>
+
+    <a href="{% url 'accommodation_list' %}" class="view-all-btn">View All Destinations</a>
+    </div>
+    
+    <!-- ===== REVIEWS SECTION ===== -->
+    <div class="reviews-section">
+        <div class="reviews-container">
+            <div class="section-title reviews-title">
+                <h1 class="section-heading">What Our Guests Say</h1>
+                <p class="section-subtitle">Các đánh giá bên dưới được lấy từ những review đã được duyệt trong hệ thống.</p>
+            </div>
+
+            <div id="reviews-grid" class="reviews-grid">
+                {% for review in latest_reviews %}
+                <div class="review-card">
+                    <div class="review-card-header">
+                        <div class="review-avatar">{{ review.user.username|slice:":1"|upper }}</div>
+                        <span class="review-name">{{ review.user.username }}</span>
+                    </div>
+                    <div class="review-stars">
+                        {% for i in "12345" %}
+                            {% if forloop.counter <= review.score %}
+                                <span style="color:#f59e0b;">★</span>
+                            {% else %}
+                                <span style="color:#d1d5db;">★</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <p class="review-text">{{ review.comment }}</p>
+                    <p class="review-date">{{ review.created_at|date:"d/m/Y" }} · {{ review.accommodation.name }}</p>
+                </div>
+                {% empty %}
+                <div class="no-reviews" style="display:flex;">
+                    <p class="no-reviews-title">Chưa có lượt đánh giá nào được duyệt</p>
+                    <p class="no-reviews-sub">Người dùng có thể gửi review ở trang chi tiết chỗ ở, sau đó admin duyệt để hiện tại đây.</p>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if user.is_authenticated %}
+            <p class="review-login-hint">Bạn có thể vào từng chỗ ở để gửi đánh giá thật, thay vì lưu tạm trên trình duyệt.</p>
+            {% else %}
+            <p class="review-login-hint">
+                <a href="{% url 'login' %}">Login</a> để gửi đánh giá ở trang chi tiết chỗ ở.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ===== FOOTER ===== -->
+
+    <footer class="footer">
+        <div class="footer-top">
+            <div class="footer-brand">
+                <a href="/" class="footer-logo">Accommodation <span>Recommendation</span></a>
+                <p class="footer-desc">A smart platform that helps students and travelers find the best places to stay in Vietnam.</p>
+                <div class="footer-socials">
+                    <a href="#"><i class="fa-brands fa-facebook"></i></a>
+                    <a href="#"><i class="fa-brands fa-google"></i></a>
+                    <a href="#"><i class="fa-brands fa-youtube"></i></a>
+                    <a href="#"><i class="fa-brands fa-discord"></i></a>
+                    <a href="#"><i class="fa-brands fa-instagram"></i></a>
+                </div>
+            </div>
+
+            <div class="footer-links">
+                <h4>PAGES</h4>
+                <a href="/">Home</a>
+                <a href="/accommodations/">Accommodation List</a>
+                <a href="/preferences/">Find Recommendation</a>
+            </div>
+
+            <div class="footer-links">
+                <h4>ACCOUNT</h4>
+                <a href="/accounts/login/">Login</a>
+                <a href="/accounts/register/">Register</a>
+                <a href="/accounts/profile/">Profile</a>
+            </div>
+
+            <div class="footer-links">
+                <h4>CONTACT</h4>
+                <a href="https://www.fit.hcmus.edu.vn/" target="_blank">fit.hcmus.edu.vn</a>
+                <p style="color:#94a3b8; font-size:13px; margin-top:4px;">TP. Hồ Chí Minh, Việt Nam</p>
+            </div>
+        </div>
+
+        <div class="footer-bottom">
+            <p>© 2026 HCMUS — fit@hcmus.edu.vn</p>
+            <a href="#" class="footer-back-top">
+                <i class="fa-solid fa-arrow-up"></i> Lên đầu trang
+            </a>
+        </div>
+    </footer>
+</div>
+
+
+
+{% endblock %}

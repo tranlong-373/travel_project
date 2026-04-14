@@ -1,0 +1,136 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Accommodation Recommendation</title>
+    <link rel="stylesheet" href="{% static 'css.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+
+<body class='body'>
+    <nav class="nav">
+        <a href="/" class="nav-brand">Accommodation <br> <span class='recommendation'>Recommendation</span></a>
+
+        {% if request.path != '/accounts/login/' and request.path != '/accounts/register/' %}
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/accommodations/">Accommodation List</a>
+            <a href="/preferences/">Find Recommendation</a>
+        </div>
+        {% endif %}
+
+        <div class="nav-auth">
+            {% if user.is_authenticated %}
+                <a href="/accounts/profile/" class="login-btn">{{ user.username }}</a>
+                <a href="/accounts/logout/" class="register-btn">Logout</a>
+            {% else %}
+                <a href="/accounts/login/" class="login-btn">Login</a>
+                <a href="/accounts/register/" class="register-btn">Register</a>
+            {% endif %}
+        </div>
+
+        <!-- CHATBOT BUTTON -->
+        <div class="chat-btn" id="chatBtn" onclick="toggleChat()">
+            <i class="fa-solid fa-comment-dots"></i>
+        </div>
+
+        <!-- CHATBOT WIDGET -->
+        <div class="chat-widget" id="chatWidget">
+            <div class="chat-header">
+                <span>Trợ lý tìm phòng</span>
+                <i class="fa-solid fa-xmark" onclick="toggleChat()"></i>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-msg bot">Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?</div>
+            </div>
+            <div class="chat-input-wrap">
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="if(event.key==='Enter') sendMessage()" />
+                <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+        </div>
+
+    </nav>
+
+
+    {% block content %}{% endblock %}
+
+</body>
+
+<script>
+    const nav = document.querySelector('.nav');
+    const transparentPages = ['/', '/accounts/login/', '/accounts/register/'];
+    const isTransparent = transparentPages.includes(window.location.pathname);
+
+    function checkScroll() {
+        if (!isTransparent) {
+            nav.classList.add('nav-scrolled');
+            return;
+        }
+        if (window.scrollY > 200) {
+            nav.classList.add('nav-scrolled');
+        } else {
+            nav.classList.remove('nav-scrolled');
+        }
+    }
+
+    checkScroll();
+    window.addEventListener('scroll', checkScroll);
+
+
+        let contextSlots = {};
+
+    function toggleChat() {
+        const widget = document.getElementById('chatWidget');
+        widget.classList.toggle('open');
+    }
+
+    function addMessage(text, type) {
+        const box = document.getElementById('chatMessages');
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + type;
+        div.textContent = text;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+
+        addMessage(text, 'user');
+        input.value = '';
+
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    text: text,
+                    locale: 'vi',
+                    context_slots: contextSlots
+                })
+            });
+
+            const data = await res.json();
+            contextSlots = data.slots || {};
+
+            if (data.ready_for_recommendation && data.recommendation_url) {
+                addMessage('Mình đã tìm được chỗ phù hợp cho bạn!', 'bot');
+                setTimeout(() => {
+                    window.location.href = data.recommendation_url;
+                }, 1000);
+            } else if (data.follow_up_question) {
+                addMessage(data.follow_up_question, 'bot');
+            } else {
+                addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
+            }
+        } catch (err) {
+            addMessage('Có lỗi xảy ra, vui lòng thử lại.', 'bot');
+        }
+    }
+</script>
+</html>
