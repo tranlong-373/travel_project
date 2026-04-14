@@ -1,16 +1,14 @@
 from django.contrib import admin
 from django.urls import path, include
-from django.shortcuts import render
 
-def home(request):
-    return render(request, 'home.html')
+from accommodations.views import home_view
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('', home, name='home'),
+    path('', home_view, name='home'),
     path('accounts/', include('accounts.urls')),
     path('accommodations/', include('accommodations.urls')),
     path('preferences/', include('preferences.urls')),
     path('recommendations/', include('recommendations.urls')),
-     path("chat-api/", include("chat_api.urls")),
+    path('chat_api/', include('chat_api.urls')),
 ]

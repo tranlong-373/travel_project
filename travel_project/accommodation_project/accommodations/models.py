@@ -25,6 +25,7 @@ class Accommodation(models.Model):
 
     amenities = models.JSONField(default=list, blank=True)
     description = models.TextField(blank=True)
+    image_url = models.URLField(blank=True, null=True)  # ← thêm dòng này
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
 

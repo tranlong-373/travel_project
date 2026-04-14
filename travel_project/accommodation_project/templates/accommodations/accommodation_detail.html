@@ -1,0 +1,133 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="detail-page">
+
+    <div class="detail-top">
+        <div class="detail-img-wrap">
+            {% if accommodation.image_url %}
+                <img src="{{ accommodation.image_url }}" alt="{{ accommodation.name }}" class="detail-img" />
+            {% else %}
+                <div class="detail-img detail-img-placeholder">
+                    <i class="fa-solid fa-building" style="font-size:64px; color:#cbd5e1;"></i>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="detail-info">
+            <p class="detail-type">{{ accommodation.accommodation_type }}</p>
+            <h1 class="detail-name">{{ accommodation.name }}</h1>
+            <p class="detail-address">
+                <i class="fa-solid fa-location-dot"></i>
+                {{ accommodation.address }}, {{ accommodation.area }}
+            </p>
+            <div class="detail-rating">
+                <span class="stars">★ {{ accommodation.rating }}</span>
+                <span class="review-count">({{ accommodation.review_count }} đánh giá)</span>
+            </div>
+            <p class="detail-desc">{{ accommodation.description }}</p>
+            <div class="detail-amenities">
+                {% for amenity in accommodation.amenities %}
+                    <span class="amenity-tag"><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                {% endfor %}
+            </div>
+            <div class="detail-meta">
+                <span><i class="fa-solid fa-user"></i> {{ accommodation.capacity }} khách</span>
+            </div>
+
+            <!-- Yêu thích -->
+            {% if user.is_authenticated %}
+                <div class="detail-favorite">
+                    {% if is_favorited %}
+                        <a href="{% url 'remove_favorite' accommodation.id %}" class="fav-btn remove">
+                            <i class="fa-solid fa-heart-crack"></i> Xóa yêu thích
+                        </a>
+                    {% else %}
+                        <a href="{% url 'add_favorite' accommodation.id %}" class="fav-btn">
+                            <i class="fa-regular fa-heart"></i> Thêm yêu thích
+                        </a>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p class="fav-notice">
+                    <i class="fa-solid fa-lock"></i>
+                    <a href="/accounts/login/">Đăng nhập</a> để thêm vào yêu thích.
+                </p>
+            {% endif %}
+
+            <div class="detail-book">
+                <div class="detail-price">
+                    <span class="price-num">{{ accommodation.price_per_night|floatformat:0 }}₫</span>
+                    <span class="price-night">/đêm</span>
+                </div>
+                {% if user.is_authenticated %}
+                    <a href="{% url 'accommodation_list' %}" class="book-btn">Xem thêm chỗ ở</a>
+                {% else %}
+                    <a href="/accounts/login/" class="book-btn">Đăng nhập để đặt</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- REVIEWS -->
+    <div class="detail-reviews">
+        <h2 class="review-title">Đánh giá chỗ ở</h2>
+
+        {% if user.is_authenticated %}
+        <div class="review-form-wrap">
+            <h3>Viết đánh giá</h3>
+            <form method="post" action="/accommodations/review/{{ accommodation.id }}/" class="review-form">
+                {% csrf_token %}
+                <div class="review-form-top">
+                    <label>Số sao:</label>
+                    <select name="score" class="score-select">
+                        <option value="5">★★★★★ 5 sao</option>
+                        <option value="4">★★★★ 4 sao</option>
+                        <option value="3">★★★ 3 sao</option>
+                        <option value="2">★★ 2 sao</option>
+                        <option value="1">★ 1 sao</option>
+                    </select>
+                </div>
+                <textarea name="comment" rows="3" placeholder="Nhận xét của bạn..." class="review-textarea"></textarea>
+                <button type="submit" class="review-submit-btn">Gửi đánh giá</button>
+            </form>
+        </div>
+        {% else %}
+        <div class="review-login-notice">
+            <i class="fa-solid fa-lock"></i>
+            <a href="/accounts/login/">Đăng nhập</a> để gửi đánh giá.
+        </div>
+        {% endif %}
+
+        <div class="review-list">
+            {% for review in approved_reviews %}
+            <div class="review-card">
+                <div class="review-header">
+                    <div class="review-avatar">{{ review.user.username|slice:":1"|upper }}</div>
+                    <div>
+                        <p class="review-username">{{ review.user.username }}</p>
+                        <p class="review-date">{{ review.created_at|date:"d/m/Y" }}</p>
+                    </div>
+                    <div class="review-score">
+                        {% for i in "12345" %}
+                            {% if forloop.counter <= review.score %}
+                                <span style="color:#f59e0b;">★</span>
+                            {% else %}
+                                <span style="color:#e2e8f0;">★</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <p class="review-comment">{{ review.comment }}</p>
+            </div>
+            {% empty %}
+                <p style="color:#94a3b8; text-align:center; padding:32px 0;">Chưa có đánh giá nào.</p>
+            {% endfor %}
+        </div>
+    </div>
+
+</div>
+
+{% endblock %}

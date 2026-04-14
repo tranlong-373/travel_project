@@ -165,26 +165,30 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
     if accom.capacity < req.guest_count:
         return 0.0
 
-    score = 0.0
-
-    # 1. Cơ chế giá thành (Max 1.5đ) được phân mốc tuyệt đối: Rẻ (<1tr), Trung bình (1tr-2tr), Mắc (>2tr)
     price = accom.price_per_night
     budget = req.budget
 
-    if price < 1000000:
-        base_price_score = 1.5  # Rẻ => Cộng cao nhất
-    elif price <= 2000000:
-        base_price_score = 0.75 # Trung bình => Điểm trung bình
-    else:
-        base_price_score = 0.25 # Mắc => Cộng thấp nhất
+    # Ràng buộc cứng: Vượt quá budget -> Cho rớt ngay
+    if budget and budget > 0 and price > budget:
+        return 0.0
 
-    # Tính toán chênh lệch so với giá của khách yêu cầu
-    if budget > 0 and price > budget:
-        # Nếu khách sạn mắc hơn giá khách yêu cầu, bị trừ 0.2đ từ điểm gốc
-        score += max(0.0, base_price_score - 0.2)
-    elif budget > 0:
-        # Nếu rẻ hơn hoặc vừa bằng với giá của khách, ăn trọn điểm gốc
-        score += base_price_score
+    score = 0.0
+
+    # 1. Cơ chế giá thành (Max 1.5đ)
+    if budget and budget > 0:
+        # Tỉ lệ sử dụng budget: càng thấp hơn budget càng tốt
+        ratio = price / budget  # 0.0 → 1.0
+        score += 1.5 * (1.0 - ratio * 0.5)  # Dùng 50% budget → 1.125đ, dùng 100% → 0.75đ
+    else:
+        # Không có budget → chấm theo mốc giá tuyệt đối
+        if price < 500_000:
+            score += 1.5
+        elif price < 1_000_000:
+            score += 1.2
+        elif price < 2_000_000:
+            score += 0.75
+        else:
+            score += 0.25
 
     # 2. Tiện ích (Max 1.5đ): Khớp càng đầy đủ tiện ích mà khách nhắm tới càng cao điểm
     requested_amenities = normalize_amenities(req.required_amenities)
@@ -206,8 +210,12 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 
 
 def get_candidate_accommodations(preference) -> list[Accommodation]:
-    # Lọc nhẹ để tải dữ liệu cơ bản
+    # Lọc theo capacity
     base_qs = Accommodation.objects.filter(capacity__gte=preference.guest_count)
+
+    # Lọc cứng theo budget nếu có
+    if preference.budget and preference.budget > 0:
+        base_qs = base_qs.filter(price_per_night__lte=preference.budget)
 
     # Gộp tên để tránh trùng lặp dữ liệu từ giả lập seed.py
     unique_items: dict[str, Accommodation] = {}

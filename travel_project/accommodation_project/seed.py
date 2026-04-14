@@ -161,7 +161,7 @@ data = [
         "description": "Căn hộ cao cấp"
     }
 ]
-for item in data:
-    Accommodation.objects.create(**item)
-
-print(f"✅ Đã thêm {len(data)} accommodation thành công!")
+for i in range(8):  
+    for item in data:
+        Accommodation.objects.get_or_create(name=item['name'], defaults=item)
+print("✅ Đã thêm dữ liệu thành công!")
