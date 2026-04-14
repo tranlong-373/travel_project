@@ -160,27 +160,25 @@ def calculate_area_score(accommodation_area: str, requested_area: str) -> float:
 
 def calculate_matching_score(accom: Accommodation, req) -> float:
     """Thang điểm 5.0đ đánh giá độ sát sao với toàn bộ yêu cầu của khách hàng"""
-    
-    # Ràng buộc cứng: Sức chứa không đủ sức chứa khách -> Cho rớt ngay
+
+    # Ràng buộc cứng: Sức chứa không đủ -> rớt ngay
     if accom.capacity < req.guest_count:
         return 0.0
 
     price = accom.price_per_night
     budget = req.budget
 
-    # Ràng buộc cứng: Vượt quá budget -> Cho rớt ngay
+    # Ràng buộc cứng: Vượt budget -> rớt ngay
     if budget and budget > 0 and price > budget:
         return 0.0
 
     score = 0.0
 
-    # 1. Cơ chế giá thành (Max 1.5đ)
+    # 1. Giá thành (Max 1.5đ)
     if budget and budget > 0:
-        # Tỉ lệ sử dụng budget: càng thấp hơn budget càng tốt
-        ratio = price / budget  # 0.0 → 1.0
-        score += 1.5 * (1.0 - ratio * 0.5)  # Dùng 50% budget → 1.125đ, dùng 100% → 0.75đ
+        ratio = price / budget
+        score += 1.5 * (1.0 - ratio * 0.5)
     else:
-        # Không có budget → chấm theo mốc giá tuyệt đối
         if price < 500_000:
             score += 1.5
         elif price < 1_000_000:
@@ -190,7 +188,7 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
         else:
             score += 0.25
 
-    # 2. Tiện ích (Max 1.5đ): Khớp càng đầy đủ tiện ích mà khách nhắm tới càng cao điểm
+    # 2. Tiện ích (Max 1.5đ)
     requested_amenities = normalize_amenities(req.required_amenities)
     accommodation_amenities = normalize_amenities(accom.amenities)
     if requested_amenities:
@@ -199,25 +197,31 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
     else:
         score += 1.5
 
-    # 3. Vị trí (Max 1.0đ): Khớp khu vực với thuật toán linh hoạt
+    # 3. Vị trí (Max 1.0đ)
     score += calculate_area_score(accom.area, req.area)
 
-    # 4. Chất lượng (Max 1.0đ) - Dựa trên đánh giá Rating MẶC ĐỊNH của DB
+    # 4. Chất lượng (Max 1.0đ)
     if accom.rating:
         score += 1.0 * (accom.rating / 5.0)
 
+    # 5. Loại chỗ ở ưu tiên (Max 1.0đ)
+    if req.preferred_type:
+        if accom.accommodation_type == req.preferred_type:
+            score += 1.0
+    else:
+        score += 1.0
+
     return round(score, 2)
 
-
 def get_candidate_accommodations(preference) -> list[Accommodation]:
-    # Lọc theo capacity
     base_qs = Accommodation.objects.filter(capacity__gte=preference.guest_count)
 
-    # Lọc cứng theo budget nếu có
     if preference.budget and preference.budget > 0:
         base_qs = base_qs.filter(price_per_night__lte=preference.budget)
 
-    # Gộp tên để tránh trùng lặp dữ liệu từ giả lập seed.py
+    if preference.preferred_type:
+        base_qs = base_qs.filter(accommodation_type=preference.preferred_type)
+
     unique_items: dict[str, Accommodation] = {}
     for item in base_qs:
         unique_items.setdefault(item.name, item)

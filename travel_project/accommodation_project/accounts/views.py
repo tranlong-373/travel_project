@@ -69,23 +69,15 @@ def profile_view(request):
 
 @login_required
 def add_favorite(request, accommodation_id):
-    accommodation = get_object_or_404(Accommodation, id=accommodation_id)
-
-    Favorite.objects.get_or_create(
-        user=request.user,
-        accommodation=accommodation
-    )
-
-    return redirect('accommodation_detail', pk=accommodation.id)
+    if request.method == 'POST':
+        accommodation = get_object_or_404(Accommodation, id=accommodation_id)
+        Favorite.objects.get_or_create(user=request.user, accommodation=accommodation)
+    return redirect('accommodation_detail', pk=accommodation_id)
 
 
 @login_required
 def remove_favorite(request, accommodation_id):
-    accommodation = get_object_or_404(Accommodation, id=accommodation_id)
-
-    Favorite.objects.filter(
-        user=request.user,
-        accommodation=accommodation
-    ).delete()
-
-    return redirect('accommodation_detail', pk=accommodation.id)
+    if request.method == 'POST':
+        accommodation = get_object_or_404(Accommodation, id=accommodation_id)
+        Favorite.objects.filter(user=request.user, accommodation=accommodation).delete()
+    return redirect('accommodation_detail', pk=accommodation_id)

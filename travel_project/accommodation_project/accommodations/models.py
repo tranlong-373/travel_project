@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models import Avg
 
 
 class Accommodation(models.Model):
@@ -12,11 +13,9 @@ class Accommodation(models.Model):
 
     accommodation_code = models.CharField(max_length=50, null=True, blank=True)
     name = models.CharField(max_length=200)
-
     accommodation_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     area = models.CharField(max_length=100)
     address = models.CharField(max_length=255)
-
     price_per_night = models.IntegerField()
     capacity = models.IntegerField()
 
@@ -25,13 +24,31 @@ class Accommodation(models.Model):
 
     amenities = models.JSONField(default=list, blank=True)
     description = models.TextField(blank=True)
-    image_url = models.URLField(blank=True, null=True)  # ← thêm dòng này
+    image_url = models.URLField(blank=True, null=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
 
+    # ✅ thêm hotline
+    hotline = models.CharField(max_length=20, blank=True)
+    # Sau này sẽ update model room để hiển thị rõ hơn thông tin chi tiết 
+    # Hiện tại bộ nhớ chưa cho phép :333
     def __str__(self):
         return self.name
 
+
+def update_accommodation_rating(accommodation):
+    approved_reviews = AccommodationReview.objects.filter(
+        accommodation=accommodation,
+        is_approved=True
+    )
+
+    review_count = approved_reviews.count()
+    avg_rating = approved_reviews.aggregate(avg=Avg('score'))['avg'] or 0
+
+    accommodation.review_count = review_count
+    accommodation.rating = round(avg_rating, 2)
+
+    accommodation.save(update_fields=['review_count', 'rating'])
 
 class AccommodationReview(models.Model):
     SCORE_CHOICES = [
@@ -43,7 +60,11 @@ class AccommodationReview(models.Model):
     ]
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    accommodation = models.ForeignKey(Accommodation, on_delete=models.CASCADE)
+    accommodation = models.ForeignKey(
+        Accommodation,
+        on_delete=models.CASCADE,
+        related_name='reviews'
+    )
     score = models.IntegerField(choices=SCORE_CHOICES)
     comment = models.TextField()
     is_approved = models.BooleanField(default=False)
@@ -53,19 +74,10 @@ class AccommodationReview(models.Model):
         return f"{self.user.username} - {self.accommodation.name} - {self.score}"
 
     def save(self, *args, **kwargs):
-        old_is_approved = False
-
-        if self.pk:
-            old_review = AccommodationReview.objects.get(pk=self.pk)
-            old_is_approved = old_review.is_approved
-
         super().save(*args, **kwargs)
+        update_accommodation_rating(self.accommodation)
 
-        if self.is_approved and not old_is_approved:
-            acc = self.accommodation
-            old_total_score = acc.rating * acc.review_count
-            new_total_score = old_total_score + self.score
-
-            acc.review_count += 1
-            acc.rating = new_total_score / acc.review_count
-            acc.save()
+    def delete(self, *args, **kwargs):
+        accommodation = self.accommodation
+        super().delete(*args, **kwargs)
+        update_accommodation_rating(accommodation)
