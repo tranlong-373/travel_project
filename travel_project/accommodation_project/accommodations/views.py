@@ -92,21 +92,18 @@ def accommodation_list(request):
 
 def accommodation_detail(request, pk):
     accommodation = get_object_or_404(Accommodation, pk=pk)
-    approved_reviews = AccommodationReview.objects.filter(
-        accommodation=accommodation,
-        is_approved=True,
-    ).select_related('user').order_by('-created_at')
+    reviews = accommodation.reviews.filter(is_approved=True)
 
     is_favorited = False
     if request.user.is_authenticated:
         is_favorited = Favorite.objects.filter(
             user=request.user,
-            accommodation=accommodation,
+            accommodation=accommodation
         ).exists()
 
     return render(request, 'accommodations/accommodation_detail.html', {
         'accommodation': accommodation,
-        'approved_reviews': approved_reviews,
+        'reviews': reviews,
         'is_favorited': is_favorited,
     })
 
@@ -116,9 +113,21 @@ def add_review(request, accommodation_id):
     accommodation = get_object_or_404(Accommodation, id=accommodation_id)
 
     if request.method == 'POST':
-        score = int(request.POST.get('score'))
+        try:
+            score = int(request.POST.get('score', 0))
+        except ValueError:
+            return redirect('accommodation_detail', pk=accommodation.id)
+
         comment = request.POST.get('comment', '').strip()
 
+        # validate
+        if score not in [1, 2, 3, 4, 5]:
+            return redirect('accommodation_detail', pk=accommodation.id)
+
+        if not comment:
+            return redirect('accommodation_detail', pk=accommodation.id)
+
+        # tạo review
         AccommodationReview.objects.create(
             user=request.user,
             accommodation=accommodation,
@@ -128,8 +137,6 @@ def add_review(request, accommodation_id):
         )
 
     return redirect('accommodation_detail', pk=accommodation.id)
-
-
 def home_view(request):
     accommodations = Accommodation.objects.all()[:8]
     latest_reviews = AccommodationReview.objects.filter(

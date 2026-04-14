@@ -24,7 +24,7 @@
                 {{ accommodation.address }}, {{ accommodation.area }}
             </p>
             <div class="detail-rating">
-                <span class="stars">★ {{ accommodation.rating }}</span>
+                <span class="stars">⭐ {{ accommodation.rating|floatformat:1 }} / 5</span>
                 <span class="review-count">({{ accommodation.review_count }} đánh giá)</span>
             </div>
             <p class="detail-desc">{{ accommodation.description }}</p>
@@ -41,21 +41,27 @@
             {% if user.is_authenticated %}
                 <div class="detail-favorite">
                     {% if is_favorited %}
-                        <a href="{% url 'remove_favorite' accommodation.id %}" class="fav-btn remove">
-                            <i class="fa-solid fa-heart-crack"></i> Xóa yêu thích
-                        </a>
+                        <form method="post" action="{% url 'remove_favorite' accommodation.id %}">
+                            {% csrf_token %}
+                            <button type="submit" class="fav-btn remove">
+                                <i class="fa-solid fa-heart-crack"></i> Xóa yêu thích
+                            </button>
+                        </form>
                     {% else %}
-                        <a href="{% url 'add_favorite' accommodation.id %}" class="fav-btn">
-                            <i class="fa-regular fa-heart"></i> Thêm yêu thích
-                        </a>
+                        <form method="post" action="{% url 'add_favorite' accommodation.id %}">
+                            {% csrf_token %}
+                            <button type="submit" class="fav-btn">
+                                <i class="fa-regular fa-heart"></i> Thêm yêu thích
+                            </button>
+                        </form>
                     {% endif %}
                 </div>
             {% else %}
-                <p class="fav-notice">
-                    <i class="fa-solid fa-lock"></i>
-                    <a href="/accounts/login/">Đăng nhập</a> để thêm vào yêu thích.
-                </p>
-            {% endif %}
+    <p class="fav-notice">
+        <i class="fa-solid fa-lock"></i>
+        <a href="{% url 'login' %}">Đăng nhập</a> để thêm vào yêu thích.
+    </p>
+{% endif %}
 
             <div class="detail-book">
                 <div class="detail-price">
