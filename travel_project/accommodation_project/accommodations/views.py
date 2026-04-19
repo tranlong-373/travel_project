@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 
 from accounts.models import Favorite
-from .models import Accommodation, AccommodationReview
+from .models import Accommodation, AccommodationReview, Room
 
 
 def accommodation_list(request):
@@ -93,6 +93,7 @@ def accommodation_list(request):
 def accommodation_detail(request, pk):
     accommodation = get_object_or_404(Accommodation, pk=pk)
     reviews = accommodation.reviews.filter(is_approved=True)
+    rooms = accommodation.rooms.filter(is_active=True).order_by('price_per_night')
 
     is_favorited = False
     if request.user.is_authenticated:
@@ -101,10 +102,14 @@ def accommodation_detail(request, pk):
             accommodation=accommodation
         ).exists()
 
+    current_filters = request.GET.urlencode()
+
     return render(request, 'accommodations/accommodation_detail.html', {
         'accommodation': accommodation,
         'reviews': reviews,
+        'rooms': rooms,
         'is_favorited': is_favorited,
+        'current_filters': current_filters,
     })
 
 
