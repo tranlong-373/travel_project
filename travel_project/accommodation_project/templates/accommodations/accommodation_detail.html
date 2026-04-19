@@ -2,44 +2,51 @@
 {% load static %}
 
 {% block content %}
-
 <div class="detail-page">
 
-    <div class="detail-top">
-        <div class="detail-img-wrap">
+    <!-- TOP -->
+    <div class="top-card">
+        <div class="top-left">
             {% if accommodation.image_url %}
-                <img src="{{ accommodation.image_url }}" alt="{{ accommodation.name }}" class="detail-img" />
+                <img src="{{ accommodation.image_url }}" alt="{{ accommodation.name }}" class="top-image">
             {% else %}
-                <div class="detail-img detail-img-placeholder">
-                    <i class="fa-solid fa-building" style="font-size:64px; color:#cbd5e1;"></i>
+                <div class="top-image placeholder-image">
+                    <i class="fa-solid fa-building"></i>
                 </div>
             {% endif %}
         </div>
 
-        <div class="detail-info">
-            <p class="detail-type">{{ accommodation.accommodation_type }}</p>
-            <h1 class="detail-name">{{ accommodation.name }}</h1>
-            <p class="detail-address">
+        <div class="top-right">
+            <p class="acc-type">{{ accommodation.accommodation_type }}</p>
+
+            <h1 class="acc-name">{{ accommodation.name }}</h1>
+
+            <p class="acc-address">
                 <i class="fa-solid fa-location-dot"></i>
                 {{ accommodation.address }}, {{ accommodation.area }}
             </p>
-            <div class="detail-rating">
-                <span class="stars">⭐ {{ accommodation.rating|floatformat:1 }} / 5</span>
-                <span class="review-count">({{ accommodation.review_count }} đánh giá)</span>
+
+            <div class="acc-rating">
+                <span class="rating-star">⭐ {{ accommodation.rating|floatformat:1 }} / 5</span>
+                <span class="rating-count">({{ accommodation.review_count }} đánh giá)</span>
             </div>
-            <p class="detail-desc">{{ accommodation.description }}</p>
-            <div class="detail-amenities">
+
+            <p class="acc-desc">{{ accommodation.description }}</p>
+
+            <div class="acc-amenities">
                 {% for amenity in accommodation.amenities %}
-                    <span class="amenity-tag"><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                    <span class="amenity-chip">
+                        <i class="fa-solid fa-check"></i> {{ amenity }}
+                    </span>
                 {% endfor %}
             </div>
-            <div class="detail-meta">
+
+            <div class="acc-meta">
                 <span><i class="fa-solid fa-user"></i> {{ accommodation.capacity }} khách</span>
             </div>
 
-            <!-- Yêu thích -->
             {% if user.is_authenticated %}
-                <div class="detail-favorite">
+                <div class="favorite-wrap">
                     {% if is_favorited %}
                         <form method="post" action="{% url 'remove_favorite' accommodation.id %}">
                             {% csrf_token %}
@@ -57,83 +64,654 @@
                     {% endif %}
                 </div>
             {% else %}
-    <p class="fav-notice">
-        <i class="fa-solid fa-lock"></i>
-        <a href="{% url 'login' %}">Đăng nhập</a> để thêm vào yêu thích.
-    </p>
-{% endif %}
+                <p class="login-note">
+                    <i class="fa-solid fa-lock"></i>
+                    <a href="{% url 'login' %}">Đăng nhập</a> để thêm vào yêu thích.
+                </p>
+            {% endif %}
 
-            <div class="detail-book">
-                <div class="detail-price">
-                    <span class="price-num">{{ accommodation.price_per_night|floatformat:0 }}₫</span>
-                    <span class="price-night">/đêm</span>
+            <div class="price-block">
+                <p class="price-label">Giá từ</p>
+                <div class="price-main">
+                    {% if accommodation.min_room_price %}
+                        {{ accommodation.min_room_price|floatformat:0 }}₫
+                    {% else %}
+                        {{ accommodation.price_per_night|floatformat:0 }}₫
+                    {% endif %}
                 </div>
-                {% if user.is_authenticated %}
-                    <a href="{% url 'accommodation_list' %}" class="book-btn">Xem thêm chỗ ở</a>
-                {% else %}
-                    <a href="/accounts/login/" class="book-btn">Đăng nhập để đặt</a>
-                {% endif %}
+                <div class="price-night">/đêm</div>
+
+                <a href="{% url 'accommodation_list' %}{% if current_filters %}?{{ current_filters }}{% endif %}" class="more-btn">
+                    Xem thêm chỗ ở khác
+                </a>
             </div>
         </div>
     </div>
 
+    <!-- ROOMS -->
+    <div class="section-card">
+        <h2 class="section-title">Các phòng hiện có</h2>
+
+        {% if rooms %}
+            <div class="room-list">
+                {% for room in rooms %}
+                    <div class="room-card">
+                        <div class="room-image-wrap">
+                            <div class="room-image-placeholder">
+                                <i class="fa-solid fa-bed"></i>
+                            </div>
+                        </div>
+
+                        <div class="room-content">
+                            <div class="room-head">
+                                <div>
+                                    <h3 class="room-name">{{ room.name }}</h3>
+                                    <p class="room-type">
+                                        {{ room.get_room_type_display }} · {{ room.capacity }} người
+                                    </p>
+                                </div>
+
+                                <div class="room-price-box">
+                                    <div class="room-price">{{ room.price_per_night|floatformat:0 }}₫</div>
+                                    <div class="room-price-night">/đêm</div>
+                                </div>
+                            </div>
+
+                            <div class="room-meta">
+                                <span><i class="fa-solid fa-door-open"></i> Mã phòng: {{ room.room_code|default:"---" }}</span>
+                                <span><i class="fa-solid fa-layer-group"></i> Tổng: {{ room.total_rooms }}</span>
+                                <span><i class="fa-solid fa-bed"></i> Còn trống: {{ room.available_rooms }}</span>
+                            </div>
+
+                            {% if room.description %}
+                                <p class="room-desc">{{ room.description }}</p>
+                            {% endif %}
+
+                            {% if room.amenities %}
+                                <div class="room-amenities">
+                                    {% for amenity in room.amenities %}
+                                        <span class="room-chip">{{ amenity }}</span>
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
+
+                            <div class="room-status">
+                                {% if room.available_rooms > 0 %}
+                                    <span class="badge available">Còn phòng</span>
+                                {% else %}
+                                    <span class="badge soldout">Hết phòng</span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-box">
+                Hiện tại chỗ ở này chưa có dữ liệu phòng.
+            </div>
+        {% endif %}
+    </div>
+
     <!-- REVIEWS -->
-    <div class="detail-reviews">
-        <h2 class="review-title">Đánh giá chỗ ở</h2>
+    <div class="section-card">
+        <h2 class="section-title">Đánh giá chỗ ở</h2>
 
         {% if user.is_authenticated %}
-        <div class="review-form-wrap">
-            <h3>Viết đánh giá</h3>
-            <form method="post" action="/accommodations/review/{{ accommodation.id }}/" class="review-form">
-                {% csrf_token %}
-                <div class="review-form-top">
-                    <label>Số sao:</label>
-                    <select name="score" class="score-select">
-                        <option value="5">★★★★★ 5 sao</option>
-                        <option value="4">★★★★ 4 sao</option>
-                        <option value="3">★★★ 3 sao</option>
-                        <option value="2">★★ 2 sao</option>
-                        <option value="1">★ 1 sao</option>
-                    </select>
-                </div>
-                <textarea name="comment" rows="3" placeholder="Nhận xét của bạn..." class="review-textarea"></textarea>
-                <button type="submit" class="review-submit-btn">Gửi đánh giá</button>
-            </form>
-        </div>
+            <div class="review-form-box">
+                <h3>Viết đánh giá</h3>
+                <form method="post" action="/accommodations/review/{{ accommodation.id }}/" class="review-form">
+                    {% csrf_token %}
+                    <div class="review-top">
+                        <label>Số sao:</label>
+                        <select name="score" class="score-select">
+                            <option value="5">★★★★★ 5 sao</option>
+                            <option value="4">★★★★ 4 sao</option>
+                            <option value="3">★★★ 3 sao</option>
+                            <option value="2">★★ 2 sao</option>
+                            <option value="1">★ 1 sao</option>
+                        </select>
+                    </div>
+                    <textarea name="comment" rows="3" placeholder="Nhận xét của bạn..." class="review-textarea"></textarea>
+                    <button type="submit" class="submit-btn">Gửi đánh giá</button>
+                </form>
+            </div>
         {% else %}
-        <div class="review-login-notice">
-            <i class="fa-solid fa-lock"></i>
-            <a href="/accounts/login/">Đăng nhập</a> để gửi đánh giá.
-        </div>
+            <div class="login-note">
+                <i class="fa-solid fa-lock"></i>
+                <a href="/accounts/login/">Đăng nhập</a> để gửi đánh giá.
+            </div>
         {% endif %}
 
         <div class="review-list">
-            {% for review in approved_reviews %}
-            <div class="review-card">
-                <div class="review-header">
-                    <div class="review-avatar">{{ review.user.username|slice:":1"|upper }}</div>
-                    <div>
-                        <p class="review-username">{{ review.user.username }}</p>
-                        <p class="review-date">{{ review.created_at|date:"d/m/Y" }}</p>
+            {% for review in reviews %}
+                <div class="review-card">
+                    <div class="review-header">
+                        <div class="review-avatar">{{ review.user.username|slice:":1"|upper }}</div>
+                        <div>
+                            <p class="review-user">{{ review.user.username }}</p>
+                            <p class="review-date">{{ review.created_at|date:"d/m/Y" }}</p>
+                        </div>
+                        <div class="review-stars">
+                            {% for i in "12345" %}
+                                {% if forloop.counter <= review.score %}
+                                    <span style="color:#f59e0b;">★</span>
+                                {% else %}
+                                    <span style="color:#e2e8f0;">★</span>
+                                {% endif %}
+                            {% endfor %}
+                        </div>
                     </div>
-                    <div class="review-score">
-                        {% for i in "12345" %}
-                            {% if forloop.counter <= review.score %}
-                                <span style="color:#f59e0b;">★</span>
-                            {% else %}
-                                <span style="color:#e2e8f0;">★</span>
-                            {% endif %}
-                        {% endfor %}
-                    </div>
+                    <p class="review-comment">{{ review.comment }}</p>
                 </div>
-                <p class="review-comment">{{ review.comment }}</p>
-            </div>
             {% empty %}
-                <p style="color:#94a3b8; text-align:center; padding:32px 0;">Chưa có đánh giá nào.</p>
+                <p class="empty-review">Chưa có đánh giá nào.</p>
             {% endfor %}
         </div>
     </div>
 
 </div>
 
+<style>
+.detail-page{
+    max-width:1400px;
+    margin:0 auto;
+    padding:24px;
+}
+
+.top-card,
+.section-card{
+    background:#fff;
+    border-radius:24px;
+    box-shadow:0 8px 28px rgba(15,23,42,.06);
+    overflow:hidden;
+    margin-bottom:28px;
+}
+
+.top-card{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    min-height:520px;
+}
+
+.top-left{
+    background:#eef2f7;
+    min-height:520px;
+}
+
+.top-image{
+    width:100%;
+    height:100%;
+    min-height:520px;
+    object-fit:cover;
+    display:block;
+}
+
+.placeholder-image{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    width:100%;
+    height:100%;
+    min-height:520px;
+    background:#eef2f7;
+}
+
+.placeholder-image i{
+    font-size:72px;
+    color:#cbd5e1;
+}
+
+.top-right{
+    padding:36px 40px;
+    display:flex;
+    flex-direction:column;
+    justify-content:flex-start;
+}
+
+.acc-type{
+    font-size:12px;
+    font-weight:700;
+    color:#2563eb;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    margin-bottom:10px;
+}
+
+.acc-name{
+    font-size:42px;
+    line-height:1.15;
+    margin:0 0 18px;
+    color:#0f172a;
+    font-weight:800;
+}
+
+.acc-address,
+.acc-desc,
+.room-type,
+.room-desc{
+    color:#64748b;
+}
+
+.acc-address{
+    margin-bottom:14px;
+    font-size:16px;
+}
+
+.acc-address i,
+.acc-meta i{
+    color:#2563eb;
+    margin-right:6px;
+}
+
+.acc-rating{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:18px;
+}
+
+.rating-star{
+    color:#f59e0b;
+    font-weight:700;
+}
+
+.rating-count{
+    color:#94a3b8;
+}
+
+.acc-desc{
+    margin-bottom:18px;
+    line-height:1.7;
+}
+
+.acc-amenities,
+.room-amenities,
+.room-meta{
+    display:flex;
+    flex-wrap:wrap;
+    gap:10px;
+}
+
+.amenity-chip,
+.room-chip{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 12px;
+    border-radius:999px;
+    background:#eff6ff;
+    color:#2563eb;
+    font-size:13px;
+    font-weight:600;
+}
+
+.acc-meta{
+    margin-top:18px;
+    font-weight:600;
+    color:#334155;
+}
+
+.favorite-wrap,
+.login-note{
+    margin-top:22px;
+}
+
+.fav-btn{
+    border:none;
+    background:#eff6ff;
+    color:#2563eb;
+    padding:11px 16px;
+    border-radius:14px;
+    cursor:pointer;
+    font-weight:700;
+    font-size:15px;
+}
+
+.fav-btn.remove{
+    background:#fff1f2;
+    color:#e11d48;
+}
+
+.login-note{
+    color:#64748b;
+}
+
+.login-note a{
+    color:#2563eb;
+    text-decoration:none;
+    font-weight:600;
+}
+
+.price-block{
+    margin-top:28px;
+    padding-top:24px;
+    border-top:1px solid #e2e8f0;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:8px;
+}
+
+.price-label{
+    font-size:14px;
+    color:#64748b;
+    margin:0;
+}
+
+.price-main{
+    font-size:42px;
+    font-weight:800;
+    line-height:1.05;
+    color:#0f172a;
+    white-space:nowrap;
+    margin:0;
+}
+
+.price-night{
+    color:#94a3b8;
+    font-size:15px;
+    margin-bottom:12px;
+}
+
+.more-btn{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    min-width:260px;
+    min-height:52px;
+    background:#2563eb;
+    color:#fff;
+    text-decoration:none;
+    border-radius:16px;
+    font-weight:700;
+    padding:14px 22px;
+}
+
+.more-btn:hover{
+    background:#1d4ed8;
+}
+
+.section-card{
+    padding:28px;
+}
+
+.section-title{
+    font-size:28px;
+    font-weight:800;
+    margin:0 0 20px;
+    color:#1e293b;
+}
+
+.room-list,
+.review-list{
+    display:flex;
+    flex-direction:column;
+    gap:16px;
+}
+
+.room-card{
+    display:grid;
+    grid-template-columns:220px 1fr;
+    gap:18px;
+    border:1px solid #e2e8f0;
+    border-radius:18px;
+    padding:18px;
+    background:#f8fafc;
+    align-items:start;
+}
+
+.room-image-wrap{
+    width:100%;
+}
+
+.room-image-placeholder{
+    width:100%;
+    height:160px;
+    border-radius:16px;
+    background:#e2e8f0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+
+.room-image-placeholder i{
+    font-size:42px;
+    color:#94a3b8;
+}
+
+.room-content{
+    min-width:0;
+}
+
+.room-head{
+    display:flex;
+    justify-content:space-between;
+    gap:16px;
+    align-items:flex-start;
+    margin-bottom:10px;
+}
+
+.room-name{
+    font-size:18px;
+    font-weight:700;
+    margin:0 0 6px;
+    color:#0f172a;
+}
+
+.room-price-box{
+    text-align:right;
+    min-width:120px;
+}
+
+.room-price{
+    font-size:24px;
+    font-weight:800;
+    color:#2563eb;
+    white-space:nowrap;
+}
+
+.room-price-night{
+    font-size:13px;
+    color:#64748b;
+}
+
+.room-meta{
+    margin:12px 0;
+    color:#475569;
+    font-size:14px;
+}
+
+.room-desc{
+    line-height:1.6;
+    margin-bottom:12px;
+}
+
+.room-status{
+    margin-top:14px;
+}
+
+.badge{
+    display:inline-block;
+    padding:7px 12px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:700;
+}
+
+.available{
+    background:#dcfce7;
+    color:#166534;
+}
+
+.soldout{
+    background:#fee2e2;
+    color:#991b1b;
+}
+
+.empty-box{
+    padding:18px;
+    border-radius:16px;
+    background:#fff7ed;
+    color:#c2410c;
+    font-weight:500;
+}
+
+.review-form-box{
+    background:#f8fafc;
+    border-radius:18px;
+    padding:20px;
+    margin-bottom:24px;
+}
+
+.review-form-box h3{
+    margin-top:0;
+    margin-bottom:14px;
+    color:#0f172a;
+}
+
+.review-top{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:14px;
+}
+
+.score-select,
+.review-textarea{
+    width:100%;
+    border:1px solid #cbd5e1;
+    border-radius:12px;
+    padding:12px;
+    font-size:14px;
+    background:#fff;
+}
+
+.review-textarea{
+    resize:vertical;
+    min-height:100px;
+    margin-bottom:14px;
+}
+
+.submit-btn{
+    border:none;
+    background:#2563eb;
+    color:#fff;
+    padding:12px 18px;
+    border-radius:12px;
+    font-weight:700;
+    cursor:pointer;
+}
+
+.review-header{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    margin-bottom:12px;
+}
+
+.review-avatar{
+    width:44px;
+    height:44px;
+    border-radius:50%;
+    background:#dbeafe;
+    color:#1d4ed8;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-weight:800;
+    flex-shrink:0;
+}
+
+.review-user{
+    margin:0;
+    font-weight:700;
+    color:#0f172a;
+}
+
+.review-date{
+    margin:0;
+    color:#94a3b8;
+    font-size:13px;
+}
+
+.review-stars{
+    margin-left:auto;
+    flex-shrink:0;
+}
+
+.review-comment{
+    color:#334155;
+    line-height:1.6;
+    margin:0;
+}
+
+.empty-review{
+    color:#94a3b8;
+    text-align:center;
+    padding:32px 0;
+}
+
+@media (max-width: 992px){
+    .top-card{
+        grid-template-columns:1fr;
+    }
+
+    .top-left,
+    .top-image,
+    .placeholder-image{
+        min-height:320px;
+    }
+
+    .acc-name{
+        font-size:34px;
+    }
+
+    .room-card{
+        grid-template-columns:1fr;
+    }
+
+    .room-image-placeholder{
+        height:190px;
+    }
+}
+
+@media (max-width: 768px){
+    .detail-page{
+        padding:16px;
+    }
+
+    .top-right,
+    .section-card{
+        padding:20px;
+    }
+
+    .acc-name{
+        font-size:28px;
+    }
+
+    .price-main{
+        font-size:34px;
+        white-space:normal;
+    }
+
+    .more-btn{
+        width:100%;
+        min-width:unset;
+    }
+
+    .room-head,
+    .review-header,
+    .review-top{
+        flex-direction:column;
+        align-items:flex-start;
+    }
+
+    .room-price-box,
+    .review-stars{
+        text-align:left;
+        margin-left:0;
+    }
+}
+</style>
 {% endblock %}

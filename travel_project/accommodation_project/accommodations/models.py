@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.db.models import Avg
+from django.db.models import Avg, Min
 
 
 class Accommodation(models.Model):
@@ -16,8 +16,10 @@ class Accommodation(models.Model):
     accommodation_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     area = models.CharField(max_length=100)
     address = models.CharField(max_length=255)
-    price_per_night = models.IntegerField()
-    capacity = models.IntegerField()
+
+    # Tạm giữ lại để không vỡ code cũ / demo cũ
+    price_per_night = models.IntegerField(default=0)  # giá trung bình
+    capacity = models.IntegerField(default=1)
 
     rating = models.FloatField(default=0)
     review_count = models.IntegerField(default=0)
@@ -27,13 +29,58 @@ class Accommodation(models.Model):
     image_url = models.URLField(blank=True, null=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
-
-    # ✅ thêm hotline
     hotline = models.CharField(max_length=20, blank=True)
-    # Sau này sẽ update model room để hiển thị rõ hơn thông tin chi tiết 
-    # Hiện tại bộ nhớ chưa cho phép :333
+
     def __str__(self):
         return self.name
+
+    @property
+    def min_room_price(self):
+        return self.rooms.aggregate(min_price=Min('price_per_night'))['min_price']
+
+    @property
+    def total_available_rooms(self):
+        return sum(room.available_rooms for room in self.rooms.all())
+
+
+class Room(models.Model):
+    ROOM_TYPE_CHOICES = [
+        ('single', 'Single Room'),
+        ('double', 'Double Room'),
+        ('twin', 'Twin Room'),
+        ('family', 'Family Room'),
+        ('deluxe', 'Deluxe Room'),
+        ('suite', 'Suite'),
+        ('dorm', 'Dorm'),
+        ('other', 'Other'),
+    ]
+
+    accommodation = models.ForeignKey(
+        Accommodation,
+        on_delete=models.CASCADE,
+        related_name='rooms'
+    )
+
+    room_code = models.CharField(max_length=50, blank=True, null=True)
+    room_type = models.CharField(max_length=20, choices=ROOM_TYPE_CHOICES, default='single')
+    name = models.CharField(max_length=100)
+    price_per_night = models.IntegerField()
+    capacity = models.IntegerField(default=1)
+
+    total_rooms = models.IntegerField(default=1)
+    available_rooms = models.IntegerField(default=1)
+
+    amenities = models.JSONField(default=list, blank=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.accommodation.name} - {self.name}"
+
+    def save(self, *args, **kwargs):
+        if self.available_rooms > self.total_rooms:
+            self.available_rooms = self.total_rooms
+        super().save(*args, **kwargs)
 
 
 def update_accommodation_rating(accommodation):
@@ -49,6 +96,7 @@ def update_accommodation_rating(accommodation):
     accommodation.rating = round(avg_rating, 2)
 
     accommodation.save(update_fields=['review_count', 'rating'])
+
 
 class AccommodationReview(models.Model):
     SCORE_CHOICES = [
