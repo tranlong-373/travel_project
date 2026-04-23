@@ -79,7 +79,12 @@ def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | Non
     return merged
 
 
-def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, Any] | None = None) -> dict[str, Any]:
+def parse_user_text_rule_based(
+    text: str,
+    *,
+    locale: str = "vi",
+    context_slots: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     raw = normalize_text(text)
     location = resolve_location(raw, locale=locale)
 
@@ -207,3 +212,75 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
             response["diagnostics"]["unsupported_type_candidates"] = unsupported_type_candidates
 
     return response
+
+
+def _hf_agent_enabled() -> bool:
+    value = os.getenv("CHAT_API_ENABLE_HF_AGENT", "1").strip().lower()
+    return value not in {"0", "false", "no", "off"}
+
+
+def _llm_strategy() -> str:
+    if not _hf_agent_enabled():
+        return "never"
+
+    value = os.getenv("CHAT_API_LLM_STRATEGY", "auto").strip().lower()
+    if value not in {"auto", "always", "never"}:
+        return "auto"
+    return value
+
+
+def _can_answer_fast(result: dict[str, Any]) -> bool:
+    if result.get("ready_for_recommendation"):
+        return True
+
+    slots = result.get("slots") or {}
+    useful_slots = [
+        slots.get("area"),
+        slots.get("budget_max") or slots.get("budget"),
+        slots.get("guest_count"),
+        slots.get("preferred_type"),
+        slots.get("required_amenities"),
+        slots.get("priorities"),
+        slots.get("special_requirements"),
+    ]
+    return bool(any(useful_slots) and result.get("follow_up_question"))
+
+
+def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Public parser entrypoint kept backward-compatible for existing callers."""
+
+    fallback_result = parse_user_text_rule_based(text, locale=locale, context_slots=context_slots)
+    from .agent.parser_fallback import normalize_rule_result
+
+    fast_result = normalize_rule_result(
+        text,
+        locale=locale,
+        context_slots=context_slots,
+        fallback_result=fallback_result,
+        parser_mode="hybrid_rule_fast",
+    )
+
+    strategy = _llm_strategy()
+    if strategy == "never":
+        return fast_result
+    if strategy == "auto" and _can_answer_fast(fast_result):
+        return fast_result
+
+    try:
+        from .agent.llm_parser import get_hf_slot_parser
+
+        return get_hf_slot_parser().parse(
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            fallback_result=fallback_result,
+        )
+    except Exception:
+        logger.exception("chat_api hf parser failed before fallback")
+
+        return normalize_rule_result(
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            fallback_result=fallback_result,
+        )

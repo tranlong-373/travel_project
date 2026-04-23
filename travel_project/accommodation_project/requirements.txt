@@ -16,3 +16,8 @@ langchain==0.2.14
 langchain-community==0.2.12
 langchain-text-splitters==0.2.2
 chromadb==0.5.5
+
+# Voice + Hugging Face parser
+transformers==5.6.1
+torch==2.11.0
+accelerate==1.13.0

@@ -40,15 +40,23 @@
         <!-- CHATBOT WIDGET -->
         <div class="chat-widget" id="chatWidget">
             <div class="chat-header">
-                <span>Trợ lý tìm phòng</span>
+                <div class="chat-title">
+                    <span>Trợ lý tìm phòng</span>
+                    <small id="chatVoiceStatus" aria-live="polite"></small>
+                </div>
                 <i class="fa-solid fa-xmark" onclick="toggleChat()"></i>
             </div>
             <div class="chat-messages" id="chatMessages">
                 <div class="chat-msg bot">Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?</div>
             </div>
             <div class="chat-input-wrap">
-                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="if(event.key==='Enter') sendMessage()" />
-                <button onclick="sendMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+                <button type="button" class="chat-icon-btn chat-voice-btn" id="chatVoiceBtn" onclick="toggleVoiceRecording()" aria-label="Ghi âm" title="Ghi âm">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" />
+                <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
             </div>
         </div>
 
@@ -79,8 +87,15 @@
     checkScroll();
     window.addEventListener('scroll', checkScroll);
 
+    let contextSlots = {};
+    let chatRecorder = null;
+    let chatAudioChunks = [];
+    let chatRecordingTimer = null;
+    let chatIsRecording = false;
+    let chatIsBusy = false;
 
-        let contextSlots = {};
+    const CHAT_MAX_RECORDING_MS = 15000;
+    const CHAT_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 
     function toggleChat() {
         const widget = document.getElementById('chatWidget');
@@ -96,13 +111,46 @@
         box.scrollTop = box.scrollHeight;
     }
 
+    function setChatBusy(isBusy) {
+        chatIsBusy = isBusy;
+        document.getElementById('chatSendBtn').disabled = isBusy;
+        document.getElementById('chatInput').disabled = isBusy;
+        if (!chatIsRecording) {
+            document.getElementById('chatVoiceBtn').disabled = isBusy;
+        }
+    }
+
+    function setVoiceStatus(text) {
+        document.getElementById('chatVoiceStatus').textContent = text || '';
+    }
+
+    function setRecordingState(isRecording) {
+        chatIsRecording = isRecording;
+        const voiceBtn = document.getElementById('chatVoiceBtn');
+        const icon = voiceBtn.querySelector('i');
+        voiceBtn.classList.toggle('recording', isRecording);
+        voiceBtn.disabled = false;
+        voiceBtn.setAttribute('aria-label', isRecording ? 'Dừng ghi âm' : 'Ghi âm');
+        voiceBtn.title = isRecording ? 'Dừng ghi âm' : 'Ghi âm';
+        icon.className = isRecording ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+        setVoiceStatus(isRecording ? 'Đang nghe...' : '');
+    }
+
+    function handleChatKey(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendMessage();
+        }
+    }
+
     async function sendMessage() {
         const input = document.getElementById('chatInput');
         const text = input.value.trim();
-        if (!text) return;
+        if (!text || chatIsBusy) return;
 
         addMessage(text, 'user');
         input.value = '';
+        setChatBusy(true);
 
         try {
             const res = await fetch('/chat_api/submit/', {
@@ -116,20 +164,148 @@
             });
 
             const data = await res.json();
-            contextSlots = data.slots || {};
-
-            if (data.ready_for_recommendation && data.recommendation_url) {
-                addMessage('Mình đã tìm được chỗ phù hợp cho bạn!', 'bot');
-                setTimeout(() => {
-                    window.location.href = data.recommendation_url;
-                }, 1000);
-            } else if (data.follow_up_question) {
-                addMessage(data.follow_up_question, 'bot');
-            } else {
-                addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
-            }
+            handleChatResult(data);
         } catch (err) {
             addMessage('Có lỗi xảy ra, vui lòng thử lại.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
+    function handleChatResult(data) {
+        const result = data.parsed_result || data;
+        contextSlots = result.slots || data.slots || {};
+
+        if (data.save_error) {
+            addMessage('Mình đã hiểu nhu cầu của bạn nhưng chưa lưu được yêu cầu. Vui lòng thử lại sau.', 'bot');
+            return;
+        }
+
+        if (result.ready_for_recommendation && (data.recommendation_url || result.recommendation_url)) {
+            addMessage('Mình đã lưu nhu cầu và tìm được chỗ phù hợp cho bạn.', 'bot');
+            setTimeout(() => {
+                window.location.href = data.recommendation_url || result.recommendation_url;
+            }, 900);
+            return;
+        }
+
+        if (result.follow_up_question) {
+            addMessage(result.follow_up_question, 'bot');
+            return;
+        }
+
+        if (data.confirmation && data.confirmation.question) {
+            addMessage(data.confirmation.question, 'bot');
+            return;
+        }
+
+        addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
+    }
+
+    function getRecorderOptions() {
+        const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+        if (!window.MediaRecorder) return {};
+        for (const mimeType of preferredTypes) {
+            if (MediaRecorder.isTypeSupported(mimeType)) {
+                return { mimeType };
+            }
+        }
+        return {};
+    }
+
+    async function toggleVoiceRecording() {
+        if (chatIsRecording) {
+            stopVoiceRecording();
+            return;
+        }
+        if (chatIsBusy) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            addMessage('Trình duyệt hiện không hỗ trợ ghi âm.', 'bot');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            chatAudioChunks = [];
+            chatRecorder = new MediaRecorder(stream, getRecorderOptions());
+
+            chatRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    chatAudioChunks.push(event.data);
+                }
+            };
+
+            chatRecorder.onstop = () => {
+                stream.getTracks().forEach((track) => track.stop());
+                finishVoiceRecording();
+            };
+
+            chatRecorder.start();
+            setRecordingState(true);
+            chatRecordingTimer = window.setTimeout(stopVoiceRecording, CHAT_MAX_RECORDING_MS);
+        } catch (err) {
+            addMessage('Mình chưa lấy được quyền microphone. Hãy kiểm tra quyền ghi âm của trình duyệt.', 'bot');
+        }
+    }
+
+    function stopVoiceRecording() {
+        window.clearTimeout(chatRecordingTimer);
+        if (chatRecorder && chatRecorder.state !== 'inactive') {
+            chatRecorder.stop();
+        } else {
+            setRecordingState(false);
+        }
+    }
+
+    async function finishVoiceRecording() {
+        setRecordingState(false);
+        if (!chatAudioChunks.length) {
+            addMessage('Mình chưa nhận được âm thanh. Bạn thử nói lại gần micro hơn nhé.', 'bot');
+            return;
+        }
+
+        const mimeType = chatRecorder && chatRecorder.mimeType ? chatRecorder.mimeType : 'audio/webm';
+        const audioBlob = new Blob(chatAudioChunks, { type: mimeType });
+        if (audioBlob.size > CHAT_MAX_AUDIO_BYTES) {
+            addMessage('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot');
+            return;
+        }
+
+        await sendVoiceMessage(audioBlob, mimeType);
+    }
+
+    async function sendVoiceMessage(audioBlob, mimeType) {
+        setChatBusy(true);
+        setVoiceStatus('Đang xử lý...');
+
+        const form = new FormData();
+        const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        form.append('audio', audioBlob, `chat-voice.${extension}`);
+        form.append('locale', 'vi');
+        form.append('context_slots', JSON.stringify(contextSlots || {}));
+
+        try {
+            const res = await fetch('/api/voice/parse/', {
+                method: 'POST',
+                body: form
+            });
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+                addMessage(data.error || 'Mình chưa nhận được nội dung giọng nói. Bạn thử lại nhé.', 'bot');
+                return;
+            }
+
+            const heardText = data.cleaned_transcript || data.transcript;
+            if (heardText) {
+                addMessage(heardText, 'user');
+            }
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Có lỗi khi xử lý giọng nói, vui lòng thử lại.', 'bot');
+        } finally {
+            setVoiceStatus('');
+            setChatBusy(false);
         }
     }
 </script>

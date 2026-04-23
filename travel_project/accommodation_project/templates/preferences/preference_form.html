@@ -95,12 +95,15 @@
             </div>
 
             <div class="ai-input-wrap">
+                <button type="button" id="prefVoiceBtn" onclick="togglePrefVoiceRecording()" class="ai-icon-btn ai-voice-btn" aria-label="Ghi âm" title="Ghi âm">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
                 <textarea id="userText" rows="2" placeholder="Nhập nhu cầu của bạn..." onkeydown="if(event.ctrlKey && event.key==='Enter') submitChat()"></textarea>
-                <button type="button" onclick="submitChat()" class="ai-send-btn">
+                <button type="button" id="prefSendBtn" onclick="submitChat()" class="ai-icon-btn ai-send-btn" aria-label="Gửi" title="Gửi">
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
             </div>
-            <p class="ai-hint-small">Ctrl + Enter để gửi</p>
+            <p class="ai-hint-small"><span id="prefVoiceStatus"></span><span>Ctrl + Enter để gửi</span></p>
         </div>
 
     </div>
@@ -108,6 +111,14 @@
 
 <script>
 let prefContextSlots = {};
+let prefRecorder = null;
+let prefAudioChunks = [];
+let prefRecordingTimer = null;
+let prefIsRecording = false;
+let prefIsBusy = false;
+
+const PREF_MAX_RECORDING_MS = 15000;
+const PREF_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 
 function addMsg(text, type) {
     const box = document.getElementById('chatBox');
@@ -127,17 +138,78 @@ function getCookie(name) {
     return value;
 }
 
-async function submitChat() {
-    const text = document.getElementById('userText').value.trim();
-    if (!text) return;
+function setPrefBusy(isBusy) {
+    prefIsBusy = isBusy;
+    document.getElementById('prefSendBtn').disabled = isBusy;
+    document.getElementById('userText').disabled = isBusy;
+    if (!prefIsRecording) {
+        document.getElementById('prefVoiceBtn').disabled = isBusy;
+    }
+}
 
-    addMsg(text, 'user');
-    document.getElementById('userText').value = '';
+function setPrefVoiceStatus(text) {
+    document.getElementById('prefVoiceStatus').textContent = text || '';
+}
 
+function setPrefRecordingState(isRecording) {
+    prefIsRecording = isRecording;
+    const voiceBtn = document.getElementById('prefVoiceBtn');
+    const icon = voiceBtn.querySelector('i');
+    voiceBtn.classList.toggle('recording', isRecording);
+    voiceBtn.disabled = false;
+    voiceBtn.setAttribute('aria-label', isRecording ? 'Dừng ghi âm' : 'Ghi âm');
+    voiceBtn.title = isRecording ? 'Dừng ghi âm' : 'Ghi âm';
+    icon.className = isRecording ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+    setPrefVoiceStatus(isRecording ? 'Đang nghe...' : '');
+}
+
+function addPrefLoading() {
     const loading = document.createElement('div');
     loading.className = 'ai-msg bot ai-loading';
     loading.textContent = '...';
     document.getElementById('chatBox').appendChild(loading);
+    return loading;
+}
+
+function handlePrefChatResult(data) {
+    const result = data.parsed_result || data;
+    if (result.slots || data.slots) {
+        prefContextSlots = result.slots || data.slots;
+    }
+
+    if (data.save_error) {
+        addMsg('Mình đã hiểu nhu cầu nhưng chưa lưu được yêu cầu. Vui lòng thử lại.', 'bot error');
+        return;
+    }
+
+    if (result.ready_for_recommendation && (data.recommendation_url || result.recommendation_url)) {
+        addMsg('Đã đủ thông tin! Đang chuyển trang...', 'bot success');
+        setTimeout(() => window.location.href = data.recommendation_url || result.recommendation_url, 1000);
+        return;
+    }
+
+    if (result.follow_up_question) {
+        addMsg(result.follow_up_question, 'bot');
+    } else if (data.confirmation && data.confirmation.question) {
+        addMsg(data.confirmation.question, 'bot');
+    } else {
+        addMsg('Bạn có thể mô tả thêm nhu cầu không?', 'bot');
+    }
+
+    if (result.missing_slots && result.missing_slots.length > 0) {
+        addMsg('Còn thiếu: ' + result.missing_slots.join(', '), 'bot hint');
+    }
+}
+
+async function submitChat() {
+    const text = document.getElementById('userText').value.trim();
+    if (!text || prefIsBusy) return;
+
+    addMsg(text, 'user');
+    document.getElementById('userText').value = '';
+
+    setPrefBusy(true);
+    const loading = addPrefLoading();
 
     try {
         const res = await fetch('/chat_api/submit/', {
@@ -146,32 +218,127 @@ async function submitChat() {
                 'Content-Type': 'application/json',
                 'X-CSRFToken': getCookie('csrftoken')
             },
-            body: JSON.stringify({ text, locale: 'vi', context_slots: prefContextSlots })  // ← đổi
+            body: JSON.stringify({ text, locale: 'vi', context_slots: prefContextSlots })
         });
 
         loading.remove();
         const data = await res.json();
-        if (data.slots) prefContextSlots = data.slots;  // ← đổi
-
-        if (data.ready_for_recommendation && data.recommendation_url) {
-            addMsg('Đã đủ thông tin! Đang chuyển trang...', 'bot success');
-            setTimeout(() => window.location.href = data.recommendation_url, 1000);
-            return;
-        }
-
-        if (data.follow_up_question) {
-            addMsg(data.follow_up_question, 'bot');
-        } else {
-            addMsg('Bạn có thể mô tả thêm nhu cầu không?', 'bot');
-        }
-
-        if (data.missing_slots && data.missing_slots.length > 0) {
-            addMsg('Còn thiếu: ' + data.missing_slots.join(', '), 'bot hint');
-        }
-
+        handlePrefChatResult(data);
     } catch (err) {
         loading.remove();
         addMsg('Có lỗi xảy ra, vui lòng thử lại.', 'bot error');
+    } finally {
+        setPrefBusy(false);
+    }
+}
+
+function getPrefRecorderOptions() {
+    const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+    if (!window.MediaRecorder) return {};
+    for (const mimeType of preferredTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+            return { mimeType };
+        }
+    }
+    return {};
+}
+
+async function togglePrefVoiceRecording() {
+    if (prefIsRecording) {
+        stopPrefVoiceRecording();
+        return;
+    }
+    if (prefIsBusy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        addMsg('Trình duyệt hiện không hỗ trợ ghi âm.', 'bot error');
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        prefAudioChunks = [];
+        prefRecorder = new MediaRecorder(stream, getPrefRecorderOptions());
+
+        prefRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                prefAudioChunks.push(event.data);
+            }
+        };
+
+        prefRecorder.onstop = () => {
+            stream.getTracks().forEach((track) => track.stop());
+            finishPrefVoiceRecording();
+        };
+
+        prefRecorder.start();
+        setPrefRecordingState(true);
+        prefRecordingTimer = window.setTimeout(stopPrefVoiceRecording, PREF_MAX_RECORDING_MS);
+    } catch (err) {
+        addMsg('Mình chưa lấy được quyền microphone. Hãy kiểm tra quyền ghi âm của trình duyệt.', 'bot error');
+    }
+}
+
+function stopPrefVoiceRecording() {
+    window.clearTimeout(prefRecordingTimer);
+    if (prefRecorder && prefRecorder.state !== 'inactive') {
+        prefRecorder.stop();
+    } else {
+        setPrefRecordingState(false);
+    }
+}
+
+async function finishPrefVoiceRecording() {
+    setPrefRecordingState(false);
+    if (!prefAudioChunks.length) {
+        addMsg('Mình chưa nhận được âm thanh. Bạn thử nói lại gần micro hơn nhé.', 'bot error');
+        return;
+    }
+
+    const mimeType = prefRecorder && prefRecorder.mimeType ? prefRecorder.mimeType : 'audio/webm';
+    const audioBlob = new Blob(prefAudioChunks, { type: mimeType });
+    if (audioBlob.size > PREF_MAX_AUDIO_BYTES) {
+        addMsg('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot error');
+        return;
+    }
+
+    await submitVoiceChat(audioBlob, mimeType);
+}
+
+async function submitVoiceChat(audioBlob, mimeType) {
+    setPrefBusy(true);
+    setPrefVoiceStatus('Đang xử lý...');
+    const loading = addPrefLoading();
+
+    const form = new FormData();
+    const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    form.append('audio', audioBlob, `find-recommendation.${extension}`);
+    form.append('locale', 'vi');
+    form.append('context_slots', JSON.stringify(prefContextSlots || {}));
+
+    try {
+        const res = await fetch('/api/voice/parse/', {
+            method: 'POST',
+            body: form
+        });
+        const data = await res.json();
+        loading.remove();
+
+        if (!res.ok || !data.success) {
+            addMsg(data.error || 'Mình chưa nhận được nội dung giọng nói. Bạn thử lại nhé.', 'bot error');
+            return;
+        }
+
+        const heardText = data.cleaned_transcript || data.transcript;
+        if (heardText) {
+            addMsg(heardText, 'user');
+        }
+        handlePrefChatResult(data);
+    } catch (err) {
+        loading.remove();
+        addMsg('Có lỗi khi xử lý giọng nói, vui lòng thử lại.', 'bot error');
+    } finally {
+        setPrefVoiceStatus('');
+        setPrefBusy(false);
     }
 }
 </script>
