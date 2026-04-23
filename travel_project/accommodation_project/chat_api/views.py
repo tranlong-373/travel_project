@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 from django.http import JsonResponse
@@ -7,13 +8,18 @@ from django.views.decorators.csrf import csrf_exempt
 from .recommendation_bridge import create_preference_from_parse
 from .services import parse_user_text
 
+logger = logging.getLogger(__name__)
+
 
 def health(request):
     return JsonResponse(
         {
             "status": "ok",
             "service": "chat_api",
-            "parser_mode": "deterministic_fast",
+            "parser_mode": "hybrid_hf_transformers",
+            "model": os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
+            "llm_strategy": os.getenv("CHAT_API_LLM_STRATEGY", "auto"),
+            "prompt_example_count": os.getenv("CHAT_API_PROMPT_EXAMPLE_COUNT", "5"),
             "use_ner_fallback": os.getenv("CHAT_API_USE_NER", "0") == "1",
         }
     )
@@ -34,7 +40,11 @@ def parse_message(request):
 
     locale = _normalize_locale(body.get("locale"))
     context_slots = body.get("context_slots")
-    result = parse_user_text(text, locale=locale, context_slots=context_slots)
+    try:
+        result = parse_user_text(text, locale=locale, context_slots=context_slots)
+    except Exception:
+        logger.exception("chat_api parse endpoint failed")
+        return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
     return JsonResponse(result, status=200)
 
 
@@ -53,7 +63,11 @@ def submit_message(request):
 
     locale = _normalize_locale(body.get("locale"))
     context_slots = body.get("context_slots")
-    result = parse_user_text(text, locale=locale, context_slots=context_slots)
+    try:
+        result = parse_user_text(text, locale=locale, context_slots=context_slots)
+    except Exception:
+        logger.exception("chat_api submit endpoint failed")
+        return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
 
     if not result["ready_for_recommendation"]:
         result.update(

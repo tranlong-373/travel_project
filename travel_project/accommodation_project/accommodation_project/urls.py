@@ -11,4 +11,6 @@ urlpatterns = [
     path('preferences/', include('preferences.urls')),
     path('recommendations/', include('recommendations.urls')),
     path('chat_api/', include('chat_api.urls')),
+    path('api/chat/', include('chat_api.urls')),
+    path('api/voice/', include('voice_api.urls')),
 ]

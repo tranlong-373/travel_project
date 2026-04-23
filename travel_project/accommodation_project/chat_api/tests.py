@@ -1,5 +1,13 @@
+import json
+import os
+from unittest.mock import patch
+
+os.environ.setdefault("CHAT_API_ENABLE_HF_AGENT", "0")
+
 from django.test import SimpleTestCase
 
+from .agent.llm_parser import _extract_json_object
+from .agent.schema_normalizer import extract_budget_bounds, normalize_parsed_result
 from .services import parse_user_text
 
 
@@ -69,7 +77,7 @@ class DeterministicParserTests(SimpleTestCase):
 
         self.assertFalse(result["ready_for_recommendation"])
         self.assertEqual(result["location_status"], "unsupported")
-        self.assertIsNone(result["slots"]["area"])
+        self.assertEqual(result["slots"]["area"], "đà nẵng")
 
     def test_conflicting_supported_locations_block_recommendation(self):
         result = parse_user_text("Tôi muốn ở gần Bến Thành ở Hà Nội cho 2 người, 1tr")
@@ -97,7 +105,7 @@ class DeterministicParserTests(SimpleTestCase):
                 result = parse_user_text(text)
                 self.assertEqual(result["location_status"], "unsupported")
                 self.assertIsNone(result["canonical_area"])
-                self.assertIsNone(result["slots"]["area"])
+                self.assertIsNotNone(result["slots"]["area"])
                 self.assertFalse(result["ready_for_recommendation"])
 
     def test_cho_ray_resolves_to_supported_tp_hcm(self):
@@ -117,17 +125,17 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertEqual(multiple_choice["location_status"], "multiple_choice")
         self.assertFalse(multiple_choice["ready_for_recommendation"])
 
-    def test_resort_stays_null_until_downstream_supports_it(self):
+    def test_resort_is_extracted_for_business_logic(self):
         cases = [
-            "Tìm resort ở Phú Quốc cho 2 người, gần biển, không cần quá rẻ",
+            "Tìm resort ở Phú Quốc cho 2 người, gần biển, không cần quá rẻ, 2tr",
             "Budget 2 million, need a resort in Phan Thiet for a couple",
-            "Mình muốn resort ở Phú Quốc có hồ bơi, 2 người, 3 đêm",
+            "Mình muốn resort ở Phú Quốc có hồ bơi, 2 người, 3 đêm, 2tr",
         ]
 
         for text in cases:
             with self.subTest(text=text):
                 result = parse_user_text(text)
-                self.assertIsNone(result["slots"]["preferred_type"])
+                self.assertEqual(result["slots"]["preferred_type"], "resort")
 
     def test_context_slots_keep_area_for_follow_up_answers(self):
         first = parse_user_text("Khách sạn ở Hà Nội cho 2 người")
@@ -139,3 +147,104 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertEqual(follow_up["location_status"], "ok")
         self.assertEqual(follow_up["slots"]["area"], "hà nội")
         self.assertEqual(follow_up["slots"]["budget"], 900_000)
+        self.assertEqual(follow_up["slots"]["budget_max"], 900_000)
+
+
+class SchemaNormalizerTests(SimpleTestCase):
+    def test_budget_range_and_compact_million_text(self):
+        self.assertEqual(extract_budget_bounds("từ 500 đến 900k"), (500_000, 900_000))
+        self.assertEqual(extract_budget_bounds("tầm 1tr2 đổ lại"), (None, 1_200_000))
+
+    def test_normalizer_combines_llm_output_with_rule_fallback(self):
+        fallback = {
+            "slots": {
+                "area": None,
+                "budget": None,
+                "guest_count": None,
+                "preferred_type": None,
+                "required_amenities": [],
+                "priorities": [],
+                "special_requirements": [],
+            },
+            "location_status": "unresolved",
+            "location_candidates": [],
+        }
+        model_payload = {
+            "slots": {
+                "area": "Vũng Tàu",
+                "budget_max": "800k",
+                "guest_count": 2,
+                "preferred_type": "resort",
+                "required_amenities": ["hồ bơi"],
+                "priorities": ["view đẹp", "gần biển"],
+                "special_requirements": ["couple"],
+            }
+        }
+
+        result = normalize_parsed_result(
+            model_payload,
+            raw_text="resort Vũng Tàu cho couple, 800k, hồ bơi view đẹp gần biển",
+            fallback_result=fallback,
+        )
+
+        self.assertEqual(result["slots"]["area"], "vũng tàu")
+        self.assertEqual(result["slots"]["budget_max"], 800_000)
+        self.assertEqual(result["slots"]["preferred_type"], "resort")
+        self.assertIn("pool", result["slots"]["required_amenities"])
+        self.assertIn("nice_view", result["slots"]["priorities"])
+        self.assertIn("near_beach", result["slots"]["priorities"])
+        self.assertIn("couple_friendly", result["slots"]["special_requirements"])
+
+
+class LLMParserUtilityTests(SimpleTestCase):
+    def test_extract_json_object_repairs_markdown_wrapper(self):
+        payload = _extract_json_object(
+            '```json\n{"intent":"recommend_accommodation","slots":{"area":"tp hcm"}}\n```'
+        )
+
+        self.assertEqual(payload["slots"]["area"], "tp hcm")
+
+
+class ParseEndpointTests(SimpleTestCase):
+    def test_api_chat_parse_alias_works(self):
+        response = self.client.post(
+            "/api/chat/parse/",
+            data=json.dumps({"text": "Khách sạn ở Sài Gòn cho 2 người, 900k"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["intent"], "recommend_accommodation")
+        self.assertEqual(data["slots"]["area"], "tp hcm")
+        self.assertEqual(data["slots"]["budget_max"], 900_000)
+
+    def test_api_chat_parse_requires_text(self):
+        response = self.client.post(
+            "/api/chat/parse/",
+            data=json.dumps({"text": ""}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+
+class ParserPerformanceStrategyTests(SimpleTestCase):
+    def test_auto_strategy_skips_hf_when_rule_result_is_enough(self):
+        with patch.dict(os.environ, {"CHAT_API_ENABLE_HF_AGENT": "1", "CHAT_API_LLM_STRATEGY": "auto"}):
+            with patch("chat_api.agent.llm_parser.get_hf_slot_parser") as mock_get_parser:
+                result = parse_user_text("Khách sạn ở Sài Gòn cho 2 người, 900k")
+
+        mock_get_parser.assert_not_called()
+        self.assertTrue(result["ready_for_recommendation"])
+        self.assertEqual(result["parser_mode"], "hybrid_rule_fast")
+
+    def test_auto_strategy_skips_hf_for_follow_up_question(self):
+        with patch.dict(os.environ, {"CHAT_API_ENABLE_HF_AGENT": "1", "CHAT_API_LLM_STRATEGY": "auto"}):
+            with patch("chat_api.agent.llm_parser.get_hf_slot_parser") as mock_get_parser:
+                result = parse_user_text("có chỗ nào gần trung tâm, yên tĩnh, có wifi mạnh để làm việc không")
+
+        mock_get_parser.assert_not_called()
+        self.assertFalse(result["ready_for_recommendation"])
+        self.assertIn("area", result["missing_slots"])
+        self.assertEqual(result["parser_mode"], "hybrid_rule_fast")

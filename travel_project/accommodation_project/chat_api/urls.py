@@ -3,6 +3,7 @@ from . import views
 
 urlpatterns = [
     path("", views.parse_message, name="chat_api_parse"),      # mặc định parse
+    path("parse/", views.parse_message, name="chat_api_parse_explicit"),
     path("submit/", views.submit_message, name="chat_api_submit"),
     path("health/", views.health, name="chat_api_health"),
 ]
