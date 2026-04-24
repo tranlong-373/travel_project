@@ -8,6 +8,8 @@ class Profile(models.Model):
     full_name = models.CharField(max_length=100, blank=True)
     phone = models.CharField(max_length=20, blank=True)
     address = models.CharField(max_length=255, blank=True)
+    firebase_uid = models.CharField(max_length=128, blank=True, db_index=True)
+    avatar_url = models.URLField(blank=True)
 
     def __str__(self):
         return self.user.username

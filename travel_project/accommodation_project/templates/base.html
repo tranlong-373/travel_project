@@ -111,6 +111,64 @@
         box.scrollTop = box.scrollHeight;
     }
 
+    function formatConfirmValue(value) {
+        if (Array.isArray(value)) {
+            return value.join(', ');
+        }
+        if (typeof value === 'boolean') {
+            return value ? 'Có' : 'Không';
+        }
+        return value;
+    }
+
+    function addConfirmationTable(result) {
+        const box = document.getElementById('chatMessages');
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card';
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.follow_up_question || 'Bạn kiểm tra lại thông tin giúp mình nhé.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table';
+        (result.confirm_table || []).forEach((item) => {
+            const row = document.createElement('tr');
+            const label = document.createElement('th');
+            const value = document.createElement('td');
+            label.textContent = item.label;
+            value.textContent = formatConfirmValue(item.value);
+            row.appendChild(label);
+            row.appendChild(value);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+
+        const actions = document.createElement('div');
+        actions.className = 'chat-confirm-actions';
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.type = 'button';
+        confirmBtn.textContent = 'Xác nhận thông tin';
+        confirmBtn.onclick = confirmChatRequest;
+
+        const addMoreBtn = document.createElement('button');
+        addMoreBtn.type = 'button';
+        addMoreBtn.className = 'secondary';
+        addMoreBtn.textContent = 'Tôi còn yêu cầu thêm';
+        addMoreBtn.onclick = () => {
+            addMessage('Bạn nhập thêm yêu cầu, mình sẽ cập nhật lại bảng xác nhận.', 'bot');
+            document.getElementById('chatInput').focus();
+        };
+
+        actions.appendChild(confirmBtn);
+        actions.appendChild(addMoreBtn);
+        card.appendChild(actions);
+        box.appendChild(card);
+        box.scrollTop = box.scrollHeight;
+    }
+
     function setChatBusy(isBusy) {
         chatIsBusy = isBusy;
         document.getElementById('chatSendBtn').disabled = isBusy;
@@ -153,7 +211,7 @@
         setChatBusy(true);
 
         try {
-            const res = await fetch('/chat_api/submit/', {
+            const res = await fetch('/chat_api/parse/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -181,6 +239,11 @@
             return;
         }
 
+        if (result.confirmation_required || result.awaiting_confirmation) {
+            addConfirmationTable(result);
+            return;
+        }
+
         if (result.ready_for_recommendation && (data.recommendation_url || result.recommendation_url)) {
             addMessage('Mình đã lưu nhu cầu và tìm được chỗ phù hợp cho bạn.', 'bot');
             setTimeout(() => {
@@ -200,6 +263,33 @@
         }
 
         addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
+    }
+
+    async function confirmChatRequest() {
+        if (chatIsBusy || !contextSlots || Object.keys(contextSlots).length === 0) return;
+
+        setChatBusy(true);
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    confirmed: true,
+                    slots: contextSlots,
+                    locale: 'vi'
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || data.save_error) {
+                addMessage(data.error || data.save_error || 'Chưa lưu được yêu cầu. Vui lòng thử lại.', 'bot');
+                return;
+            }
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Có lỗi khi xác nhận thông tin, vui lòng thử lại.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
     }
 
     function getRecorderOptions() {

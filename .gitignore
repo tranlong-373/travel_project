@@ -18,6 +18,8 @@ db_*.sqlite3
 staticfiles/
 media/
 .env
+**/secrets/
+*.json
 *.log
 
 # Local machine settings

@@ -17,7 +17,7 @@ class SlotSpec:
     question_en: Optional[str] = None
 
 
-SCHEMA_VERSION = "1.1"
+SCHEMA_VERSION = "2.0"
 INTENT_DEFAULT = "recommend_accommodation"
 
 # Đồng bộ với DB/recommend hiện tại của bạn cậu
@@ -116,7 +116,7 @@ SLOTS: dict[str, SlotSpec] = {
     ),
     "trip_days": SlotSpec(
         key="trip_days",
-        level="optional",
+        level="core",
         value_type="int",
         description="Số ngày đi.",
         question_vi="Bạn đi mấy ngày?",

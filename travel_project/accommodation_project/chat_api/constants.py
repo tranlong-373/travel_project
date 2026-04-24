@@ -105,6 +105,9 @@ PRIORITY_MAP = {
 
 SPECIAL_REQUIREMENT_MAP = {
     "có em bé": "baby_friendly",
+    "có trẻ em": "baby_friendly",
+    "tre em": "baby_friendly",
+    "trẻ em": "baby_friendly",
     "trẻ nhỏ": "baby_friendly",
     "bé nhỏ": "baby_friendly",
     "em bé": "baby_friendly",

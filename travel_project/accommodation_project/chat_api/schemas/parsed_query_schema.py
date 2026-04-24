@@ -4,10 +4,10 @@ from copy import deepcopy
 from typing import Any
 
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "2.0"
 INTENT_DEFAULT = "recommend_accommodation"
 
-CORE_MISSING_KEYS = ("area", "budget", "guest_count")
+CORE_MISSING_KEYS = ("area", "budget", "guest_count", "trip_days")
 
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
 ALLOWED_TYPES = DOWNSTREAM_TYPES | {"resort", "villa"}
@@ -62,4 +62,3 @@ DEFAULT_SLOTS: dict[str, Any] = {
 
 def empty_slots() -> dict[str, Any]:
     return deepcopy(DEFAULT_SLOTS)
-

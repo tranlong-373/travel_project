@@ -5,6 +5,7 @@ import os
 import re
 from typing import Any
 
+from .constants import NUMBER_WORDS
 from .extractors import (
     extract_budget,
     find_unsupported_type_candidates,
@@ -17,7 +18,7 @@ from .extractors import (
 )
 from .gate import evaluate_parse_gate
 from .location_resolver import resolve_location
-from .normalizers import normalize_text
+from .normalizers import normalize_key, normalize_text
 from .questions import build_suggested_questions
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .validators import validate_and_normalize_slots
@@ -25,6 +26,32 @@ from .validators import validate_and_normalize_slots
 USE_NER_FALLBACK = os.getenv("CHAT_API_USE_NER", "0") == "1"
 INCLUDE_PARSE_DIAGNOSTICS = os.getenv("CHAT_API_INCLUDE_DIAGNOSTICS", "0") == "1"
 logger = logging.getLogger(__name__)
+
+CONFIRM_CORE_KEYS = ("area", "guest_count", "budget", "trip_days")
+CONFIRM_SKIP_KEYS = {"budget_min", "budget_max"}
+CONFIRM_LABELS = {
+    "area": "Khu vực",
+    "guest_count": "Số người",
+    "budget": "Ngân sách",
+    "budget_min": "Ngân sách tối thiểu",
+    "budget_max": "Ngân sách tối đa",
+    "trip_days": "Số ngày",
+    "preferred_type": "Loại chỗ ở",
+    "required_amenities": "Tiện nghi yêu cầu",
+    "priorities": "Ưu tiên",
+    "special_requirements": "Yêu cầu đặc biệt",
+    "check_in": "Ngày nhận phòng",
+    "check_out": "Ngày trả phòng",
+    "work_friendly": "Phù hợp làm việc",
+    "baby_friendly": "Phù hợp trẻ em",
+    "pet_friendly": "Cho phép thú cưng",
+    "near_center": "Gần trung tâm",
+    "quiet": "Yên tĩnh",
+    "pool": "Hồ bơi",
+    "wifi": "Wifi",
+    "parking": "Đỗ xe",
+    "breakfast": "Ăn sáng",
+}
 
 
 def _extract_area_fallback(text: str) -> str | None:
@@ -66,7 +93,7 @@ def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | Non
 
     merged = dict(context_slots)
 
-    for k in ["area", "budget", "guest_count", "preferred_type", "trip_days"]:
+    for k in ["area", "budget", "budget_min", "budget_max", "guest_count", "preferred_type", "trip_days"]:
         v = slots_new.get(k)
         if v is not None:
             merged[k] = v
@@ -77,6 +104,108 @@ def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | Non
         merged[k] = list(dict.fromkeys(list(base) + list(add)))
 
     return merged
+
+
+def _extract_bare_count_reply(text: str) -> int | None:
+    token = normalize_key(text).strip(" .,!?:;-/")
+    if not token:
+        return None
+    if re.fullmatch(r"\d{1,2}", token):
+        return int(token)
+    return NUMBER_WORDS.get(token)
+
+
+def _first_missing_core_slot(context_slots: dict[str, Any] | None) -> str | None:
+    if not context_slots:
+        return None
+
+    for key in CORE_SLOTS:
+        if key == "budget":
+            if not (context_slots.get("budget") or context_slots.get("budget_max")):
+                return key
+        elif not context_slots.get(key):
+            return key
+
+    return None
+
+
+def _apply_bare_count_follow_up(
+    slots_partial: dict[str, Any],
+    raw: str,
+    context_slots: dict[str, Any] | None,
+) -> None:
+    value = _extract_bare_count_reply(raw)
+    if value is None:
+        return
+
+    first_missing = _first_missing_core_slot(context_slots)
+    if first_missing == "guest_count" and slots_partial.get("guest_count") is None:
+        slots_partial["guest_count"] = value
+    elif first_missing == "trip_days" and slots_partial.get("trip_days") is None:
+        slots_partial["trip_days"] = value
+
+
+def _has_confirm_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _confirm_label(key: str) -> str:
+    return CONFIRM_LABELS.get(key, key.replace("_", " ").title())
+
+
+def _confirm_value(slots: dict[str, Any], key: str) -> Any:
+    if key == "budget":
+        return slots.get("budget") or slots.get("budget_max")
+    return slots.get(key)
+
+
+def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
+    table: list[dict[str, Any]] = []
+    included: set[str] = set()
+
+    for key in CONFIRM_CORE_KEYS:
+        value = _confirm_value(slots, key)
+        if _has_confirm_value(value):
+            table.append({"key": key, "label": _confirm_label(key), "value": value})
+            included.add(key)
+
+    for key, value in (slots or {}).items():
+        if key in included or key in CONFIRM_SKIP_KEYS:
+            continue
+        if _has_confirm_value(value):
+            table.append({"key": key, "label": _confirm_label(key), "value": value})
+
+    return table
+
+
+def add_confirmation_payload(result: dict[str, Any], *, locale: str = "vi") -> dict[str, Any]:
+    result["awaiting_confirmation"] = False
+    result["confirmation_required"] = False
+
+    if result.get("ready_for_recommendation") and not result.get("missing_slots"):
+        result["awaiting_confirmation"] = True
+        result["confirmation_required"] = True
+        result["confirm_table"] = build_confirm_table(result.get("slots") or {})
+        result["confirmation_options"] = [
+            {"id": "confirm", "label": "Xác nhận thông tin"},
+            {"id": "add_more", "label": "Tôi còn yêu cầu thêm"},
+        ]
+        if locale == "en":
+            result["follow_up_question"] = (
+                "Please review the information below. Do you want to confirm or add more requirements?"
+            )
+        else:
+            result["follow_up_question"] = (
+                "Bạn vui lòng kiểm tra lại thông tin bên dưới. Bạn muốn xác nhận hay thêm yêu cầu khác?"
+            )
+
+    return result
 
 
 def parse_user_text_rule_based(
@@ -115,6 +244,7 @@ def parse_user_text_rule_based(
         "special_requirements": extract_special_requirements(raw),
         "trip_days": extract_trip_days(raw),
     }
+    _apply_bare_count_follow_up(slots_partial, raw, context_slots)
 
     # NER chỉ là fallback tùy chọn, mặc định tắt để ưu tiên tốc độ
     if USE_NER_FALLBACK and location["location_status"] == "unresolved":
@@ -211,7 +341,7 @@ def parse_user_text_rule_based(
         if unsupported_type_candidates:
             response["diagnostics"]["unsupported_type_candidates"] = unsupported_type_candidates
 
-    return response
+    return add_confirmation_payload(response, locale=locale)
 
 
 def _hf_agent_enabled() -> bool:
@@ -262,25 +392,27 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
 
     strategy = _llm_strategy()
     if strategy == "never":
-        return fast_result
+        return add_confirmation_payload(fast_result, locale=locale)
     if strategy == "auto" and _can_answer_fast(fast_result):
-        return fast_result
+        return add_confirmation_payload(fast_result, locale=locale)
 
     try:
         from .agent.llm_parser import get_hf_slot_parser
 
-        return get_hf_slot_parser().parse(
+        result = get_hf_slot_parser().parse(
             text,
             locale=locale,
             context_slots=context_slots,
             fallback_result=fallback_result,
         )
+        return add_confirmation_payload(result, locale=locale)
     except Exception:
         logger.exception("chat_api hf parser failed before fallback")
 
-        return normalize_rule_result(
+        result = normalize_rule_result(
             text,
             locale=locale,
             context_slots=context_slots,
             fallback_result=fallback_result,
         )
+        return add_confirmation_payload(result, locale=locale)
