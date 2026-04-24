@@ -15,11 +15,11 @@ class DeterministicParserTests(SimpleTestCase):
     def test_core_slots_for_common_mixed_language_queries(self):
         cases = [
             (
-                "cần hostel ở Hà Nội cho 3 người, budget tầm 1tr2, có wifi là được",
+                "cần hostel ở Hà Nội cho 3 người, 2 ngày, budget tầm 1tr2, có wifi là được",
                 {"area": "hà nội", "budget": 1_200_000, "guest_count": 3},
             ),
             (
-                "Need a homestay ở TP HCM for 2 people, budget 1m, quiet and near center",
+                "Need a homestay ở TP HCM for 2 people, 3 nights, budget 1m, quiet and near center",
                 {"area": "tp hcm", "budget": 1_000_000, "guest_count": 2},
             ),
             (
@@ -40,10 +40,10 @@ class DeterministicParserTests(SimpleTestCase):
 
         self.assertFalse(result["ready_for_recommendation"])
         self.assertNotIn("cheap", result["slots"]["priorities"])
-        self.assertEqual(result["missing_slots"], ["budget"])
+        self.assertEqual(result["missing_slots"], ["budget", "trip_days"])
 
     def test_multiple_type_choice_does_not_force_preferred_type(self):
-        result = parse_user_text("Hotel or apartment in Hanoi for 3 people, near center, 2 million")
+        result = parse_user_text("Hotel or apartment in Hanoi for 3 people, 2 nights, near center, 2 million")
 
         self.assertTrue(result["ready_for_recommendation"])
         self.assertIsNone(result["slots"]["preferred_type"])
@@ -65,7 +65,7 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertIn("mỗi đêm", result["follow_up_question"])
 
     def test_supported_location_ok(self):
-        result = parse_user_text("Chỗ ở ở Sài Gòn gần Landmark 81 cho 2 người, budget 1tr5")
+        result = parse_user_text("Chỗ ở ở Sài Gòn gần Landmark 81 cho 2 người, 2 ngày, budget 1tr5")
 
         self.assertTrue(result["ready_for_recommendation"])
         self.assertEqual(result["location_status"], "ok")
@@ -109,7 +109,7 @@ class DeterministicParserTests(SimpleTestCase):
                 self.assertFalse(result["ready_for_recommendation"])
 
     def test_cho_ray_resolves_to_supported_tp_hcm(self):
-        result = parse_user_text("Hotel near Cho Ray for 1 person, 700k, safe area")
+        result = parse_user_text("Hotel near Cho Ray for 1 person, 2 ngày, 700k, safe area")
 
         self.assertEqual(result["location_status"], "ok")
         self.assertEqual(result["canonical_area"], "tp hcm")
@@ -142,12 +142,84 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertFalse(first["ready_for_recommendation"])
         self.assertEqual(first["slots"]["area"], "hà nội")
 
-        follow_up = parse_user_text("900k", context_slots=first["slots"])
+        follow_up = parse_user_text("900k 2 ngày", context_slots=first["slots"])
         self.assertTrue(follow_up["ready_for_recommendation"])
         self.assertEqual(follow_up["location_status"], "ok")
         self.assertEqual(follow_up["slots"]["area"], "hà nội")
         self.assertEqual(follow_up["slots"]["budget"], 900_000)
         self.assertEqual(follow_up["slots"]["budget_max"], 900_000)
+
+    def test_bare_number_follow_up_sets_missing_guest_count(self):
+        first = parse_user_text("Mình muốn ở Đà Lạt, khoảng 800k")
+        self.assertFalse(first["ready_for_recommendation"])
+        self.assertEqual(first["follow_up_question"], "Bạn đi mấy người?")
+        self.assertIsNone(first["slots"]["guest_count"])
+
+        follow_up = parse_user_text("2", context_slots=first["slots"])
+
+        self.assertFalse(follow_up["ready_for_recommendation"])
+        self.assertEqual(follow_up["slots"]["area"], "đà lạt")
+        self.assertEqual(follow_up["slots"]["budget"], 800_000)
+        self.assertEqual(follow_up["slots"]["guest_count"], 2)
+        self.assertEqual(follow_up["missing_slots"], ["trip_days"])
+        self.assertEqual(follow_up["follow_up_question"], "Bạn đi mấy ngày?")
+
+    def test_bare_number_follow_up_can_complete_confirmation(self):
+        first = parse_user_text("Mình muốn ở Đà Lạt, 3 ngày, khoảng 800k")
+        self.assertFalse(first["ready_for_recommendation"])
+        self.assertEqual(first["missing_slots"], ["guest_count"])
+
+        follow_up = parse_user_text("2", context_slots=first["slots"])
+
+        self.assertTrue(follow_up["ready_for_recommendation"])
+        self.assertTrue(follow_up["confirmation_required"])
+        self.assertEqual(follow_up["slots"]["guest_count"], 2)
+        self.assertEqual(follow_up["slots"]["trip_days"], 3)
+
+    def test_missing_trip_days_blocks_confirmation(self):
+        result = parse_user_text("Mình muốn đi Đà Lạt")
+
+        self.assertFalse(result["ready_for_recommendation"])
+        self.assertFalse(result["awaiting_confirmation"])
+        self.assertIn("budget", result["missing_slots"])
+        self.assertIn("guest_count", result["missing_slots"])
+        self.assertIn("trip_days", result["missing_slots"])
+        self.assertNotIn("confirm_table", result)
+
+    def test_ready_result_requires_confirmation_table(self):
+        result = parse_user_text("Mình muốn ở Đà Lạt cho 2 người, 3 ngày, khoảng 800k")
+
+        self.assertTrue(result["ready_for_recommendation"])
+        self.assertTrue(result["confirmation_required"])
+        self.assertTrue(result["awaiting_confirmation"])
+        self.assertEqual(result["schema_version"], "2.0")
+        keys = [item["key"] for item in result["confirm_table"]]
+        self.assertEqual(keys[:4], ["area", "guest_count", "budget", "trip_days"])
+        self.assertEqual(result["slots"]["area"], "đà lạt")
+        self.assertEqual(result["slots"]["guest_count"], 2)
+        self.assertEqual(result["slots"]["budget"], 800_000)
+        self.assertEqual(result["slots"]["trip_days"], 3)
+
+    def test_confirmation_table_includes_amenities(self):
+        result = parse_user_text("Mình muốn ở Đà Lạt cho 2 người 3 ngày tầm 800k, cần wifi và hồ bơi")
+
+        self.assertTrue(result["confirmation_required"])
+        self.assertIn("wifi", result["slots"]["required_amenities"])
+        self.assertIn("pool", result["slots"]["required_amenities"])
+        table = {item["key"]: item["value"] for item in result["confirm_table"]}
+        self.assertEqual(set(table["required_amenities"]), {"wifi", "pool"})
+
+    def test_add_more_merges_current_slots_and_lists(self):
+        first = parse_user_text("Mình muốn ở Đà Lạt cho 2 người, 3 ngày, khoảng 800k")
+        follow_up = parse_user_text("có trẻ em và cần chỗ yên tĩnh", context_slots=first["slots"])
+
+        self.assertTrue(follow_up["confirmation_required"])
+        self.assertEqual(follow_up["slots"]["area"], "đà lạt")
+        self.assertEqual(follow_up["slots"]["budget"], 800_000)
+        self.assertEqual(follow_up["slots"]["guest_count"], 2)
+        self.assertEqual(follow_up["slots"]["trip_days"], 3)
+        self.assertIn("baby_friendly", follow_up["slots"]["special_requirements"])
+        self.assertIn("quiet", follow_up["slots"]["priorities"])
 
 
 class SchemaNormalizerTests(SimpleTestCase):
@@ -209,7 +281,7 @@ class ParseEndpointTests(SimpleTestCase):
     def test_api_chat_parse_alias_works(self):
         response = self.client.post(
             "/api/chat/parse/",
-            data=json.dumps({"text": "Khách sạn ở Sài Gòn cho 2 người, 900k"}),
+            data=json.dumps({"text": "Khách sạn ở Sài Gòn cho 2 người, 2 ngày, 900k"}),
             content_type="application/json",
         )
 
@@ -228,12 +300,36 @@ class ParseEndpointTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 400)
 
+    def test_api_chat_parse_accepts_current_slots_alias(self):
+        response = self.client.post(
+            "/api/chat/parse/",
+            data=json.dumps(
+                {
+                    "text": "có trẻ em và cần chỗ yên tĩnh",
+                    "current_slots": {
+                        "area": "đà lạt",
+                        "budget": 800_000,
+                        "guest_count": 2,
+                        "trip_days": 3,
+                    },
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["confirmation_required"])
+        self.assertEqual(data["slots"]["area"], "đà lạt")
+        self.assertIn("baby_friendly", data["slots"]["special_requirements"])
+        self.assertIn("quiet", data["slots"]["priorities"])
+
 
 class ParserPerformanceStrategyTests(SimpleTestCase):
     def test_auto_strategy_skips_hf_when_rule_result_is_enough(self):
         with patch.dict(os.environ, {"CHAT_API_ENABLE_HF_AGENT": "1", "CHAT_API_LLM_STRATEGY": "auto"}):
             with patch("chat_api.agent.llm_parser.get_hf_slot_parser") as mock_get_parser:
-                result = parse_user_text("Khách sạn ở Sài Gòn cho 2 người, 900k")
+                result = parse_user_text("Khách sạn ở Sài Gòn cho 2 người, 2 ngày, 900k")
 
         mock_get_parser.assert_not_called()
         self.assertTrue(result["ready_for_recommendation"])

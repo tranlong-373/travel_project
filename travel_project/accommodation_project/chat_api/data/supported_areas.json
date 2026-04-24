@@ -94,5 +94,16 @@
       "quy nhon",
       "quy nhơn"
     ]
+  },
+  {
+    "id": "da_lat",
+    "canonical_name": "đà lạt",
+    "type": "city",
+    "parent_id": null,
+    "supported": true,
+    "aliases": [
+      "da lat",
+      "đà lạt"
+    ]
   }
 ]

@@ -1,6 +1,7 @@
 Django==4.2.9
 requests==2.32.5
 python-dotenv==1.0.1
+firebase-admin==6.5.0
 
 # Database SQL Server
 mssql-django==1.5

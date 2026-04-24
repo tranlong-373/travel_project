@@ -10,10 +10,20 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+REPO_ROOT = BASE_DIR.parent.parent
+
+ENV_PATH = BASE_DIR / '.env'
+if ENV_PATH.exists():
+    load_dotenv(ENV_PATH)
+else:
+    load_dotenv(REPO_ROOT / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -139,6 +149,60 @@ STATICFILES_DIRS = [BASE_DIR / 'static']
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+FIREBASE_API_KEY = os.getenv('FIREBASE_API_KEY', '')
+FIREBASE_AUTH_DOMAIN = os.getenv('FIREBASE_AUTH_DOMAIN', '')
+FIREBASE_DATABASE_URL = os.getenv('FIREBASE_DATABASE_URL', '')
+FIREBASE_PROJECT_ID = os.getenv('FIREBASE_PROJECT_ID', '')
+FIREBASE_STORAGE_BUCKET = os.getenv('FIREBASE_STORAGE_BUCKET', '')
+FIREBASE_MESSAGING_SENDER_ID = os.getenv('FIREBASE_MESSAGING_SENDER_ID', '')
+FIREBASE_APP_ID = os.getenv('FIREBASE_APP_ID', '')
+FIREBASE_MEASUREMENT_ID = os.getenv('FIREBASE_MEASUREMENT_ID', '')
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:8000')
+GOOGLE_URL = os.getenv('GOOGLE_URL', '')
+GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
+GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+GOOGLE_REDIRECT_URI = os.getenv('GOOGLE_REDIRECT_URI', '')
+FIREBASE_WEB_API_KEY = os.getenv('FIREBASE_WEB_API_KEY', FIREBASE_API_KEY)
+COOKIE_SECURE = os.getenv('COOKIE_SECURE', 'false').lower() in {'1', 'true', 'yes'}
+
+FIREBASE_ADMIN_CONFIG = {
+    'type': os.getenv('FIREBASE_ADMIN_TYPE', ''),
+    'project_id': os.getenv('FIREBASE_ADMIN_PROJECT_ID', ''),
+    'private_key_id': os.getenv('FIREBASE_ADMIN_PRIVATE_KEY_ID', ''),
+    'private_key': os.getenv('FIREBASE_ADMIN_PRIVATE_KEY', ''),
+    'client_email': os.getenv('FIREBASE_ADMIN_CLIENT_EMAIL', ''),
+    'client_id': os.getenv('FIREBASE_ADMIN_CLIENT_ID', ''),
+    'auth_uri': os.getenv('FIREBASE_ADMIN_AUTH_URI', ''),
+    'token_uri': os.getenv('FIREBASE_ADMIN_TOKEN_URI', ''),
+    'auth_provider_x509_cert_url': os.getenv(
+        'FIREBASE_ADMIN_AUTH_PROVIDER_X509_CERT_URL',
+        '',
+    ),
+    'client_x509_cert_url': os.getenv('FIREBASE_ADMIN_CLIENT_X509_CERT_URL', ''),
+    'universe_domain': os.getenv('FIREBASE_ADMIN_UNIVERSE_DOMAIN', ''),
+}
+
+FIREBASE_WEB_CONFIG = {
+    'apiKey': FIREBASE_API_KEY,
+    'authDomain': FIREBASE_AUTH_DOMAIN,
+    'databaseURL': FIREBASE_DATABASE_URL,
+    'projectId': FIREBASE_PROJECT_ID,
+    'storageBucket': FIREBASE_STORAGE_BUCKET,
+    'messagingSenderId': FIREBASE_MESSAGING_SENDER_ID,
+    'appId': FIREBASE_APP_ID,
+    'measurementId': FIREBASE_MEASUREMENT_ID,
+}
+
+GOOGLE_LOGIN = {
+    'google_url': GOOGLE_URL,
+    'google_client_id': GOOGLE_CLIENT_ID,
+    'google_client_secret': GOOGLE_CLIENT_SECRET,
+    'google_redirect_uri': GOOGLE_REDIRECT_URI,
+    'firebase_web_api_key': FIREBASE_WEB_API_KEY,
+    'frontend_url': FRONTEND_URL,
+    'cookie_secure': COOKIE_SECURE,
+}
 
 
 try:

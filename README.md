@@ -37,15 +37,17 @@ sau đó cập nhập một số setting cơ bản
 1. Frontend gửi câu user vào `POST /api/chat/parse/`.
 2. Nếu thiếu core slots, API trả `follow_up_question`.
 3. Frontend hỏi tiếp và gửi câu trả lời kèm `context_slots` cũ.
-4. Khi đủ `area`, `budget`, `guest_count` và `location_status = "ok"`, frontend gọi `POST /api/chat/submit/`.
-5. `chat_api` tạo `UserPreference` và trả `pref_id`, `recommendation_url`.
-6. Frontend mở hoặc gọi `GET /recommendations/<pref_id>/` để lấy trang kết quả recommendation.
+4. Khi đủ `area`, `budget`, `guest_count`, `trip_days` và `location_status = "ok"`, frontend hiển thị bảng xác nhận.
+5. Khi user xác nhận, frontend gọi `POST /api/chat/submit/` với slots đã xác nhận.
+6. `chat_api` tạo `UserPreference` và trả `pref_id`, `recommendation_url`.
+7. Frontend mở hoặc gọi `GET /recommendations/<pref_id>/` để lấy trang kết quả recommendation.
 
 Core slots bắt buộc:
 
 - `area`
 - `budget`
 - `guest_count`
+- `trip_days`
 
 Optional slots parser có thể trả:
 
@@ -53,7 +55,6 @@ Optional slots parser có thể trả:
 - `required_amenities`
 - `priorities`
 - `special_requirements`
-- `trip_days`
 
 Lưu ý: `priorities`, `special_requirements`, `trip_days` hiện có trong parse response nhưng chưa được lưu vào `UserPreference` và chưa được dùng trực tiếp trong recommender.
 
@@ -62,21 +63,104 @@ Lưu ý: `priorities`, `special_requirements`, `trip_days` hiện có trong pars
 Từ repo root:
 
 ```powershell
-cd accommodation_project
+cd travel_project\accommodation_project
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-python -m pip install django mssql-django pyodbc
+python -m pip install -r requirements.txt
 python manage.py migrate
 python seed.py
 python manage.py runserver
 ```
 
-Repo hiện chưa có `requirements.txt`. Nếu team thêm file này sau, có thể thay bước cài package bằng:
+Firebase Google login đọc cả client config và admin credentials từ `.env` cùng tầng với `manage.py`.
+
+## Cài Đặt Firebase Google Login
+
+Tạo file `.env` thật từ file mẫu, đặt cùng tầng với `manage.py`:
 
 ```powershell
-python -m pip install -r requirements.txt
+cd travel_project\accommodation_project
+copy .env.example .env
 ```
+
+Trên Linux/macOS:
+
+```bash
+cd travel_project/accommodation_project
+cp .env.example .env
+```
+
+Trong Firebase Console:
+
+1. Tạo hoặc mở Firebase project.
+2. Vào `Authentication` -> `Sign-in method` -> bật provider `Google`.
+3. Vào `Project settings` -> `General` -> tạo Web app nếu chưa có.
+4. Copy web config vào các biến `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_MEASUREMENT_ID`.
+5. `FIREBASE_WEB_API_KEY` dùng cùng giá trị với `FIREBASE_API_KEY`.
+
+Trong Firebase Admin:
+
+1. Vào `Project settings` -> `Service accounts`.
+2. Chọn `Generate new private key`.
+3. Không commit file JSON private key lên git.
+4. Copy từng field trong JSON vào nhóm biến `FIREBASE_ADMIN_*` trong `.env`.
+5. Với `FIREBASE_ADMIN_PRIVATE_KEY`, giữ trong dấu nháy kép và để ký tự xuống dòng dạng `\n`.
+
+Trong Google Cloud Console:
+
+1. Vào `APIs & Services` -> `Credentials`.
+2. Tạo hoặc mở OAuth Client loại `Web application`.
+3. Thêm `Authorized JavaScript origins`:
+
+```text
+http://127.0.0.1:8000
+http://localhost:8000
+```
+
+4. Thêm `Authorized redirect URIs` đúng y hệt `.env`:
+
+```text
+http://127.0.0.1:8000/auth/google/callback
+```
+
+Không thêm dấu `/` cuối URL callback. Nếu đổi sang `localhost` hoặc domain deploy thật, phải đổi cả `GOOGLE_REDIRECT_URI` trong `.env` và redirect URI trong Google Cloud cho trùng 100%.
+
+Các biến Google cần có trong `.env`:
+
+```env
+GOOGLE_URL=http://127.0.0.1:8000/auth/google/start
+GOOGLE_CLIENT_ID=YOUR_GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET=YOUR_GOOGLE_CLIENT_SECRET
+GOOGLE_REDIRECT_URI=http://127.0.0.1:8000/auth/google/callback
+FRONTEND_URL=http://127.0.0.1:8000
+COOKIE_SECURE=false
+```
+
+Sau khi điền `.env`, chạy:
+
+```powershell
+python manage.py migrate
+python manage.py runserver
+```
+
+Test tại:
+
+```text
+http://127.0.0.1:8000/accounts/login/
+```
+
+## Không Commit Secret
+
+Các file secret/local đã được ignore: `.env`, `**/secrets/`, `*.json`, `__pycache__/`, `*.pyc`. Trước khi push nên kiểm tra:
+
+```bash
+git status --short
+git check-ignore -v travel_project/accommodation_project/.env
+rg --hidden -n "AIz[a-zA-Z0-9_-]{30,}|GOCSPX-[A-Za-z0-9_-]+|BEGIN[ ]PRIVATE[ ]KEY|firebase-adminsdk-[A-Za-z0-9]+@" --glob '!**/.env' --glob '!**/.venv/**' --glob '!**/.git/**'
+```
+
+Nếu lỡ paste key thật vào git hoặc chat, hãy rotate lại key trong Firebase/Google Cloud trước khi dùng lâu dài.
 
 ## Database Và Local Settings
 
@@ -101,8 +185,8 @@ DATABASE_OVERRIDES = {
 
 ## Giới Hạn Hiện Tại
 
-- `chat_api` chỉ auto-ready khi đủ `area`, `budget`, `guest_count` và `location_status = "ok"`.
-- Location resolver hiện chỉ hỗ trợ scope: TP HCM, Hà Nội, Thanh Hóa, Đồng Nai, An Giang, Bình Định.
+- `chat_api` chỉ ready khi đủ `area`, `budget`, `guest_count`, `trip_days` và `location_status = "ok"`, sau đó cần user xác nhận trước khi submit.
+- Location resolver hiện chỉ hỗ trợ scope: TP HCM, Hà Nội, Thanh Hóa, Đồng Nai, An Giang, Bình Định, Đà Lạt.
 - `preferred_type = "resort"` chưa bật vì model downstream chỉ có `hotel`, `homestay`, `hostel`, `apartment`.
 - `GET /recommendations/<pref_id>/` hiện render HTML template, không phải JSON API.
 - Dữ liệu seed hiện chủ yếu là demo ở TP HCM, nên kết quả recommendation phụ thuộc dữ liệu thật trong DB.

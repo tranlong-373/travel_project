@@ -521,6 +521,43 @@
     opacity: 0.7;
 }
 
+.login-divider {
+    color: #fff;
+    font-size: 14px;
+    margin: 18px 0;
+    text-align: center;
+}
+
+.google-login-btn {
+    align-items: center;
+    background: #fff;
+    border: none;
+    border-radius: 4px;
+    color: #1e293b;
+    cursor: pointer;
+    display: flex;
+    font-size: 16px;
+    font-weight: 700;
+    gap: 10px;
+    justify-content: center;
+    padding: 16px;
+    width: 100%;
+}
+
+.google-login-btn:hover {
+    opacity: 0.9;
+}
+
+.google-login-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+
+.firebase-error {
+    display: none;
+    margin-top: 12px;
+}
+
 .remember input[type="checkbox"] {
     width: 16px;
     height: 16px;
@@ -940,6 +977,60 @@
     color: #fff;
     align-self: flex-end;
     border-bottom-right-radius: 4px;
+}
+
+.chat-confirm-card {
+    max-width: 96%;
+    width: 96%;
+}
+
+.chat-confirm-question {
+    margin: 0 0 10px;
+}
+
+.chat-confirm-table {
+    border-collapse: collapse;
+    margin: 8px 0 12px;
+    width: 100%;
+}
+
+.chat-confirm-table th,
+.chat-confirm-table td {
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 13px;
+    padding: 7px 0;
+    text-align: left;
+    vertical-align: top;
+}
+
+.chat-confirm-table th {
+    color: #64748b;
+    font-weight: 600;
+    padding-right: 10px;
+    width: 42%;
+}
+
+.chat-confirm-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.chat-confirm-actions button {
+    background: #1565c0;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 9px 10px;
+}
+
+.chat-confirm-actions button.secondary {
+    background: #fff;
+    border: 1px solid #cbd5e1;
+    color: #334155;
 }
 
 .chat-input-wrap {
@@ -1671,6 +1762,7 @@
 .ai-msg.hint { background: #fef9c3; color: #854d0e; border-color: #fef08a; }
 .ai-msg.error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .ai-msg.ai-loading { opacity: 0.5; font-style: italic; }
+.ai-msg.chat-confirm-card { max-width: 100%; width: 100%; }
 
 .ai-input-wrap {
     display: flex;
