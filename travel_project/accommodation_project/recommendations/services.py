@@ -158,8 +158,22 @@ def calculate_area_score(accommodation_area: str, requested_area: str) -> float:
     return 0.0
 
 
+def is_quality_first_request(req) -> bool:
+    return (
+        not getattr(req, "area", None)
+        and not getattr(req, "budget", None)
+        and not getattr(req, "required_amenities", None)
+        and getattr(req, "guest_count", 1) == 1
+        and getattr(req, "preferred_type", None) == "hotel"
+    )
+
+
 def calculate_matching_score(accom: Accommodation, req) -> float:
     """Thang điểm 5.0đ đánh giá độ sát sao với toàn bộ yêu cầu của khách hàng"""
+
+    if is_quality_first_request(req):
+        rating = accom.rating or 0
+        return round(float(rating), 2)
 
     # Ràng buộc cứng: Sức chứa không đủ -> rớt ngay
     if accom.capacity < req.guest_count:

@@ -29,6 +29,20 @@ logger = logging.getLogger(__name__)
 
 CONFIRM_CORE_KEYS = ("area", "guest_count", "budget", "trip_days")
 CONFIRM_SKIP_KEYS = {"budget_min", "budget_max"}
+RECOMMENDATION_SIGNAL_KEYS = (
+    "area",
+    "guest_count",
+    "budget",
+    "trip_days",
+    "preferred_type",
+    "required_amenities",
+    "priorities",
+    "special_requirements",
+)
+RECOMMENDATION_ALLOWED_LOCATION_STATUSES = {"ok", "unresolved"}
+HCM_DISTRICT_MIN = 1
+HCM_DISTRICT_MAX = 12
+GENERIC_RECOMMENDATION_PRIORITIES = ("high_rating",)
 CONFIRM_LABELS = {
     "area": "Khu vực",
     "guest_count": "Số người",
@@ -52,15 +66,56 @@ CONFIRM_LABELS = {
     "parking": "Đỗ xe",
     "breakfast": "Ăn sáng",
 }
+CONFIRM_VALUE_LABELS = {
+    "hotel": "Khách sạn",
+    "homestay": "Homestay",
+    "hostel": "Hostel",
+    "apartment": "Căn hộ",
+    "resort": "Resort",
+    "villa": "Biệt thự",
+    "wifi": "Wifi",
+    "pool": "Hồ bơi",
+    "parking": "Đỗ xe",
+    "air_conditioner": "Điều hòa",
+    "breakfast": "Ăn sáng",
+    "balcony": "Ban công",
+    "bathtub": "Bồn tắm",
+    "kitchen": "Bếp",
+    "washing_machine": "Máy giặt",
+    "near_center": "Gần trung tâm",
+    "near_beach": "Gần biển",
+    "cheap": "Giá tốt",
+    "quiet": "Yên tĩnh",
+    "high_rating": "Đánh giá cao",
+    "nice_view": "View đẹp",
+    "clean": "Sạch sẽ",
+    "convenient": "Tiện lợi",
+    "baby_friendly": "Phù hợp trẻ em",
+    "elderly_friendly": "Phù hợp người lớn tuổi",
+    "pet_friendly": "Cho phép thú cưng",
+    "work_friendly": "Phù hợp làm việc",
+    "family_friendly": "Phù hợp gia đình",
+    "couple_friendly": "Phù hợp cặp đôi",
+    "private": "Riêng tư",
+    "safe_area": "Khu vực an toàn",
+}
+HIDDEN_CONFIRM_PRIORITIES = {"high_rating"}
+
+
+def _format_hcm_district(raw_number: str) -> str | None:
+    district = int(raw_number)
+    if HCM_DISTRICT_MIN <= district <= HCM_DISTRICT_MAX:
+        return f"Quận {district}"
+    return None
 
 
 def _extract_area_fallback(text: str) -> str | None:
     text_lower = text.lower().strip()
 
     # Bắt các kiểu: quận 1, quan 1, q1, q.1, q 1, district 1
-    match = re.search(r"\b(?:quận|quan|q\.?|district)\s*(\d+)\b", text_lower)
+    match = re.search(r"\b(?:quận|quan|q\.?|district)\s*(\d{1,2})(?!\d)\b", text_lower)
     if match:
-        return f"Quận {match.group(1)}"
+        return _format_hcm_district(match.group(1))
 
     # Một số khu vực phổ biến
     if "thủ đức" in text_lower or "thu duc" in text_lower:
@@ -78,13 +133,36 @@ def _extract_area_fallback(text: str) -> str | None:
     if "phú nhuận" in text_lower or "phu nhuan" in text_lower:
         return "Phú Nhuận"
 
-    if "quận 7" in text_lower or "quan 7" in text_lower:
-        return "Quận 7"
-
-    if "quận 1" in text_lower or "quan 1" in text_lower:
-        return "Quận 1"
-
     return None
+
+
+def _is_general_recommendation_request(text: str) -> bool:
+    norm = normalize_key(text)
+    if not norm:
+        return False
+
+    intent_patterns = [
+        r"\b(?:toi|minh|tui|em|anh|chi)\s+(?:muon|can|dinh|tinh)\s+di(?:\s+(?:choi|du lich|nghi|nghi duong|cong tac))?(?:\s+thoi)?\b",
+        r"\b(?:muon|can|dinh|tinh)\s+di\s+(?:choi|du lich|nghi|nghi duong|cong tac)(?:\s+thoi)?\b",
+        r"\bdi\s+(?:choi|du lich|nghi|nghi duong)(?:\s+thoi)?\b",
+        r"\b(?:choi|du lich|nghi)\s+thoi\b",
+        r"\b(?:goi y|de xuat|tim|cho minh|cho toi)\s+(?:khach san|cho o|phong)?\s*(?:tot|tot nhat|chat luong|xin|rating cao|danh gia cao)\b",
+    ]
+    return any(re.search(pattern, norm) for pattern in intent_patterns)
+
+
+def _apply_general_recommendation_defaults(slots: dict[str, Any], text: str) -> None:
+    if not _is_general_recommendation_request(text):
+        return
+
+    if not slots.get("preferred_type"):
+        slots["preferred_type"] = "hotel"
+
+    priorities = slots.get("priorities") or []
+    for priority in GENERIC_RECOMMENDATION_PRIORITIES:
+        if priority not in priorities:
+            priorities.append(priority)
+    slots["priorities"] = priorities
 
 
 def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | None) -> dict[str, Any]:
@@ -165,21 +243,56 @@ def _confirm_value(slots: dict[str, Any], key: str) -> Any:
     return slots.get(key)
 
 
+def _display_confirm_value(value: Any) -> Any:
+    if isinstance(value, (list, tuple, set)):
+        return ", ".join(str(_display_confirm_value(item)) for item in value)
+    if isinstance(value, bool):
+        return "Có" if value else "Không"
+    if isinstance(value, str):
+        return CONFIRM_VALUE_LABELS.get(value, value)
+    return value
+
+
+def _visible_confirm_value(key: str, value: Any) -> Any:
+    if key == "priorities" and isinstance(value, (list, tuple, set)):
+        return [item for item in value if item not in HIDDEN_CONFIRM_PRIORITIES]
+    return value
+
+
+def has_recommendation_signal(slots: dict[str, Any] | None) -> bool:
+    slots = slots or {}
+    return any(
+        _has_confirm_value(_confirm_value(slots, key))
+        for key in RECOMMENDATION_SIGNAL_KEYS
+    )
+
+
 def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
     table: list[dict[str, Any]] = []
     included: set[str] = set()
 
     for key in CONFIRM_CORE_KEYS:
-        value = _confirm_value(slots, key)
+        value = _visible_confirm_value(key, _confirm_value(slots, key))
         if _has_confirm_value(value):
-            table.append({"key": key, "label": _confirm_label(key), "value": value})
+            table.append({
+                "key": key,
+                "label": _confirm_label(key),
+                "value": value,
+                "display_value": _display_confirm_value(value),
+            })
             included.add(key)
 
     for key, value in (slots or {}).items():
         if key in included or key in CONFIRM_SKIP_KEYS:
             continue
+        value = _visible_confirm_value(key, value)
         if _has_confirm_value(value):
-            table.append({"key": key, "label": _confirm_label(key), "value": value})
+            table.append({
+                "key": key,
+                "label": _confirm_label(key),
+                "value": value,
+                "display_value": _display_confirm_value(value),
+            })
 
     return table
 
@@ -187,23 +300,19 @@ def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
 def add_confirmation_payload(result: dict[str, Any], *, locale: str = "vi") -> dict[str, Any]:
     result["awaiting_confirmation"] = False
     result["confirmation_required"] = False
+    confirm_table = build_confirm_table(result.get("slots") or {})
 
-    if result.get("ready_for_recommendation") and not result.get("missing_slots"):
-        result["awaiting_confirmation"] = True
-        result["confirmation_required"] = True
-        result["confirm_table"] = build_confirm_table(result.get("slots") or {})
+    if confirm_table:
+        result["confirm_table"] = confirm_table
+        result["confirmation_heading"] = "Confirm information" if locale == "en" else "Xác nhận thông tin"
+        result["confirmation_prompt"] = (
+            "Do you want to add more information?"
+            if locale == "en"
+            else "Bạn muốn bổ sung thêm thông tin không?"
+        )
         result["confirmation_options"] = [
-            {"id": "confirm", "label": "Xác nhận thông tin"},
-            {"id": "add_more", "label": "Tôi còn yêu cầu thêm"},
+            {"id": "add_more", "label": "Tôi muốn bổ sung thêm thông tin"},
         ]
-        if locale == "en":
-            result["follow_up_question"] = (
-                "Please review the information below. Do you want to confirm or add more requirements?"
-            )
-        else:
-            result["follow_up_question"] = (
-                "Bạn vui lòng kiểm tra lại thông tin bên dưới. Bạn muốn xác nhận hay thêm yêu cầu khác?"
-            )
 
     return result
 
@@ -276,13 +385,14 @@ def parse_user_text_rule_based(
 
     if location["location_status"] != "ok":
         slots["area"] = None
+    _apply_general_recommendation_defaults(slots, raw)
 
     missing_slots = [k for k in CORE_SLOTS if not slots.get(k)]
     gate = evaluate_parse_gate(raw, slots, locale=locale, location_status=location["location_status"])
     ready_for_recommendation = (
-        len(missing_slots) == 0
+        has_recommendation_signal(slots)
         and gate["safe_for_recommendation"]
-        and location["location_status"] == "ok"
+        and location["location_status"] in RECOMMENDATION_ALLOWED_LOCATION_STATUSES
     )
 
     should_ask_optional = (
@@ -325,7 +435,7 @@ def parse_user_text_rule_based(
         "suggested_questions": suggested_questions,
         "ready_for_recommendation": ready_for_recommendation,
         "should_ask_optional": should_ask_optional,
-        "follow_up_question": suggested_questions[0] if suggested_questions else None,
+        "follow_up_question": suggested_questions[0] if suggested_questions and not ready_for_recommendation else None,
         "parser_mode": "deterministic_fast",
         "location_status": location["location_status"],
         "location_candidates": location.get("location_candidates", []),

@@ -65,6 +65,88 @@ LOCATION_CORRECTIONS = {
     "ha noij": "ha noi",
 }
 
+ACCENT_PHRASES = {
+    "thanh pho ho chi minh": "thành phố Hồ Chí Minh",
+    "ho chi minh city": "Hồ Chí Minh City",
+    "ho chi minh": "Hồ Chí Minh",
+    "tp ho chi minh": "TP Hồ Chí Minh",
+    "tp hcm": "TP HCM",
+    "sai gon": "Sài Gòn",
+    "ha noi": "Hà Nội",
+    "da lat": "Đà Lạt",
+    "thanh hoa": "Thanh Hóa",
+    "dong nai": "Đồng Nai",
+    "an giang": "An Giang",
+    "binh dinh": "Bình Định",
+    "ben thanh": "Bến Thành",
+    "cho ray": "Chợ Rẫy",
+    "tan son nhat": "Tân Sơn Nhất",
+    "khach san": "khách sạn",
+    "nha nghi": "nhà nghỉ",
+    "can ho": "căn hộ",
+    "cho o": "chỗ ở",
+    "di choi": "đi chơi",
+    "di du lich": "đi du lịch",
+    "nghi duong": "nghỉ dưỡng",
+    "goi y": "gợi ý",
+    "de xuat": "đề xuất",
+    "tot nhat": "tốt nhất",
+    "chat luong": "chất lượng",
+    "danh gia cao": "đánh giá cao",
+    "gan trung tam": "gần trung tâm",
+    "gan bien": "gần biển",
+    "yen tinh": "yên tĩnh",
+    "sach se": "sạch sẽ",
+    "view dep": "view đẹp",
+    "ho boi": "hồ bơi",
+    "dieu hoa": "điều hòa",
+    "may lanh": "máy lạnh",
+    "bai do xe": "bãi đỗ xe",
+    "cho dau xe": "chỗ đậu xe",
+    "may giat": "máy giặt",
+    "nha bep": "nhà bếp",
+    "an sang": "ăn sáng",
+    "ban cong": "ban công",
+    "bon tam": "bồn tắm",
+    "thu cung": "thú cưng",
+    "tre em": "trẻ em",
+    "em be": "em bé",
+    "nguoi lon tuoi": "người lớn tuổi",
+    "lam viec": "làm việc",
+    "cong tac": "công tác",
+    "rieng tu": "riêng tư",
+    "an toan": "an toàn",
+}
+
+ACCENT_TOKENS = {
+    "toi": "tôi",
+    "minh": "mình",
+    "muon": "muốn",
+    "can": "cần",
+    "tim": "tìm",
+    "di": "đi",
+    "choi": "chơi",
+    "thoi": "thôi",
+    "nghi": "nghỉ",
+    "o": "ở",
+    "quan": "quận",
+    "nguoi": "người",
+    "ngay": "ngày",
+    "dem": "đêm",
+    "duoi": "dưới",
+    "tren": "trên",
+    "khoang": "khoảng",
+    "co": "có",
+    "va": "và",
+    "voi": "với",
+    "phong": "phòng",
+    "re": "rẻ",
+    "tot": "tốt",
+    "dep": "đẹp",
+    "be": "bé",
+    "bep": "bếp",
+}
+
 
 @dataclass
 class TranscriptCleanupResult:
@@ -97,6 +179,7 @@ def cleanup_transcript(transcript: str) -> TranscriptCleanupResult:
     text = _replace_spoken_thousands(text, replacements, flags)
     text = _strip_non_numeric_punctuation(text)
     text = re.sub(r"\s+", " ", text).strip()
+    text = _restore_vietnamese_accents(text)
 
     return TranscriptCleanupResult(
         original_text=transcript or "",
@@ -178,6 +261,20 @@ def _correct_locations(text: str, replacements: list[dict[str, str]], flags: lis
             flags.append("location_corrected")
             cleaned = new_text
     return cleaned
+
+
+def _restore_vietnamese_accents(text: str) -> str:
+    cleaned = normalize_key(text)
+    if not cleaned:
+        return ""
+
+    for raw, accented in sorted(ACCENT_PHRASES.items(), key=lambda item: len(item[0]), reverse=True):
+        cleaned = re.sub(rf"(?<!\w){re.escape(raw)}(?!\w)", accented, cleaned)
+
+    for raw, accented in ACCENT_TOKENS.items():
+        cleaned = re.sub(rf"(?<!\w){re.escape(raw)}(?!\w)", accented, cleaned)
+
+    return re.sub(r"\s+", " ", cleaned).strip()
 
 
 def _replace_digit_money_units(text: str, replacements: list[dict[str, str]], flags: list[str]) -> str:

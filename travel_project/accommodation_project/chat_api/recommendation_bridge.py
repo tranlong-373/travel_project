@@ -20,9 +20,9 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         preferred_type = None
 
     preference = UserPreference.objects.create(
-        area=slots["area"],
-        budget=slots.get("budget") or slots["budget_max"],
-        guest_count=slots["guest_count"],
+        area=slots.get("area") or "",
+        budget=slots.get("budget") or slots.get("budget_max") or 0,
+        guest_count=slots.get("guest_count") or 1,
         preferred_type=preferred_type,
         required_amenities=slots.get("required_amenities") or [],
     )

@@ -51,11 +51,7 @@ def parse_voice(request):
         return JsonResponse({"success": False, "transcript": transcript, "error": "Parser unavailable"}, status=503)
 
     confirmation = build_confirmation(cleanup, parsed_result)
-    preference_payload = {
-        "created_preference": False,
-        "pref_id": None,
-        "recommendation_url": None,
-    }
+    preference_payload = _build_preference_payload(parsed_result)
 
     return JsonResponse(
         {

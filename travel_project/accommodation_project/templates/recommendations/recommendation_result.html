@@ -13,6 +13,21 @@
         </p>
     </div>
 
+    <div class="rec-toolbar">
+        <p class="rec-count">{{ results|length }} đề xuất phù hợp</p>
+        <form method="get" class="rec-sort-form">
+            <label for="resultSort">
+                <i class="fa-solid fa-arrow-up-wide-short"></i>
+                Sắp xếp
+            </label>
+            <select id="resultSort" name="sort" onchange="this.form.submit()">
+                {% for value, label in sort_options %}
+                    <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+
     <div class="acc-list">
         {% for item, score in results %}
         <a href="{% url 'accommodation_detail' item.pk %}" class="acc-card">

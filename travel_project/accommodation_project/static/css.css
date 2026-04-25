@@ -936,6 +936,23 @@
     color: rgba(255, 255, 255, 0.82);
 }
 
+.chat-header-icon {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chat-header-icon:hover {
+    background: rgba(255, 255, 255, 0.24);
+}
+
 .chat-header i {
     cursor: pointer;
     font-size: 16px;
@@ -982,6 +999,12 @@
 .chat-confirm-card {
     max-width: 96%;
     width: 96%;
+}
+
+.chat-confirm-title {
+    color: #0f172a;
+    font-weight: 700;
+    margin: 0 0 4px;
 }
 
 .chat-confirm-question {
@@ -1092,6 +1115,14 @@
     background: #0d9488;
 }
 
+.chat-input-wrap .chat-reset-btn {
+    background: #1565c0;
+}
+
+.chat-input-wrap .chat-reset-btn:hover {
+    background: #1976d2;
+}
+
 .chat-input-wrap .chat-voice-btn.recording {
     background: #dc2626;
     box-shadow: 0 0 0 4px rgba(220, 38, 38, 0.14);
@@ -1116,6 +1147,66 @@
     background: #f8fafc;
     padding: 100px 64px 80px;
     min-height: 100vh;
+}
+
+.rec-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin: 0 0 20px;
+}
+
+.rec-count {
+    color: #64748b;
+    font-size: 14px;
+    margin: 0;
+}
+
+.rec-sort-form {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+}
+
+.rec-sort-form label {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.rec-sort-form label i {
+    color: #1565c0;
+    margin-right: 4px;
+}
+
+.rec-sort-form select {
+    min-width: 176px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #334155;
+    background: #fff;
+    font-size: 14px;
+    padding: 9px 12px;
+    outline: none;
+}
+
+.rec-sort-form select:focus {
+    border-color: #1565c0;
+}
+
+@media (max-width: 640px) {
+    .rec-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .rec-sort-form,
+    .rec-sort-form select {
+        width: 100%;
+    }
 }
 
 .rec-score-badge {
@@ -1816,6 +1907,14 @@
 
 .ai-voice-btn:hover {
     background: #0d9488;
+}
+
+.ai-reset-btn {
+    background: #1565c0;
+}
+
+.ai-reset-btn:hover {
+    background: #1976d2;
 }
 
 .ai-voice-btn.recording {
