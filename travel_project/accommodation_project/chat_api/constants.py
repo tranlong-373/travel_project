@@ -126,8 +126,6 @@ SPECIAL_REQUIREMENT_MAP = {
     "mang theo pet": "pet_friendly",
     "mang chó": "pet_friendly",
     "mang mèo": "pet_friendly",
-    "1 chó": "pet_friendly",
-    "1 mèo": "pet_friendly",
     "with dog": "pet_friendly",
     "with a dog": "pet_friendly",
     "with cat": "pet_friendly",

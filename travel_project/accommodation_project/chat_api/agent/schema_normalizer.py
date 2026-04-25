@@ -28,6 +28,17 @@ from ..schemas.parsed_query_schema import (
 )
 
 MONEY_UNITS = r"k|nghin|ngan|thousand|tr|trieu|m|cu|million|mil|mio"
+RECOMMENDATION_SIGNAL_KEYS = (
+    "area",
+    "budget",
+    "guest_count",
+    "trip_days",
+    "preferred_type",
+    "required_amenities",
+    "priorities",
+    "special_requirements",
+)
+RECOMMENDATION_ALLOWED_LOCATION_STATUSES = {"ok", "unresolved"}
 
 AREA_ALIASES = {
     normalize_key(alias): canonical
@@ -329,6 +340,27 @@ def _strict_supported_areas() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def _has_slot_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _slot_value(slots: dict[str, Any], key: str) -> Any:
+    if key == "budget":
+        return slots.get("budget") or slots.get("budget_max")
+    return slots.get(key)
+
+
+def _has_recommendation_signal(slots: dict[str, Any] | None) -> bool:
+    slots = slots or {}
+    return any(_has_slot_value(_slot_value(slots, key)) for key in RECOMMENDATION_SIGNAL_KEYS)
+
+
 def _fallback_question(missing_slots: list[str], locale: str, slots: dict[str, Any]) -> str | None:
     if not missing_slots:
         return None
@@ -441,18 +473,25 @@ def normalize_parsed_result(
     ]
 
     location_status = (fallback_result or {}).get("location_status") or ("ok" if slots["area"] else "unresolved")
-    ready_for_recommendation = not missing_slots
-    if _strict_supported_areas() and location_status != "ok":
+    ready_for_recommendation = _has_recommendation_signal(slots)
+    if _strict_supported_areas() and location_status not in RECOMMENDATION_ALLOWED_LOCATION_STATUSES:
         ready_for_recommendation = False
-    if fallback_result and fallback_result.get("ready_for_recommendation") is False and not missing_slots:
-        ready_for_recommendation = False
+    if fallback_result and fallback_result.get("ready_for_recommendation") is False:
+        fallback_has_signal = _has_recommendation_signal(fallback_slots)
+        fallback_location_status = fallback_result.get("location_status")
+        fallback_needs_clarification = bool(fallback_result.get("follow_up_question") and fallback_has_signal)
+        if (
+            fallback_needs_clarification
+            or fallback_location_status not in RECOMMENDATION_ALLOWED_LOCATION_STATUSES
+        ):
+            ready_for_recommendation = False
 
     follow_up_question = None
     if (
         fallback_result
         and fallback_result.get("ready_for_recommendation") is False
         and fallback_result.get("follow_up_question")
-        and not missing_slots
+        and fallback_has_signal
     ):
         follow_up_question = fallback_result["follow_up_question"]
     elif location_status not in {"ok", "unresolved"} and (fallback_result or {}).get("follow_up_question"):

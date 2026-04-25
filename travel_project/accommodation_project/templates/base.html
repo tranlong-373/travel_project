@@ -44,7 +44,9 @@
                     <span>Trợ lý tìm phòng</span>
                     <small id="chatVoiceStatus" aria-live="polite"></small>
                 </div>
-                <i class="fa-solid fa-xmark" onclick="toggleChat()"></i>
+                <button type="button" class="chat-header-icon" onclick="toggleChat()" aria-label="Đóng chat" title="Đóng chat">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
             <div class="chat-messages" id="chatMessages">
                 <div class="chat-msg bot">Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?</div>
@@ -52,6 +54,9 @@
             <div class="chat-input-wrap">
                 <button type="button" class="chat-icon-btn chat-voice-btn" id="chatVoiceBtn" onclick="toggleVoiceRecording()" aria-label="Ghi âm" title="Ghi âm">
                     <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button type="button" class="chat-icon-btn chat-reset-btn" onclick="resetChat()" aria-label="Làm mới chat" title="Làm mới chat">
+                    <i class="fa-solid fa-rotate-left"></i>
                 </button>
                 <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" />
                 <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
@@ -96,19 +101,68 @@
 
     const CHAT_MAX_RECORDING_MS = 15000;
     const CHAT_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+    const CHAT_GREETING = 'Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?';
+    const CHAT_STORAGE_KEY = 'travel_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
+    const CHAT_OPEN_STORAGE_KEY = CHAT_STORAGE_KEY + '_open';
+    let chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
 
     function toggleChat() {
         const widget = document.getElementById('chatWidget');
-        widget.classList.toggle('open');
+        const isOpen = widget.classList.toggle('open');
+        try {
+            localStorage.setItem(CHAT_OPEN_STORAGE_KEY, isOpen ? '1' : '0');
+        } catch (err) {}
     }
 
-    function addMessage(text, type) {
+    function persistChatState() {
+        try {
+            localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+                messages: chatHistory,
+                contextSlots: contextSlots || {}
+            }));
+        } catch (err) {}
+    }
+
+    function addMessage(text, type, persist = true) {
         const box = document.getElementById('chatMessages');
         const div = document.createElement('div');
         div.className = 'chat-msg ' + type;
         div.textContent = text;
         box.appendChild(div);
         box.scrollTop = box.scrollHeight;
+
+        if (persist) {
+            chatHistory.push({ kind: 'message', text, type });
+            persistChatState();
+        }
+    }
+
+    function resetChat() {
+        if (chatIsBusy || chatIsRecording) return;
+
+        contextSlots = {};
+        chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
+        try {
+            localStorage.removeItem(CHAT_STORAGE_KEY);
+        } catch (err) {}
+
+        const box = document.getElementById('chatMessages');
+        box.innerHTML = '';
+        addMessage(CHAT_GREETING, 'bot', false);
+        document.getElementById('chatInput').value = '';
+        setVoiceStatus('');
+        persistChatState();
+    }
+
+    function visibleConfirmItems(items) {
+        return (items || []).map((item) => {
+            if (item.key !== 'priorities') return item;
+            const rawValue = item.display_value !== undefined ? item.display_value : item.value;
+            const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
+            const visibleValues = values.filter((value) => value && value !== 'high_rating' && value !== 'Đánh giá cao');
+            if (!visibleValues.length) return null;
+            return { ...item, display_value: visibleValues.join(', ') };
+        }).filter(Boolean);
     }
 
     function formatConfirmValue(value) {
@@ -121,24 +175,34 @@
         return value;
     }
 
-    function addConfirmationTable(result) {
+    function addConfirmationTable(result, persist = true) {
+        const confirmItems = visibleConfirmItems(result.confirm_table || []);
+        if (!confirmItems.length) return;
+
         const box = document.getElementById('chatMessages');
         const card = document.createElement('div');
         card.className = 'chat-msg bot chat-confirm-card';
 
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = result.confirmation_heading || 'Xác nhận thông tin';
+        card.appendChild(title);
+
         const question = document.createElement('p');
         question.className = 'chat-confirm-question';
-        question.textContent = result.follow_up_question || 'Bạn kiểm tra lại thông tin giúp mình nhé.';
+        question.textContent = result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?';
         card.appendChild(question);
 
         const table = document.createElement('table');
         table.className = 'chat-confirm-table';
-        (result.confirm_table || []).forEach((item) => {
+        confirmItems.forEach((item) => {
             const row = document.createElement('tr');
             const label = document.createElement('th');
             const value = document.createElement('td');
             label.textContent = item.label;
-            value.textContent = formatConfirmValue(item.value);
+            value.textContent = formatConfirmValue(
+                item.display_value !== undefined ? item.display_value : item.value
+            );
             row.appendChild(label);
             row.appendChild(value);
             table.appendChild(row);
@@ -148,25 +212,54 @@
         const actions = document.createElement('div');
         actions.className = 'chat-confirm-actions';
 
-        const confirmBtn = document.createElement('button');
-        confirmBtn.type = 'button';
-        confirmBtn.textContent = 'Xác nhận thông tin';
-        confirmBtn.onclick = confirmChatRequest;
-
         const addMoreBtn = document.createElement('button');
         addMoreBtn.type = 'button';
         addMoreBtn.className = 'secondary';
-        addMoreBtn.textContent = 'Tôi còn yêu cầu thêm';
+        addMoreBtn.textContent = 'Tôi muốn bổ sung thêm thông tin';
         addMoreBtn.onclick = () => {
-            addMessage('Bạn nhập thêm yêu cầu, mình sẽ cập nhật lại bảng xác nhận.', 'bot');
+            addMessage('Bạn nhập thêm thông tin, mình sẽ cập nhật và lọc lại ngay.', 'bot');
             document.getElementById('chatInput').focus();
         };
 
-        actions.appendChild(confirmBtn);
         actions.appendChild(addMoreBtn);
         card.appendChild(actions);
         box.appendChild(card);
         box.scrollTop = box.scrollHeight;
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'confirmation',
+                result: {
+                    confirmation_heading: result.confirmation_heading || 'Xác nhận thông tin',
+                    confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
+                    confirm_table: confirmItems
+                }
+            });
+            persistChatState();
+        }
+    }
+
+    function restoreChatState() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || 'null');
+            if (saved && Array.isArray(saved.messages) && saved.messages.length > 0) {
+                chatHistory = saved.messages;
+                contextSlots = saved.contextSlots || {};
+                const box = document.getElementById('chatMessages');
+                box.innerHTML = '';
+                chatHistory.forEach((entry) => {
+                    if (entry.kind === 'confirmation') {
+                        addConfirmationTable(entry.result || {}, false);
+                    } else {
+                        addMessage(entry.text || '', entry.type || 'bot', false);
+                    }
+                });
+            }
+
+            if (localStorage.getItem(CHAT_OPEN_STORAGE_KEY) === '1') {
+                document.getElementById('chatWidget').classList.add('open');
+            }
+        } catch (err) {}
     }
 
     function setChatBusy(isBusy) {
@@ -211,7 +304,7 @@
         setChatBusy(true);
 
         try {
-            const res = await fetch('/chat_api/parse/', {
+            const res = await fetch('/chat_api/submit/', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -233,15 +326,16 @@
     function handleChatResult(data) {
         const result = data.parsed_result || data;
         contextSlots = result.slots || data.slots || {};
+        persistChatState();
 
         if (data.save_error) {
             addMessage('Mình đã hiểu nhu cầu của bạn nhưng chưa lưu được yêu cầu. Vui lòng thử lại sau.', 'bot');
             return;
         }
 
-        if (result.confirmation_required || result.awaiting_confirmation) {
+        const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+        if (hasConfirmTable) {
             addConfirmationTable(result);
-            return;
         }
 
         if (result.ready_for_recommendation && (data.recommendation_url || result.recommendation_url)) {
@@ -257,39 +351,16 @@
             return;
         }
 
+        if (hasConfirmTable) {
+            return;
+        }
+
         if (data.confirmation && data.confirmation.question) {
             addMessage(data.confirmation.question, 'bot');
             return;
         }
 
         addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
-    }
-
-    async function confirmChatRequest() {
-        if (chatIsBusy || !contextSlots || Object.keys(contextSlots).length === 0) return;
-
-        setChatBusy(true);
-        try {
-            const res = await fetch('/chat_api/submit/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    confirmed: true,
-                    slots: contextSlots,
-                    locale: 'vi'
-                })
-            });
-            const data = await res.json();
-            if (!res.ok || data.save_error) {
-                addMessage(data.error || data.save_error || 'Chưa lưu được yêu cầu. Vui lòng thử lại.', 'bot');
-                return;
-            }
-            handleChatResult(data);
-        } catch (err) {
-            addMessage('Có lỗi khi xác nhận thông tin, vui lòng thử lại.', 'bot');
-        } finally {
-            setChatBusy(false);
-        }
     }
 
     function getRecorderOptions() {
@@ -398,5 +469,7 @@
             setChatBusy(false);
         }
     }
+
+    restoreChatState();
 </script>
 </html>

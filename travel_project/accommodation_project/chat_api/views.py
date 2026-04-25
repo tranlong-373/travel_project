@@ -7,7 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .recommendation_bridge import create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
-from .services import parse_user_text
+from .services import has_recommendation_signal, parse_user_text
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def _build_confirmed_result(slots):
         "slots": slots,
         "missing_slots": missing_slots,
         "suggested_questions": [],
-        "ready_for_recommendation": not missing_slots,
+        "ready_for_recommendation": has_recommendation_signal(slots),
         "awaiting_confirmation": False,
         "confirmation_required": False,
         "should_ask_optional": False,

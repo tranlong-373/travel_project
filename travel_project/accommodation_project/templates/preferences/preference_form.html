@@ -98,12 +98,15 @@
                 <button type="button" id="prefVoiceBtn" onclick="togglePrefVoiceRecording()" class="ai-icon-btn ai-voice-btn" aria-label="Ghi âm" title="Ghi âm">
                     <i class="fa-solid fa-microphone"></i>
                 </button>
-                <textarea id="userText" rows="2" placeholder="Nhập nhu cầu của bạn..." onkeydown="if(event.ctrlKey && event.key==='Enter') submitChat()"></textarea>
+                <button type="button" onclick="resetPrefChat()" class="ai-icon-btn ai-reset-btn" aria-label="Làm mới chat" title="Làm mới chat">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <textarea id="userText" rows="2" placeholder="Nhập nhu cầu của bạn..." onkeydown="handlePrefChatKey(event)"></textarea>
                 <button type="button" id="prefSendBtn" onclick="submitChat()" class="ai-icon-btn ai-send-btn" aria-label="Gửi" title="Gửi">
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
             </div>
-            <p class="ai-hint-small"><span id="prefVoiceStatus"></span><span>Ctrl + Enter để gửi</span></p>
+            <p class="ai-hint-small"><span id="prefVoiceStatus"></span><span>Enter để gửi, Shift + Enter để xuống dòng</span></p>
         </div>
 
     </div>
@@ -119,14 +122,59 @@ let prefIsBusy = false;
 
 const PREF_MAX_RECORDING_MS = 15000;
 const PREF_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+const PREF_GREETING = 'Xin chào! Mô tả nhu cầu của bạn và mình sẽ tìm ngay.';
+const PREF_CHAT_STORAGE_KEY = 'travel_pref_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
+let prefChatHistory = [{ kind: 'message', text: PREF_GREETING, type: 'bot' }];
 
-function addMsg(text, type) {
+function persistPrefChatState() {
+    try {
+        localStorage.setItem(PREF_CHAT_STORAGE_KEY, JSON.stringify({
+            messages: prefChatHistory,
+            contextSlots: prefContextSlots || {}
+        }));
+    } catch (err) {}
+}
+
+function addMsg(text, type, persist = true) {
     const box = document.getElementById('chatBox');
     const div = document.createElement('div');
     div.className = 'ai-msg ' + type;
     div.textContent = text;
     box.appendChild(div);
     box.scrollTop = box.scrollHeight;
+
+    if (persist) {
+        prefChatHistory.push({ kind: 'message', text, type });
+        persistPrefChatState();
+    }
+}
+
+function resetPrefChat() {
+    if (prefIsBusy || prefIsRecording) return;
+
+    prefContextSlots = {};
+    prefChatHistory = [{ kind: 'message', text: PREF_GREETING, type: 'bot' }];
+    try {
+        localStorage.removeItem(PREF_CHAT_STORAGE_KEY);
+    } catch (err) {}
+
+    const box = document.getElementById('chatBox');
+    box.innerHTML = '';
+    addMsg(PREF_GREETING, 'bot', false);
+    document.getElementById('userText').value = '';
+    setPrefVoiceStatus('');
+    persistPrefChatState();
+}
+
+function visiblePrefConfirmItems(items) {
+    return (items || []).map((item) => {
+        if (item.key !== 'priorities') return item;
+        const rawValue = item.display_value !== undefined ? item.display_value : item.value;
+        const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
+        const visibleValues = values.filter((value) => value && value !== 'high_rating' && value !== 'Đánh giá cao');
+        if (!visibleValues.length) return null;
+        return { ...item, display_value: visibleValues.join(', ') };
+    }).filter(Boolean);
 }
 
 function formatPrefConfirmValue(value) {
@@ -139,24 +187,34 @@ function formatPrefConfirmValue(value) {
     return value;
 }
 
-function addPrefConfirmationTable(result) {
+function addPrefConfirmationTable(result, persist = true) {
+    const confirmItems = visiblePrefConfirmItems(result.confirm_table || []);
+    if (!confirmItems.length) return;
+
     const box = document.getElementById('chatBox');
     const card = document.createElement('div');
     card.className = 'ai-msg bot chat-confirm-card';
 
+    const title = document.createElement('p');
+    title.className = 'chat-confirm-title';
+    title.textContent = result.confirmation_heading || 'Xác nhận thông tin';
+    card.appendChild(title);
+
     const question = document.createElement('p');
     question.className = 'chat-confirm-question';
-    question.textContent = result.follow_up_question || 'Bạn kiểm tra lại thông tin giúp mình nhé.';
+    question.textContent = result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?';
     card.appendChild(question);
 
     const table = document.createElement('table');
     table.className = 'chat-confirm-table';
-    (result.confirm_table || []).forEach((item) => {
+    confirmItems.forEach((item) => {
         const row = document.createElement('tr');
         const label = document.createElement('th');
         const value = document.createElement('td');
         label.textContent = item.label;
-        value.textContent = formatPrefConfirmValue(item.value);
+        value.textContent = formatPrefConfirmValue(
+            item.display_value !== undefined ? item.display_value : item.value
+        );
         row.appendChild(label);
         row.appendChild(value);
         table.appendChild(row);
@@ -166,25 +224,52 @@ function addPrefConfirmationTable(result) {
     const actions = document.createElement('div');
     actions.className = 'chat-confirm-actions';
 
-    const confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button';
-    confirmBtn.textContent = 'Xác nhận thông tin';
-    confirmBtn.onclick = confirmPrefChatRequest;
-
     const addMoreBtn = document.createElement('button');
     addMoreBtn.type = 'button';
     addMoreBtn.className = 'secondary';
-    addMoreBtn.textContent = 'Tôi còn yêu cầu thêm';
+    addMoreBtn.textContent = 'Tôi muốn bổ sung thêm thông tin';
     addMoreBtn.onclick = () => {
-        addMsg('Bạn nhập thêm yêu cầu, mình sẽ cập nhật lại bảng xác nhận.', 'bot');
+        addMsg('Bạn nhập thêm thông tin, mình sẽ cập nhật và lọc lại ngay.', 'bot');
         document.getElementById('userText').focus();
     };
 
-    actions.appendChild(confirmBtn);
     actions.appendChild(addMoreBtn);
     card.appendChild(actions);
     box.appendChild(card);
     box.scrollTop = box.scrollHeight;
+
+    if (persist) {
+        prefChatHistory.push({
+            kind: 'confirmation',
+            result: {
+                confirmation_heading: result.confirmation_heading || 'Xác nhận thông tin',
+                confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
+                confirm_table: confirmItems
+            }
+        });
+        persistPrefChatState();
+    }
+}
+
+function restorePrefChatState() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(PREF_CHAT_STORAGE_KEY) || 'null');
+        if (!saved || !Array.isArray(saved.messages) || saved.messages.length === 0) {
+            return;
+        }
+
+        prefChatHistory = saved.messages;
+        prefContextSlots = saved.contextSlots || {};
+        const box = document.getElementById('chatBox');
+        box.innerHTML = '';
+        prefChatHistory.forEach((entry) => {
+            if (entry.kind === 'confirmation') {
+                addPrefConfirmationTable(entry.result || {}, false);
+            } else {
+                addMsg(entry.text || '', entry.type || 'bot', false);
+            }
+        });
+    } catch (err) {}
 }
 
 function getCookie(name) {
@@ -221,6 +306,13 @@ function setPrefRecordingState(isRecording) {
     setPrefVoiceStatus(isRecording ? 'Đang nghe...' : '');
 }
 
+function handlePrefChatKey(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        submitChat();
+    }
+}
+
 function addPrefLoading() {
     const loading = document.createElement('div');
     loading.className = 'ai-msg bot ai-loading';
@@ -233,6 +325,7 @@ function handlePrefChatResult(data) {
     const result = data.parsed_result || data;
     if (result.slots || data.slots) {
         prefContextSlots = result.slots || data.slots;
+        persistPrefChatState();
     }
 
     if (data.save_error) {
@@ -240,9 +333,9 @@ function handlePrefChatResult(data) {
         return;
     }
 
-    if (result.confirmation_required || result.awaiting_confirmation) {
+    const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+    if (hasConfirmTable) {
         addPrefConfirmationTable(result);
-        return;
     }
 
     if (result.ready_for_recommendation && (data.recommendation_url || result.recommendation_url)) {
@@ -255,6 +348,8 @@ function handlePrefChatResult(data) {
         addMsg(result.follow_up_question, 'bot');
     } else if (data.confirmation && data.confirmation.question) {
         addMsg(data.confirmation.question, 'bot');
+    } else if (hasConfirmTable) {
+        return;
     } else {
         addMsg('Bạn có thể mô tả thêm nhu cầu không?', 'bot');
     }
@@ -275,7 +370,7 @@ async function submitChat() {
     const loading = addPrefLoading();
 
     try {
-        const res = await fetch('/chat_api/parse/', {
+        const res = await fetch('/chat_api/submit/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -295,39 +390,7 @@ async function submitChat() {
     }
 }
 
-async function confirmPrefChatRequest() {
-    if (prefIsBusy || !prefContextSlots || Object.keys(prefContextSlots).length === 0) return;
-
-    setPrefBusy(true);
-    const loading = addPrefLoading();
-
-    try {
-        const res = await fetch('/chat_api/submit/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({
-                confirmed: true,
-                slots: prefContextSlots,
-                locale: 'vi'
-            })
-        });
-        loading.remove();
-        const data = await res.json();
-        if (!res.ok || data.save_error) {
-            addMsg(data.error || data.save_error || 'Chưa lưu được yêu cầu. Vui lòng thử lại.', 'bot error');
-            return;
-        }
-        handlePrefChatResult(data);
-    } catch (err) {
-        loading.remove();
-        addMsg('Có lỗi khi xác nhận thông tin, vui lòng thử lại.', 'bot error');
-    } finally {
-        setPrefBusy(false);
-    }
-}
+restorePrefChatState();
 
 function getPrefRecorderOptions() {
     const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];

@@ -17,6 +17,8 @@ from .normalizers import normalize_key
 
 MONEY_UNITS = r"k|nghin|ngan|thousand|tr|trieu|m|cu|million|mil|mio"
 COUNT_TOKEN = r"\d+|mot|một|hai|ba|bon|bốn|tu|tư|nam|năm|sau|sáu|bay|bảy|tam|tám|chin|chín|muoi|mười|one|two|three|four|five|six|seven|eight|nine|ten"
+HCM_DISTRICT_MIN = 1
+HCM_DISTRICT_MAX = 12
 
 
 def _word_to_int(token: str) -> int | None:
@@ -31,6 +33,13 @@ def _append_unique(values: list[str], value: str) -> None:
         values.append(value)
 
 
+def _hcm_district_candidate(raw_number: str) -> str | None:
+    district = int(raw_number)
+    if HCM_DISTRICT_MIN <= district <= HCM_DISTRICT_MAX:
+        return f"quận {district} tp hcm"
+    return None
+
+
 def find_area_candidates(text: str) -> list[str]:
     norm = normalize_key(text)
     candidates: list[str] = []
@@ -41,12 +50,14 @@ def find_area_candidates(text: str) -> list[str]:
             _append_unique(candidates, canonical)
 
     district_patterns = [
-        r"\b(?:quan|q)\s*(\d{1,2})\b",
+        r"\b(?:quan|q\.?)\s*(\d{1,2})(?!\d)\b",
         r"\b(?:district|dist)\s*(\d{1,2})\b",
     ]
     for pattern in district_patterns:
         for m in re.finditer(pattern, norm):
-            _append_unique(candidates, f"quận {m.group(1)} tp hcm")
+            candidate = _hcm_district_candidate(m.group(1))
+            if candidate:
+                _append_unique(candidates, candidate)
 
     for canonical, aliases in AREA_ALIASES.items():
         for alias in aliases:
