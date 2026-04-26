@@ -72,6 +72,48 @@ python manage.py runserver
 
 Firebase Google login đọc cả client config và admin credentials từ `.env` cùng tầng với `manage.py`.
 
+## Cấu Hình Nhận Diện Giọng Nói
+
+Voice API đọc cấu hình từ `.env` và có STT router tự chọn model theo tình huống. Nếu request không gửi `feature_mode`, backend mặc định xem như `chat` và dùng `balanced`.
+
+```env
+VOICE_ASR_WEAK_MODEL=vinai/PhoWhisper-tiny
+VOICE_ASR_BALANCED_MODEL=vinai/PhoWhisper-base
+VOICE_ASR_STRONG_MODEL=vinai/PhoWhisper-small
+VOICE_ASR_FALLBACK_MODEL=vinai/PhoWhisper-tiny
+VOICE_ASR_LANGUAGE=vi
+VOICE_ASR_TASK=transcribe
+VOICE_DEVICE=auto
+VOICE_MAX_NEW_TOKENS=96
+VOICE_NUM_BEAMS=1
+VOICE_CHUNK_LENGTH_S=0
+VOICE_ASR_BATCH_SIZE=1
+```
+
+Các level model:
+
+- `weak`: `vinai/PhoWhisper-tiny`, dùng cho lệnh ngắn, wake word, realtime preview, ưu tiên tốc độ.
+- `balanced`: `vinai/PhoWhisper-base`, mặc định cho chat/casual voice.
+- `strong`: `vinai/PhoWhisper-small`, dùng cho dịch thuật, ghi chú dài, dictation, code input, audio chất lượng kém hoặc cần độ chính xác cao.
+
+Router có thể tự nâng model và retry nếu transcript rỗng, confidence thấp, audio dài nhưng transcript quá ngắn, hoặc transcript có nhiều ký tự lạ.
+
+Ví dụ chọn model:
+
+- `feature_mode=command`, audio 2 giây -> `weak`.
+- `feature_mode=chat` -> `balanced`.
+- `feature_mode=translation` -> `strong`.
+- `feature_mode=chat`, audio 18 giây -> `strong`.
+- Transcript lỗi sau `weak` -> retry bằng `balanced`.
+
+Các alias cũ vẫn được hỗ trợ. Nếu muốn override balanced/default trực tiếp, thêm:
+
+```env
+VOICE_ASR_MODEL=vinai/PhoWhisper-base
+```
+
+Frontend hiện giới hạn ghi âm ngắn, nên `VOICE_CHUNK_LENGTH_S=0` để giảm độ trễ. Lần đầu chạy voice có thể chậm vì Hugging Face cần tải model vào cache; các lần sau sẽ nhanh hơn.
+
 ## Cài Đặt Firebase Google Login
 
 Tạo file `.env` thật từ file mẫu, đặt cùng tầng với `manage.py`:

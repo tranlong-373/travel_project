@@ -117,6 +117,7 @@ let prefContextSlots = {};
 let prefRecorder = null;
 let prefAudioChunks = [];
 let prefRecordingTimer = null;
+let prefRecordingStartedAt = null;
 let prefIsRecording = false;
 let prefIsBusy = false;
 
@@ -333,6 +334,11 @@ function handlePrefChatResult(data) {
         return;
     }
 
+    if (result.bot_message) {
+        addMsg(result.bot_message, 'bot');
+        return;
+    }
+
     const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
     if (hasConfirmTable) {
         addPrefConfirmationTable(result);
@@ -431,6 +437,7 @@ async function togglePrefVoiceRecording() {
         };
 
         prefRecorder.start();
+        prefRecordingStartedAt = Date.now();
         setPrefRecordingState(true);
         prefRecordingTimer = window.setTimeout(stopPrefVoiceRecording, PREF_MAX_RECORDING_MS);
     } catch (err) {
@@ -456,15 +463,17 @@ async function finishPrefVoiceRecording() {
 
     const mimeType = prefRecorder && prefRecorder.mimeType ? prefRecorder.mimeType : 'audio/webm';
     const audioBlob = new Blob(prefAudioChunks, { type: mimeType });
+    const audioDuration = prefRecordingStartedAt ? (Date.now() - prefRecordingStartedAt) / 1000 : null;
+    prefRecordingStartedAt = null;
     if (audioBlob.size > PREF_MAX_AUDIO_BYTES) {
         addMsg('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot error');
         return;
     }
 
-    await submitVoiceChat(audioBlob, mimeType);
+    await submitVoiceChat(audioBlob, mimeType, audioDuration);
 }
 
-async function submitVoiceChat(audioBlob, mimeType) {
+async function submitVoiceChat(audioBlob, mimeType, audioDuration) {
     setPrefBusy(true);
     setPrefVoiceStatus('Đang xử lý...');
     const loading = addPrefLoading();
@@ -473,6 +482,10 @@ async function submitVoiceChat(audioBlob, mimeType) {
     const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
     form.append('audio', audioBlob, `find-recommendation.${extension}`);
     form.append('locale', 'vi');
+    form.append('feature_mode', 'chat');
+    if (audioDuration !== null) {
+        form.append('audio_duration', audioDuration.toFixed(1));
+    }
     form.append('context_slots', JSON.stringify(prefContextSlots || {}));
 
     try {
