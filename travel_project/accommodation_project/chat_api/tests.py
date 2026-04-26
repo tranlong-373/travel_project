@@ -38,7 +38,8 @@ class DeterministicParserTests(SimpleTestCase):
     def test_negated_optional_priority_is_not_added(self):
         result = parse_user_text("Tìm khách sạn ở Bình Định cho 2 người, gần biển, không cần quá rẻ")
 
-        self.assertFalse(result["ready_for_recommendation"])
+        self.assertTrue(result["ready_for_recommendation"])
+        self.assertTrue(result["confirmation_required"])
         self.assertNotIn("cheap", result["slots"]["priorities"])
         self.assertEqual(result["missing_slots"], ["budget", "trip_days"])
 
@@ -139,8 +140,10 @@ class DeterministicParserTests(SimpleTestCase):
 
     def test_context_slots_keep_area_for_follow_up_answers(self):
         first = parse_user_text("Khách sạn ở Hà Nội cho 2 người")
-        self.assertFalse(first["ready_for_recommendation"])
+        self.assertTrue(first["ready_for_recommendation"])
+        self.assertTrue(first["confirmation_required"])
         self.assertEqual(first["slots"]["area"], "hà nội")
+        self.assertEqual(first["missing_slots"], ["budget", "trip_days"])
 
         follow_up = parse_user_text("900k 2 ngày", context_slots=first["slots"])
         self.assertTrue(follow_up["ready_for_recommendation"])
@@ -149,24 +152,38 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertEqual(follow_up["slots"]["budget"], 900_000)
         self.assertEqual(follow_up["slots"]["budget_max"], 900_000)
 
+    def test_follow_up_area_change_understands_spoken_district_number(self):
+        first = parse_user_text("Khách sạn ở quận 7")
+        self.assertEqual(first["slots"]["area"], "quận 7")
+
+        follow_up = parse_user_text("đổi thành quận hai đi", context_slots=first["slots"])
+
+        self.assertEqual(follow_up["location_status"], "ok")
+        self.assertEqual(follow_up["slots"]["area"], "quận 2")
+        table = {item["key"]: item["value"] for item in follow_up["confirm_table"]}
+        self.assertEqual(table["area"], "quận 2")
+
     def test_bare_number_follow_up_sets_missing_guest_count(self):
         first = parse_user_text("Mình muốn ở Đà Lạt, khoảng 800k")
-        self.assertFalse(first["ready_for_recommendation"])
-        self.assertEqual(first["follow_up_question"], "Bạn đi mấy người?")
+        self.assertTrue(first["ready_for_recommendation"])
+        self.assertTrue(first["confirmation_required"])
+        self.assertIsNone(first["follow_up_question"])
         self.assertIsNone(first["slots"]["guest_count"])
 
         follow_up = parse_user_text("2", context_slots=first["slots"])
 
-        self.assertFalse(follow_up["ready_for_recommendation"])
+        self.assertTrue(follow_up["ready_for_recommendation"])
+        self.assertTrue(follow_up["confirmation_required"])
         self.assertEqual(follow_up["slots"]["area"], "đà lạt")
         self.assertEqual(follow_up["slots"]["budget"], 800_000)
         self.assertEqual(follow_up["slots"]["guest_count"], 2)
         self.assertEqual(follow_up["missing_slots"], ["trip_days"])
-        self.assertEqual(follow_up["follow_up_question"], "Bạn đi mấy ngày?")
+        self.assertIsNone(follow_up["follow_up_question"])
 
     def test_bare_number_follow_up_can_complete_confirmation(self):
         first = parse_user_text("Mình muốn ở Đà Lạt, 3 ngày, khoảng 800k")
-        self.assertFalse(first["ready_for_recommendation"])
+        self.assertTrue(first["ready_for_recommendation"])
+        self.assertTrue(first["confirmation_required"])
         self.assertEqual(first["missing_slots"], ["guest_count"])
 
         follow_up = parse_user_text("2", context_slots=first["slots"])
@@ -179,12 +196,13 @@ class DeterministicParserTests(SimpleTestCase):
     def test_missing_trip_days_blocks_confirmation(self):
         result = parse_user_text("Mình muốn đi Đà Lạt")
 
-        self.assertFalse(result["ready_for_recommendation"])
-        self.assertFalse(result["awaiting_confirmation"])
+        self.assertTrue(result["ready_for_recommendation"])
+        self.assertTrue(result["awaiting_confirmation"])
+        self.assertTrue(result["confirmation_required"])
         self.assertIn("budget", result["missing_slots"])
         self.assertIn("guest_count", result["missing_slots"])
         self.assertIn("trip_days", result["missing_slots"])
-        self.assertNotIn("confirm_table", result)
+        self.assertIn("confirm_table", result)
 
     def test_ready_result_requires_confirmation_table(self):
         result = parse_user_text("Mình muốn ở Đà Lạt cho 2 người, 3 ngày, khoảng 800k")
@@ -220,6 +238,30 @@ class DeterministicParserTests(SimpleTestCase):
         self.assertEqual(follow_up["slots"]["trip_days"], 3)
         self.assertIn("baby_friendly", follow_up["slots"]["special_requirements"])
         self.assertIn("quiet", follow_up["slots"]["priorities"])
+
+    def test_greeting_gets_friendly_chatbot_reply_without_recommendation(self):
+        with patch.dict(os.environ, {"CHAT_API_ENABLE_HF_AGENT": "1", "CHAT_API_LLM_STRATEGY": "auto"}):
+            with patch("chat_api.agent.llm_parser.get_hf_slot_parser") as mock_get_parser:
+                result = parse_user_text("chào cậu")
+
+        mock_get_parser.assert_not_called()
+        self.assertEqual(result["conversation_intent"], "greeting")
+        self.assertIn("Chào bạn", result["bot_message"])
+        self.assertIn("khu vực", result["bot_message"])
+        self.assertFalse(result["ready_for_recommendation"])
+        self.assertFalse(result["confirmation_required"])
+        self.assertNotIn("confirm_table", result)
+
+    def test_greeting_with_context_keeps_slots_but_does_not_submit(self):
+        context = {"area": "đà lạt", "budget": 800_000}
+
+        result = parse_user_text("hello", context_slots=context)
+
+        self.assertEqual(result["conversation_intent"], "greeting")
+        self.assertEqual(result["slots"]["area"], "đà lạt")
+        self.assertEqual(result["slots"]["budget"], 800_000)
+        self.assertFalse(result["ready_for_recommendation"])
+        self.assertIn("thông tin trước đó", result["bot_message"])
 
 
 class SchemaNormalizerTests(SimpleTestCase):
@@ -324,6 +366,21 @@ class ParseEndpointTests(SimpleTestCase):
         self.assertIn("baby_friendly", data["slots"]["special_requirements"])
         self.assertIn("quiet", data["slots"]["priorities"])
 
+    def test_submit_greeting_returns_bot_message_without_creating_preference(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"text": "chào cậu"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["conversation_intent"], "greeting")
+        self.assertIn("Chào bạn", data["bot_message"])
+        self.assertFalse(data["ready_for_recommendation"])
+        self.assertFalse(data["created_preference"])
+        self.assertIsNone(data["recommendation_url"])
+
 
 class ParserPerformanceStrategyTests(SimpleTestCase):
     def test_auto_strategy_skips_hf_when_rule_result_is_enough(self):
@@ -341,6 +398,7 @@ class ParserPerformanceStrategyTests(SimpleTestCase):
                 result = parse_user_text("có chỗ nào gần trung tâm, yên tĩnh, có wifi mạnh để làm việc không")
 
         mock_get_parser.assert_not_called()
-        self.assertFalse(result["ready_for_recommendation"])
+        self.assertTrue(result["ready_for_recommendation"])
+        self.assertTrue(result["confirmation_required"])
         self.assertIn("area", result["missing_slots"])
         self.assertEqual(result["parser_mode"], "hybrid_rule_fast")

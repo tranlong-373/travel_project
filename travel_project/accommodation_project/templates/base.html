@@ -96,6 +96,7 @@
     let chatRecorder = null;
     let chatAudioChunks = [];
     let chatRecordingTimer = null;
+    let chatRecordingStartedAt = null;
     let chatIsRecording = false;
     let chatIsBusy = false;
 
@@ -333,6 +334,11 @@
             return;
         }
 
+        if (result.bot_message) {
+            addMessage(result.bot_message, 'bot');
+            return;
+        }
+
         const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
         if (hasConfirmTable) {
             addConfirmationTable(result);
@@ -402,6 +408,7 @@
             };
 
             chatRecorder.start();
+            chatRecordingStartedAt = Date.now();
             setRecordingState(true);
             chatRecordingTimer = window.setTimeout(stopVoiceRecording, CHAT_MAX_RECORDING_MS);
         } catch (err) {
@@ -427,15 +434,17 @@
 
         const mimeType = chatRecorder && chatRecorder.mimeType ? chatRecorder.mimeType : 'audio/webm';
         const audioBlob = new Blob(chatAudioChunks, { type: mimeType });
+        const audioDuration = chatRecordingStartedAt ? (Date.now() - chatRecordingStartedAt) / 1000 : null;
+        chatRecordingStartedAt = null;
         if (audioBlob.size > CHAT_MAX_AUDIO_BYTES) {
             addMessage('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot');
             return;
         }
 
-        await sendVoiceMessage(audioBlob, mimeType);
+        await sendVoiceMessage(audioBlob, mimeType, audioDuration);
     }
 
-    async function sendVoiceMessage(audioBlob, mimeType) {
+    async function sendVoiceMessage(audioBlob, mimeType, audioDuration) {
         setChatBusy(true);
         setVoiceStatus('Đang xử lý...');
 
@@ -443,6 +452,10 @@
         const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
         form.append('audio', audioBlob, `chat-voice.${extension}`);
         form.append('locale', 'vi');
+        form.append('feature_mode', 'chat');
+        if (audioDuration !== null) {
+            form.append('audio_duration', audioDuration.toFixed(1));
+        }
         form.append('context_slots', JSON.stringify(contextSlots || {}));
 
         try {

@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from .constants import NUMBER_WORDS
+from .conversation_policy import decorate_conversation_response
 from .extractors import (
     extract_budget,
     find_unsupported_type_candidates,
@@ -42,6 +43,17 @@ RECOMMENDATION_SIGNAL_KEYS = (
 RECOMMENDATION_ALLOWED_LOCATION_STATUSES = {"ok", "unresolved"}
 HCM_DISTRICT_MIN = 1
 HCM_DISTRICT_MAX = 12
+HCM_DISTRICT_WORD_PATTERN = (
+    r"muoi\s+(?:mot|hai)|eleven|twelve|"
+    r"mot|hai|ba|bon|tu|nam|sau|bay|tam|chin|muoi|"
+    r"one|two|three|four|five|six|seven|eight|nine|ten"
+)
+HCM_DISTRICT_COMPOUND_WORDS = {
+    "muoi mot": 11,
+    "muoi hai": 12,
+    "eleven": 11,
+    "twelve": 12,
+}
 GENERIC_RECOMMENDATION_PRIORITIES = ("high_rating",)
 CONFIRM_LABELS = {
     "area": "Khu vực",
@@ -111,11 +123,20 @@ def _format_hcm_district(raw_number: str) -> str | None:
 
 def _extract_area_fallback(text: str) -> str | None:
     text_lower = text.lower().strip()
+    text_key = normalize_key(text)
 
     # Bắt các kiểu: quận 1, quan 1, q1, q.1, q 1, district 1
     match = re.search(r"\b(?:quận|quan|q\.?|district)\s*(\d{1,2})(?!\d)\b", text_lower)
     if match:
         return _format_hcm_district(match.group(1))
+
+    # Bắt cách nói bằng giọng: "quận hai", "quan muoi hai", "district two".
+    match = re.search(rf"\b(?:quan|q\.?|district|dist)\s+({HCM_DISTRICT_WORD_PATTERN})(?!\w)\b", text_key)
+    if match:
+        word_key = normalize_key(match.group(1))
+        district = HCM_DISTRICT_COMPOUND_WORDS.get(word_key) or NUMBER_WORDS.get(word_key)
+        if district is not None:
+            return _format_hcm_district(str(district))
 
     # Một số khu vực phổ biến
     if "thủ đức" in text_lower or "thu duc" in text_lower:
@@ -300,9 +321,16 @@ def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
 def add_confirmation_payload(result: dict[str, Any], *, locale: str = "vi") -> dict[str, Any]:
     result["awaiting_confirmation"] = False
     result["confirmation_required"] = False
+    result.pop("confirm_table", None)
+    result.pop("confirmation_heading", None)
+    result.pop("confirmation_prompt", None)
+    result.pop("confirmation_options", None)
+
     confirm_table = build_confirm_table(result.get("slots") or {})
 
     if confirm_table:
+        result["awaiting_confirmation"] = True
+        result["confirmation_required"] = True
         result["confirm_table"] = confirm_table
         result["confirmation_heading"] = "Confirm information" if locale == "en" else "Xác nhận thông tin"
         result["confirmation_prompt"] = (
@@ -470,6 +498,8 @@ def _llm_strategy() -> str:
 
 
 def _can_answer_fast(result: dict[str, Any]) -> bool:
+    if result.get("bot_message"):
+        return True
     if result.get("ready_for_recommendation"):
         return True
 
@@ -486,25 +516,41 @@ def _can_answer_fast(result: dict[str, Any]) -> bool:
     return bool(any(useful_slots) and result.get("follow_up_question"))
 
 
+def _finalize_parse_result(
+    result: dict[str, Any],
+    text: str,
+    *,
+    locale: str,
+    context_slots: dict[str, Any] | None,
+) -> dict[str, Any]:
+    finalized = add_confirmation_payload(result, locale=locale)
+    return decorate_conversation_response(text, finalized, locale=locale, context_slots=context_slots)
+
+
 def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, Any] | None = None) -> dict[str, Any]:
     """Public parser entrypoint kept backward-compatible for existing callers."""
 
     fallback_result = parse_user_text_rule_based(text, locale=locale, context_slots=context_slots)
     from .agent.parser_fallback import normalize_rule_result
 
-    fast_result = normalize_rule_result(
+    fast_result = _finalize_parse_result(
+        normalize_rule_result(
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            fallback_result=fallback_result,
+            parser_mode="hybrid_rule_fast",
+        ),
         text,
         locale=locale,
         context_slots=context_slots,
-        fallback_result=fallback_result,
-        parser_mode="hybrid_rule_fast",
     )
 
     strategy = _llm_strategy()
     if strategy == "never":
-        return add_confirmation_payload(fast_result, locale=locale)
+        return fast_result
     if strategy == "auto" and _can_answer_fast(fast_result):
-        return add_confirmation_payload(fast_result, locale=locale)
+        return fast_result
 
     try:
         from .agent.llm_parser import get_hf_slot_parser
@@ -515,7 +561,7 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
             context_slots=context_slots,
             fallback_result=fallback_result,
         )
-        return add_confirmation_payload(result, locale=locale)
+        return _finalize_parse_result(result, text, locale=locale, context_slots=context_slots)
     except Exception:
         logger.exception("chat_api hf parser failed before fallback")
 
@@ -525,4 +571,4 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
             context_slots=context_slots,
             fallback_result=fallback_result,
         )
-        return add_confirmation_payload(result, locale=locale)
+        return _finalize_parse_result(result, text, locale=locale, context_slots=context_slots)
