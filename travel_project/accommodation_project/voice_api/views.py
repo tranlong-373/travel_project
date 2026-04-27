@@ -8,7 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 from chat_api.recommendation_bridge import create_preference_from_parse
 from chat_api.services import parse_user_text
 
-from .services.speech_to_text import SpeechToTextError, transcribe_audio
+from .services.speech_to_text import SpeechToTextError, transcribe_audio_with_metadata
 from .services.transcript_cleanup import build_confirmation, cleanup_transcript
 
 logger = logging.getLogger(__name__)
@@ -30,9 +30,22 @@ def parse_voice(request):
 
     locale = _normalize_locale(request.POST.get("locale"))
     context_slots = _read_context_slots(request.POST.get("context_slots"))
+    feature_mode = _normalize_optional(request.POST.get("feature_mode")) or "chat"
+    audio_duration = _read_float(request.POST.get("audio_duration") or request.POST.get("duration"))
+    audio_quality = _normalize_optional(request.POST.get("audio_quality"))
+    accuracy_required = _normalize_optional(request.POST.get("accuracy_required"))
+    is_realtime = _read_bool(request.POST.get("is_realtime"))
 
     try:
-        transcript = transcribe_audio(audio)
+        stt_result = transcribe_audio_with_metadata(
+            audio,
+            feature_mode=feature_mode,
+            audio_duration=audio_duration,
+            audio_quality=audio_quality,
+            accuracy_required=accuracy_required,
+            is_realtime=is_realtime,
+        )
+        transcript = stt_result.transcript
     except SpeechToTextError as exc:
         return JsonResponse({"success": False, "error": str(exc)}, status=503)
     except Exception:
@@ -59,6 +72,7 @@ def parse_voice(request):
             "transcript": transcript,
             "cleaned_transcript": cleanup.cleaned_text,
             "transcript_cleanup": cleanup.as_dict(),
+            "stt_router": stt_result.as_dict(),
             "confirmation": confirmation,
             **preference_payload,
             "ready_for_recommendation": parsed_result.get("ready_for_recommendation", False),
@@ -89,6 +103,26 @@ def _read_context_slots(raw_context):
     except (TypeError, json.JSONDecodeError):
         return None
     return context_slots if isinstance(context_slots, dict) else None
+
+
+def _normalize_optional(value):
+    value = (value or "").strip()
+    return value or None
+
+
+def _read_float(value):
+    if value in [None, ""]:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _read_bool(value):
+    if isinstance(value, bool):
+        return value
+    return (value or "").strip().lower() in ["1", "true", "yes", "on"]
 
 
 def _build_preference_payload(parsed_result):

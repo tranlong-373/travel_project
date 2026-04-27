@@ -143,6 +143,41 @@ Nếu response có `recommendation_url`, mở URL đó trên browser, ví dụ:
 http://127.0.0.1:8000/recommendations/1/
 ```
 
+## Cấu Hình Voice Local
+
+Voice API đọc các biến sau từ `.env` cùng tầng với `manage.py`:
+
+```env
+VOICE_ASR_WEAK_MODEL=vinai/PhoWhisper-tiny
+VOICE_ASR_BALANCED_MODEL=vinai/PhoWhisper-base
+VOICE_ASR_STRONG_MODEL=vinai/PhoWhisper-small
+VOICE_ASR_FALLBACK_MODEL=vinai/PhoWhisper-tiny
+VOICE_ASR_LANGUAGE=vi
+VOICE_ASR_TASK=transcribe
+VOICE_DEVICE=auto
+VOICE_MAX_NEW_TOKENS=96
+VOICE_NUM_BEAMS=1
+VOICE_CHUNK_LENGTH_S=0
+VOICE_ASR_BATCH_SIZE=1
+```
+
+STT router tự chọn level theo chức năng:
+
+- `weak`: command/wake word/realtime preview, audio ngắn, ưu tiên tốc độ.
+- `balanced`: chat/casual voice, lựa chọn mặc định.
+- `strong`: dictation/translation/meeting summary/study note/code input, audio dài, audio quality kém, hoặc `accuracy_required=high`.
+
+Nếu transcript rỗng, confidence thấp, audio dài nhưng transcript quá ngắn, hoặc có nhiều ký tự lạ, hệ thống tự retry bằng model mạnh hơn. Các alias cũ như `VOICE_ASR_PROFILE=fast|balanced|accurate` và `VOICE_ASR_MODEL=...` vẫn được hỗ trợ để override cấu hình cũ.
+
+Ví dụ nhanh:
+
+- `feature_mode=command`, audio 2 giây -> `weak`.
+- `feature_mode=chat` -> `balanced`.
+- `feature_mode=translation` hoặc audio 18 giây -> `strong`.
+- Transcript lỗi sau `weak` -> retry bằng `balanced`.
+
+Lần đầu bấm ghi âm có thể chậm do tải model Hugging Face. Nếu máy yếu, giảm model ở `VOICE_ASR_BALANCED_MODEL` hoặc dùng `VOICE_ASR_WEAK_MODEL` nhẹ hơn cho các chức năng cần tốc độ.
+
 ## Test Nhanh Bằng Django
 
 ```powershell

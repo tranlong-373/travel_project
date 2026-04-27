@@ -22,8 +22,12 @@ class LLMParserError(RuntimeError):
 
 @dataclass(frozen=True)
 class HFParserConfig:
-    model_name: str = os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-7B-Instruct")
-    fallback_model_name: str | None = os.getenv("CHAT_API_FALLBACK_MODEL") or os.getenv("CHAT_API_LIGHT_MODEL") or None
+    model_name: str = os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
+    fallback_model_name: str | None = os.getenv("CHAT_API_FALLBACK_MODEL") or os.getenv(
+        "CHAT_API_LIGHT_MODEL",
+        "Qwen/Qwen2.5-0.5B-Instruct",
+    )
+    strong_model_name: str | None = os.getenv("CHAT_API_STRONG_MODEL") or None
     device: str = os.getenv("CHAT_API_DEVICE", "auto")
     max_new_tokens: int = int(os.getenv("CHAT_API_MAX_NEW_TOKENS", "256"))
     temperature: float = float(os.getenv("CHAT_API_TEMPERATURE", "0.1"))
