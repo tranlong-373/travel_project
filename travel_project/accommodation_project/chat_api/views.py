@@ -7,7 +7,9 @@ from django.views.decorators.csrf import csrf_exempt
 
 from .recommendation_bridge import create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
-from .services import has_recommendation_signal, parse_user_text
+from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
+from .slot_validator import core_missing_slots, validate_slots
+from .text_normalizer import normalize_user_text
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,9 @@ def health(request):
             "status": "ok",
             "service": "chat_api",
             "parser_mode": "hybrid_hf_transformers",
-            "model": os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
+            "light_model": os.getenv("CHAT_API_LIGHT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct"),
+            "model": os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
+            "strong_model": os.getenv("CHAT_API_STRONG_MODEL", ""),
             "llm_strategy": os.getenv("CHAT_API_LLM_STRATEGY", "auto"),
             "prompt_example_count": os.getenv("CHAT_API_PROMPT_EXAMPLE_COUNT", "5"),
             "use_ner_fallback": os.getenv("CHAT_API_USE_NER", "0") == "1",
@@ -59,22 +63,28 @@ def submit_message(request):
         return error
 
     locale = _normalize_locale(body.get("locale"))
+    quick_reply_payload = _read_quick_reply_payload(body)
+    context_slots = _read_context_slots(body)
+    if quick_reply_payload:
+        context_slots = _merge_payload(context_slots, quick_reply_payload)
+
     confirmed_slots = body.get("confirmed_slots") or body.get("slots")
     if isinstance(confirmed_slots, dict):
         result = _build_confirmed_result(confirmed_slots)
+    elif quick_reply_payload and not (body.get("text") or "").strip():
+        result = _build_confirmed_result(context_slots or {})
     else:
         text = (body.get("text") or "").strip()
         if not text:
             return JsonResponse({"error": "Field 'text' is required"}, status=400)
 
-        context_slots = _read_context_slots(body)
         try:
             result = parse_user_text(text, locale=locale, context_slots=context_slots)
         except Exception:
             logger.exception("chat_api submit endpoint failed")
             return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
 
-    if not result["ready_for_recommendation"]:
+    if not result.get("can_show_recommendations", result.get("ready_for_recommendation")):
         result.update(
             {
                 "created_preference": False,
@@ -84,7 +94,18 @@ def submit_message(request):
         )
         return JsonResponse(result, status=200)
 
-    bridge_result = create_preference_from_parse(result)
+    try:
+        bridge_result = create_preference_from_parse(result)
+    except ValueError:
+        result.update(
+            {
+                "created_preference": False,
+                "pref_id": None,
+                "recommendation_url": None,
+            }
+        )
+        return JsonResponse(result, status=200)
+
     result.update({"created_preference": True, **bridge_result})
     return JsonResponse(result, status=201)
 
@@ -113,18 +134,36 @@ def _read_context_slots(body):
     return context_slots if isinstance(context_slots, dict) else None
 
 
-def _build_confirmed_result(slots):
-    missing_slots = []
-    for key in CORE_SLOTS:
-        if key == "budget":
-            if not (slots.get("budget") or slots.get("budget_max")):
-                missing_slots.append(key)
-        elif not slots.get(key):
-            missing_slots.append(key)
+def _read_quick_reply_payload(body):
+    payload = body.get("quick_reply_payload")
+    if payload is None:
+        payload = body.get("payload")
+    return payload if isinstance(payload, dict) else None
 
-    return {
+
+def _merge_payload(context_slots, payload):
+    merged = dict(context_slots or {})
+    for key, value in payload.items():
+        if key in {"required_amenities", "priorities", "special_requirements"}:
+            base = merged.get(key) or []
+            add = value if isinstance(value, list) else [value]
+            merged[key] = list(dict.fromkeys([*base, *add]))
+        else:
+            merged[key] = value
+    if "budget_max" in payload and "budget" not in payload:
+        merged["budget"] = payload["budget_max"]
+    return merged
+
+
+def _build_confirmed_result(slots):
+    slots = validate_slots(slots)
+    missing_slots = core_missing_slots(slots)
+    canonical_area = slots.get("area")
+
+    result = {
         "schema_version": SCHEMA_VERSION,
         "intent": INTENT_DEFAULT,
+        "conversation_intent": INTENT_DEFAULT,
         "slots": slots,
         "missing_slots": missing_slots,
         "suggested_questions": [],
@@ -134,10 +173,21 @@ def _build_confirmed_result(slots):
         "should_ask_optional": False,
         "follow_up_question": None,
         "parser_mode": "confirmed_slots",
-        "location_status": "ok" if slots.get("area") else "unresolved",
+        "location_status": "ok" if canonical_area else "unresolved",
         "location_candidates": [],
-        "canonical_area": slots.get("area"),
+        "canonical_area": canonical_area,
+        "location_confidence": 1.0 if canonical_area else 0.0,
+        "location_source": "confirmed_slots" if canonical_area else "none",
+        "matched_text": canonical_area,
+        "assumptions": [],
+        "used_default_slots": {},
     }
+    return _finalize_convenience_response(
+        result,
+        "",
+        router={"intent": INTENT_DEFAULT, "confidence": 1.0, "reason": "confirmed_slots"},
+        normalized=normalize_user_text(""),
+    )
 
 
 def _normalize_locale(locale):

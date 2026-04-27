@@ -999,43 +999,89 @@
 .chat-confirm-card {
     max-width: 96%;
     width: 96%;
+    border-color: #bfdbfe !important;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    padding: 12px 14px;
 }
 
 .chat-confirm-title {
     color: #0f172a;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-weight: 700;
-    margin: 0 0 4px;
+    margin: 0 0 5px;
+    position: relative;
+}
+
+.chat-confirm-title::before {
+    align-items: center;
+    background: #dbeafe;
+    border-radius: 50%;
+    color: #1565c0;
+    content: "";
+    display: inline-flex;
+    flex: 0 0 24px;
+    height: 24px;
+    justify-content: center;
+    width: 24px;
+}
+
+.chat-confirm-title::after {
+    background: #1565c0;
+    border-radius: 50%;
+    content: "";
+    height: 8px;
+    left: 8px;
+    position: absolute;
+    top: 8px;
+    width: 8px;
 }
 
 .chat-confirm-question {
-    margin: 0 0 10px;
+    color: #64748b;
+    font-size: 13px;
+    margin: 0 0 12px;
 }
 
 .chat-confirm-table {
-    border-collapse: collapse;
-    margin: 8px 0 12px;
+    border-collapse: separate;
+    border-spacing: 0 7px;
+    margin: 2px 0 12px;
     width: 100%;
 }
 
 .chat-confirm-table th,
 .chat-confirm-table td {
-    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+    border-bottom: 1px solid #e8eef6;
+    border-top: 1px solid #e8eef6;
     font-size: 13px;
-    padding: 7px 0;
+    padding: 9px 10px;
     text-align: left;
-    vertical-align: top;
+    vertical-align: middle;
 }
 
 .chat-confirm-table th {
     color: #64748b;
+    border-left: 1px solid #e8eef6;
+    border-radius: 9px 0 0 9px;
     font-weight: 600;
-    padding-right: 10px;
-    width: 42%;
+    line-height: 1.35;
+    width: 48%;
+}
+
+.chat-confirm-table td {
+    border-radius: 0 9px 9px 0;
+    border-right: 1px solid #e8eef6;
+    color: #0f172a;
+    font-weight: 700;
+    overflow-wrap: anywhere;
 }
 
 .chat-confirm-actions {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -1047,13 +1093,34 @@
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
-    padding: 9px 10px;
+    min-height: 36px;
+    padding: 9px 12px;
+}
+
+.chat-confirm-actions button.primary {
+    background: #1565c0;
+    border: 1px solid #1565c0;
+    color: #fff;
+    flex: 1 1 116px;
+}
+
+.chat-confirm-actions button.primary:hover {
+    background: #1976d2;
+    border-color: #1976d2;
 }
 
 .chat-confirm-actions button.secondary {
-    background: #fff;
-    border: 1px solid #cbd5e1;
-    color: #334155;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1565c0;
+    flex: 1 1 160px;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.chat-confirm-actions button.secondary:hover {
+    background: #eff6ff;
+    border-color: #93c5fd;
+    color: #1565c0;
 }
 
 .chat-input-wrap {
@@ -1854,7 +1921,6 @@
 .ai-msg.error { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 .ai-msg.ai-loading { opacity: 0.5; font-style: italic; }
 .ai-msg.chat-confirm-card { max-width: 100%; width: 100%; }
-
 .ai-input-wrap {
     display: flex;
     gap: 10px;
