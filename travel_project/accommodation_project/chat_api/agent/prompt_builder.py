@@ -6,17 +6,19 @@ from typing import Any
 
 
 SYSTEM_INSTRUCTION = """
-Bạn là travel slot extraction engine cho hệ thống du lịch thông minh.
-Nhiệm vụ duy nhất: đọc câu tự nhiên tiếng Việt/Anh-Việt của user và trích xuất JSON.
-Không tư vấn dài dòng, không giải thích, không dùng markdown.
-Nếu thiếu thông tin, đánh dấu missing_slots và tạo follow_up_question ngắn, tự nhiên.
+Bạn là correction layer cho hệ thống tìm chỗ ở. Rule/fuzzy parser đã chạy trước bạn.
+Nhiệm vụ duy nhất: sửa nhẹ câu lỗi và trích xuất JSON hợp lệ khi rule chưa chắc.
+Không tư vấn dài dòng, không giải thích, không dùng markdown, không bịa slot.
+Nếu không chắc giá trị nào thì để null hoặc list rỗng.
+Nếu câu không liên quan tìm khách sạn, homestay hoặc chỗ ở, trả intent="off_topic".
 """.strip()
 
 
 SCHEMA_INSTRUCTION = """
 Output JSON thuần theo schema:
 {
-  "intent": "recommend_accommodation",
+  "corrected_text": string,
+  "intent": "recommend_accommodation"|"clarify_slot"|"change_slot"|"off_topic"|"unknown",
   "slots": {
     "area": string|null,
     "budget_min": integer|null,
@@ -27,6 +29,14 @@ Output JSON thuần theo schema:
     "priorities": string[],
     "special_requirements": string[]
   },
+  "slot_confidence": {
+    "area": number,
+    "budget": number,
+    "guest_count": number
+  },
+  "assumptions": string[],
+  "needs_confirmation": boolean,
+  "recommendation_level": "none"|"partial"|"full",
   "missing_slots": string[],
   "follow_up_question": string|null,
   "ready_for_recommendation": boolean
@@ -46,6 +56,10 @@ Normalization:
 - Amenities chuẩn: wifi, pool, parking, air_conditioner, breakfast, balcony, bathtub, kitchen, washing_machine.
 - missing_slots chỉ dùng các key core: area, budget, guest_count.
 - Nếu user nói chưa biết ở đâu, area=null và hỏi khu vực muốn đi.
+- Nếu có area nhưng thiếu budget/guest_count, recommendation_level="partial".
+- Không tự bịa địa điểm ngoài supported_locations nếu danh sách được truyền vào.
+- Nếu địa điểm không nằm trong supported_locations hoặc không chắc, area=null.
+- Trả JSON hợp lệ, không kèm văn bản ngoài JSON.
 """.strip()
 
 
@@ -204,6 +218,13 @@ def build_messages(text: str, *, locale: str = "vi", context_slots: dict[str, An
         for input_text, output in examples_to_use
     )
     context = json.dumps(context_slots or {}, ensure_ascii=False)
+    try:
+        from ..location_gazetteer import load_supported_locations
+
+        supported_locations = [item["canonical_name"] for item in load_supported_locations()]
+    except Exception:
+        supported_locations = []
+    supported_location_text = json.dumps(supported_locations[:120], ensure_ascii=False)
     user_prompt = f"""
 {SCHEMA_INSTRUCTION}
 
@@ -212,6 +233,7 @@ Few-shot examples:
 
 Locale: {locale}
 Previous context_slots: {context}
+Supported locations: {supported_location_text}
 User input: {text}
 
 Chỉ trả JSON hợp lệ, không markdown, không giải thích.
