@@ -336,13 +336,22 @@ class LocationFoundationTests(SimpleTestCase):
         self.assertIn("wifi", result["normalized_text"])
 
     def test_generate_location_aliases_for_tp_thu_duc(self):
-        aliases = generate_location_aliases("TP Thủ Đức")
+        aliases = generate_location_aliases("Thủ Đức", city="TP HCM", type="district")
 
         self.assertIn("thu duc", aliases)
         self.assertIn("thuduc", aliases)
         self.assertIn("tp thu duc", aliases)
         self.assertIn("thanh pho thu duc", aliases)
         self.assertIn("thu duc city", aliases)
+
+    def test_load_supported_locations_keeps_single_thu_duc_label(self):
+        names = [
+            location["canonical_name"]
+            for location in self.fallback_locations
+            if "thủ đức" in location["canonical_name"].lower()
+        ]
+
+        self.assertEqual(names, ["Thủ Đức"])
 
     def test_generate_location_aliases_for_binh_thanh(self):
         aliases = generate_location_aliases("Bình Thạnh")
@@ -367,14 +376,20 @@ class LocationFoundationTests(SimpleTestCase):
     def test_resolve_location_fuzzy_handles_compact_thu_duc_in_sentence(self):
         result = resolve_location_fuzzy("tôi muốn ở gần thuduc", self.fallback_locations)
 
-        self.assertEqual(result["canonical_area"], "TP Thủ Đức")
+        self.assertEqual(result["canonical_area"], "Thủ Đức")
         self.assertEqual(result["location_status"], "ok")
         self.assertGreaterEqual(result["location_confidence"], 0.75)
 
     def test_resolve_location_fuzzy_handles_thu_duc_with_other_slots(self):
         result = resolve_location_fuzzy("thu duc 2 nguoi 800k", self.fallback_locations)
 
-        self.assertEqual(result["canonical_area"], "TP Thủ Đức")
+        self.assertEqual(result["canonical_area"], "Thủ Đức")
+        self.assertEqual(result["location_status"], "ok")
+
+    def test_resolve_location_fuzzy_handles_tp_thu_duc_as_thu_duc(self):
+        result = resolve_location_fuzzy("TP Thủ Đức", self.fallback_locations)
+
+        self.assertEqual(result["canonical_area"], "Thủ Đức")
         self.assertEqual(result["location_status"], "ok")
 
     def test_resolve_location_fuzzy_handles_binh_thanh_compact(self):
@@ -425,7 +440,7 @@ class ConveniencePipelineTests(SimpleTestCase):
     def test_thu_duc_compact_recommends_partially_without_user_action(self):
         result = parse_user_text("tôi muốn ở gần thuduc")
 
-        self.assertEqual(result["canonical_area"], "TP Thủ Đức")
+        self.assertEqual(result["canonical_area"], "Thủ Đức")
         self.assertEqual(result["location_status"], "ok")
         self.assertEqual(result["recommendation_level"], "partial")
         self.assertTrue(result["can_show_recommendations"])
@@ -435,7 +450,7 @@ class ConveniencePipelineTests(SimpleTestCase):
     def test_thu_duc_with_budget_and_guest_is_full(self):
         result = parse_user_text("thu duc 2 nguoi 800k")
 
-        self.assertEqual(result["canonical_area"], "TP Thủ Đức")
+        self.assertEqual(result["canonical_area"], "Thủ Đức")
         self.assertEqual(result["slots"]["guest_count"], 2)
         self.assertEqual(result["slots"]["budget_max"], 800_000)
         self.assertEqual(result["recommendation_level"], "full")
