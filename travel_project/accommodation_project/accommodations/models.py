@@ -26,10 +26,10 @@ class Accommodation(models.Model):
 
     amenities = models.JSONField(default=list, blank=True)
     description = models.TextField(blank=True)
-    image_url = models.URLField(blank=True, null=True)
+    image_url = models.URLField(max_length=500, blank=True, null=True)
     latitude = models.FloatField(null=True, blank=True)
     longitude = models.FloatField(null=True, blank=True)
-    hotline = models.CharField(max_length=20, blank=True)
+    hotline = models.CharField(max_length=50, blank=True)
 
     def __str__(self):
         return self.name

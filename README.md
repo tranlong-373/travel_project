@@ -30,11 +30,10 @@ user text/voice
 
 ## Yêu Cầu Môi Trường
 
-- Python 3.10+; môi trường local hiện tại đang chạy Python 3.12.3.
-- SQL Server local hoặc remote.
+- Python 3.10+.
+- SQL Server local hoặc remote, có database `AccommodationDB`.
 - Microsoft ODBC Driver 18 for SQL Server.
 - Các package Python trong `travel_project/accommodation_project/requirements.txt`.
-- Nếu dùng voice API, máy cần đủ audio/runtime dependency cho Hugging Face ASR. `requirements.txt` giữ nguyên theo yêu cầu project; nếu môi trường mới báo thiếu audio runtime thì kiểm tra thêm `librosa`, `soundfile`, `torchaudio` hoặc `ffmpeg` ở cấp hệ điều hành.
 
 Database mặc định trong `settings.py`:
 
@@ -64,7 +63,7 @@ DATABASE_OVERRIDES = {
 }
 ```
 
-## Cài Và Chạy Local
+## Cài Và Chạy Web
 
 Từ repo root:
 
@@ -75,7 +74,6 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 cp .env.example .env
-python -B manage.py check
 python -B manage.py migrate
 python -B seed.py
 python -B manage.py runserver
@@ -90,7 +88,6 @@ py -3 -m venv .venv
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 copy .env.example .env
-python -B manage.py check
 python -B manage.py migrate
 python -B seed.py
 python -B manage.py runserver
