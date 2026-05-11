@@ -29,7 +29,7 @@ _FALLBACK_LOCATION_SPECS: tuple[tuple[str, str | None, str | None], ...] = (
     ("Quận 10", "TP HCM", "district"),
     ("Quận 11", "TP HCM", "district"),
     ("Quận 12", "TP HCM", "district"),
-    ("TP Thủ Đức", "TP HCM", "district"),
+    ("Thủ Đức", "TP HCM", "district"),
     ("Bình Thạnh", "TP HCM", "district"),
     ("Gò Vấp", "TP HCM", "district"),
     ("Tân Bình", "TP HCM", "district"),
@@ -72,6 +72,12 @@ def _district_number(canonical_name: str) -> str | None:
     return match.group(1) if match else None
 
 
+def _is_thu_duc(canonical_name: str) -> bool:
+    no_accent = strip_vietnamese_accents(_normalize_phrase(canonical_name))
+    no_accent = re.sub(r"^(?:tp|thanh pho)\s+", "", no_accent, count=1)
+    return no_accent == "thu duc"
+
+
 def generate_location_aliases(
     canonical_name: str,
     city: str | None = None,
@@ -95,6 +101,11 @@ def generate_location_aliases(
         _add_alias_forms(aliases, f"thanh pho {no_accent_city_name}")
         _add_alias_forms(aliases, city_name)
         _add_alias_forms(aliases, f"{city_name} city")
+    elif _is_thu_duc(canonical_name):
+        _add_alias_forms(aliases, f"tp {canonical_name}")
+        _add_alias_forms(aliases, f"thành phố {canonical_name}")
+        _add_alias_forms(aliases, "thanh pho thu duc")
+        _add_alias_forms(aliases, f"{canonical_name} city")
     elif type == "city":
         _add_alias_forms(aliases, f"{canonical_name} city")
 
@@ -199,6 +210,14 @@ def _locations_from_database() -> list[dict]:
         return []
 
 
+def _location_merge_key(canonical_name: str) -> str:
+    no_accent = strip_vietnamese_accents(_normalize_phrase(canonical_name))
+    without_city_prefix = re.sub(r"^(?:tp|thanh pho)\s+", "", no_accent, count=1)
+    if without_city_prefix == "thu duc":
+        return without_city_prefix
+    return no_accent
+
+
 @lru_cache(maxsize=1)
 def _load_supported_locations_cached() -> tuple[dict, ...]:
     db_locations = _locations_from_database()
@@ -222,7 +241,7 @@ def _merge_locations(*groups: list[dict]) -> list[dict]:
     merged: dict[str, dict] = {}
     for group in groups:
         for location in group:
-            key = strip_vietnamese_accents(_normalize_phrase(location.get("canonical_name") or ""))
+            key = _location_merge_key(location.get("canonical_name") or "")
             if not key:
                 continue
             if key not in merged:
