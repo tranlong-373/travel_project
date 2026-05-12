@@ -189,8 +189,21 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 
     # 1. Điểm giá thành (Price Score) [0.0 - 1.0]
     if budget and budget > 0:
-        # Dung sai 300k làm điểm trượt xuống mượt mà
-        scores["price"] = max(0.0, 1.0 - 0.5 * (price / budget))
+        ratio = price / budget
+        
+        if ratio < 0.5:
+            # Giá quá thấp (dưới 50% ngân sách) -> Sai phân khúc, phạt điểm giảm dần về 0.2
+            scores["price"] = 0.2 + (ratio / 0.5) * 0.6
+        elif ratio <= 0.8:
+            # Vùng giá lý tưởng (50% - 80% ngân sách) -> Đạt điểm tối đa (1.0) khi ở mốc 80%
+            scores["price"] = 0.8 + ((ratio - 0.5) / 0.3) * 0.2
+        elif ratio <= 1.0:
+            # Gần sát ngân sách (80% - 100%) -> Hơi đắt nhưng vẫn trong ngân sách
+            scores["price"] = 1.0 - ((ratio - 0.8) / 0.2) * 0.2
+        else:
+            # Vượt ngân sách (nhưng chưa quá 300k) -> Giảm dần từ 0.8 về 0.4
+            excess = price - budget
+            scores["price"] = max(0.4, 0.8 - 0.4 * (excess / 300_000))
     else:
         # Rational Decay cho người không nhập budget
         scores["price"] = 1.0 / (1.0 + (price / 2_000_000))
