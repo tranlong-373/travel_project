@@ -7,60 +7,43 @@ from accommodations.models import Accommodation
 
 AMENITY_ALIASES = {
     # Từ khóa Wifi
-    "wifi": "wifi",
-    "wi-fi": "wifi",
-    "internet": "wifi",
-    "mang": "wifi",
-    "mạng": "wifi",
-    "wi fi": "wifi",
+    "wifi": "wifi", "wi-fi": "wifi", "internet": "wifi", "mang": "wifi", "mạng": "wifi", "wi fi": "wifi", "cap quang": "wifi", "cáp quang": "wifi", "mang meo": "wifi", "mạng mẽo": "wifi",
     
     # Từ khóa Máy lạnh / Điều hòa
-    "dieu hoa": "air_conditioner",
-    "điều hòa": "air_conditioner",
-    "may lanh": "air_conditioner",
-    "máy lạnh": "air_conditioner",
-    "air conditioner": "air_conditioner",
-    "ac": "air_conditioner",
-    "may dieu hoa": "air_conditioner",
-    "máy điều hòa": "air_conditioner",
+    "dieu hoa": "air_conditioner", "điều hòa": "air_conditioner", "may lanh": "air_conditioner", "máy lạnh": "air_conditioner", "air conditioner": "air_conditioner", "ac": "air_conditioner", "may dieu hoa": "air_conditioner", "máy điều hòa": "air_conditioner", "may quat": "air_conditioner", "máy quạt": "air_conditioner", "lam mat": "air_conditioner", "làm mát": "air_conditioner",
     
     # Từ khóa Bếp
-    "bep": "kitchen",
-    "bếp": "kitchen",
-    "nha bep": "kitchen",
-    "nhà bếp": "kitchen",
-    "kitchen": "kitchen",
-    "nau an": "kitchen",
-    "nấu ăn": "kitchen",
+    "bep": "kitchen", "bếp": "kitchen", "nha bep": "kitchen", "nhà bếp": "kitchen", "kitchen": "kitchen", "nau an": "kitchen", "nấu ăn": "kitchen", "cho nau": "kitchen", "chỗ nấu": "kitchen", "tu nau": "kitchen", "tự nấu": "kitchen", "nau nuong": "kitchen", "nấu nướng": "kitchen", "lo vi song": "kitchen", "lò vi sóng": "kitchen",
     
     # Từ khóa Bãi đỗ xe
-    "bai do xe": "parking",
-    "bãi đỗ xe": "parking",
-    "cho dau xe": "parking",
-    "chỗ đậu xe": "parking",
-    "parking": "parking",
-    "giu xe": "parking",
-    "giữ xe": "parking",
-    "do xe": "parking",
-    "đỗ xe": "parking",
+    "bai do xe": "parking", "bãi đỗ xe": "parking", "cho dau xe": "parking", "chỗ đậu xe": "parking", "parking": "parking", "giu xe": "parking", "giữ xe": "parking", "do xe": "parking", "đỗ xe": "parking", "gui xe": "parking", "gửi xe": "parking", "cho de xe": "parking", "chỗ để xe": "parking", "gara": "parking", "garage": "parking",
     
     # Từ khóa Hồ bơi
-    "ho boi": "pool",
-    "hồ bơi": "pool",
-    "be boi": "pool",
-    "bể bơi": "pool",
-    "pool": "pool",
-    "be tam": "pool",
-    "bể tắm": "pool",
+    "ho boi": "pool", "hồ bơi": "pool", "be boi": "pool", "bể bơi": "pool", "pool": "pool", "be tam": "pool", "bể tắm": "pool", "cho boi": "pool", "chỗ bơi": "pool", "boi loi": "pool", "bơi lội": "pool",
     
     # Từ khóa Máy giặt
-    "may giat": "washing_machine",
-    "máy giặt": "washing_machine",
-    "washing machine": "washing_machine",
-    "giat do": "washing_machine",
-    "giặt đồ": "washing_machine",
-    "giat ui": "washing_machine",
-    "giặt ủi": "washing_machine",
+    "may giat": "washing_machine", "máy giặt": "washing_machine", "washing machine": "washing_machine", "giat do": "washing_machine", "giặt đồ": "washing_machine", "giat ui": "washing_machine", "giặt ủi": "washing_machine", "giat la": "washing_machine", "giặt là": "washing_machine", "may say": "washing_machine", "máy sấy": "washing_machine", "cho phoi": "washing_machine", "chỗ phơi": "washing_machine",
+    
+    # Từ khóa Bữa sáng
+    "an sang": "breakfast", "ăn sáng": "breakfast", "bua sang": "breakfast", "bữa sáng": "breakfast", "breakfast": "breakfast", "buffet": "breakfast", "diem tam": "breakfast", "điểm tâm": "breakfast", "bao an sang": "breakfast", "bao ăn sáng": "breakfast",
+    
+    # Từ khóa Đưa đón sân bay
+    "dua don": "airport_shuttle", "đưa đón": "airport_shuttle", "san bay": "airport_shuttle", "sân bay": "airport_shuttle", "airport shuttle": "airport_shuttle", "shuttle": "airport_shuttle", "don san bay": "airport_shuttle", "đón sân bay": "airport_shuttle", "xe don khach": "airport_shuttle", "xe đón khách": "airport_shuttle",
+    
+    # Từ khóa Lễ tân / 24h
+    "le tan": "front_desk", "lễ tân": "front_desk", "24/7": "front_desk", "24h": "front_desk", "front desk": "front_desk", "reception": "front_desk", "tiep tan": "front_desk", "tiếp tân": "front_desk", "24/24": "front_desk", "nhan phong dem": "front_desk", "nhận phòng đêm": "front_desk",
+    
+    # Từ khóa Gym / Thể hình
+    "gym": "gym", "phong gym": "gym", "phòng gym": "gym", "the hinh": "gym", "thể hình": "gym", "phong tap": "gym", "phòng tập": "gym", "tap gym": "gym", "tập gym": "gym",
+    
+    # Từ khóa Spa / Massage
+    "spa": "spa", "massage": "spa", "xong hoi": "spa", "xông hơi": "spa", "mat xa": "spa", "mát xa": "spa", "massa": "spa", "tam quat": "spa", "tẩm quất": "spa", "thu gian": "spa", "thư giãn": "spa",
+    
+    # Từ khóa Thang máy
+    "thang may": "elevator", "thang máy": "elevator", "elevator": "elevator",
+    
+    # Từ khóa Thú cưng
+    "thu cung": "pet_friendly", "thú cưng": "pet_friendly", "cho meo": "pet_friendly", "chó mèo": "pet_friendly", "pet": "pet_friendly", "pet friendly": "pet_friendly", "thu nuoi": "pet_friendly", "thú nuôi": "pet_friendly", "mang cho": "pet_friendly", "mang chó": "pet_friendly"
 }
 
 TP_HCM_LEGACY_AREA_HINTS = (
@@ -169,7 +152,7 @@ def is_quality_first_request(req) -> bool:
 
 
 def calculate_matching_score(accom: Accommodation, req) -> float:
-    """Thang điểm 5.0đ đánh giá độ sát sao với toàn bộ yêu cầu của khách hàng"""
+    """Tính điểm phù hợp (tối đa 5.0) theo phương pháp MCDM, có Context-Aware và Bayesian Average."""
 
     if is_quality_first_request(req):
         rating = accom.rating or 0
@@ -182,56 +165,103 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
     price = accom.price_per_night
     budget = req.budget
 
-    # Ràng buộc cứng: Vượt budget -> rớt ngay
-    if budget and budget > 0 and price > budget:
+    # Ràng buộc cứng: Vượt budget quá mức cho phép (300,000đ) -> rớt ngay
+    if budget and budget > 0 and price > budget + 300_000:
         return 0.0
 
-    score = 0.0
+    # Trọng số các tiêu chí (tổng = 5.0)
+    # Tự động điều chỉnh trọng số dựa trên ngữ cảnh: Đi gia đình/nhóm thì tiện ích quan trọng hơn
+    is_group_trip = req.guest_count >= 3
+    WEIGHTS = {
+        "price": 1.25,
+        "amenities": 1.2 if is_group_trip else 1.0,
+        "location": 1.25,
+        "quality": 1.0,
+        "type": 0.3 if is_group_trip else 0.5
+    }
+    
+    # Cân bằng lại tổng trọng số về đúng 5.0
+    total_weight = sum(WEIGHTS.values())
+    for k in WEIGHTS:
+        WEIGHTS[k] = (WEIGHTS[k] / total_weight) * 5.0
+        
+    scores = {}
 
-    # 1. Giá thành (Max 1.5đ)
+    # 1. Điểm giá thành (Price Score) [0.0 - 1.0]
     if budget and budget > 0:
-        ratio = price / budget
-        score += 1.5 * (1.0 - ratio * 0.5)
+        # Dung sai 300k làm điểm trượt xuống mượt mà
+        scores["price"] = max(0.0, 1.0 - 0.5 * (price / budget))
     else:
-        if price < 500_000:
-            score += 1.5
-        elif price < 1_000_000:
-            score += 1.2
-        elif price < 2_000_000:
-            score += 0.75
-        else:
-            score += 0.25
+        # Rational Decay cho người không nhập budget
+        scores["price"] = 1.0 / (1.0 + (price / 2_000_000))
 
-    # 2. Tiện ích (Max 1.5đ)
+    # 2. Điểm tiện ích (Amenities Score) [0.0 - 1.0] - Context-Aware
     requested_amenities = normalize_amenities(req.required_amenities)
     accommodation_amenities = normalize_amenities(accom.amenities)
+    
     if requested_amenities:
+        # Nếu khách có yêu cầu cứng
         matched = len(requested_amenities & accommodation_amenities)
-        score += 1.5 * (matched / float(len(requested_amenities)))
+        base_amenity_score = matched / float(len(requested_amenities))
+        
+        # Ngữ cảnh ẩn (Context): Bonus thêm nếu đi nhóm mà KS có bếp/hồ bơi
+        if is_group_trip:
+            bonus_amenities = {"kitchen", "pool"} - requested_amenities
+            if bonus_amenities:
+                bonus_matched = len(bonus_amenities & accommodation_amenities)
+                # Điểm base chiếm 80%, bonus chiếm 20%
+                scores["amenities"] = (base_amenity_score * 0.8) + (0.2 * (bonus_matched / len(bonus_amenities)))
+            else:
+                scores["amenities"] = base_amenity_score
+        else:
+            scores["amenities"] = base_amenity_score
     else:
-        score += 1.5
+        # Nếu khách KHÔNG yêu cầu tiện ích, tự động nội suy (Infer intent)
+        latent_amenities = set()
+        if is_group_trip:
+            latent_amenities = {"kitchen", "pool"}
+        elif req.guest_count == 1:
+            latent_amenities = {"wifi", "air_conditioner"}
+            
+        if latent_amenities:
+            matched = len(latent_amenities & accommodation_amenities)
+            # Khởi điểm 0.6 vì khách không bắt buộc, nếu có thì cộng thêm lên max 1.0
+            scores["amenities"] = 0.6 + 0.4 * (matched / len(latent_amenities))
+        else:
+            scores["amenities"] = 1.0
 
-    # 3. Vị trí (Max 1.0đ)
-    score += calculate_area_score(accom.area, req.area)
+    # 3. Điểm vị trí (Location Score) [0.0 - 1.0]
+    scores["location"] = calculate_area_score(accom.area, req.area)
 
-    # 4. Chất lượng (Max 1.0đ)
-    if accom.rating:
-        score += 1.0 * (accom.rating / 5.0)
+    # 4. Điểm chất lượng (Quality Score) theo Bayesian Average [0.0 - 1.0]
+    # Khắc phục lỗi: Khách sạn 5 sao ít review bị đánh giá sai lệch
+    GLOBAL_AVG_RATING = 3.5
+    CONFIDENCE_THRESHOLD = 5.0
+    review_count = getattr(accom, "review_count", 0) or 0
+    rating = accom.rating or 0.0
+    
+    if review_count > 0:
+        bayesian_rating = (CONFIDENCE_THRESHOLD * GLOBAL_AVG_RATING + review_count * rating) / (CONFIDENCE_THRESHOLD + review_count)
+        scores["quality"] = bayesian_rating / 5.0
+    else:
+        scores["quality"] = GLOBAL_AVG_RATING / 5.0
 
-    # 5. Loại chỗ ở ưu tiên (Max 1.0đ)
+    # 5. Điểm loại chỗ ở (Type Score) [0.0 - 1.0]
     if req.preferred_type:
-        if accom.accommodation_type == req.preferred_type:
-            score += 1.0
+        scores["type"] = 1.0 if accom.accommodation_type == req.preferred_type else 0.0
     else:
-        score += 1.0
+        scores["type"] = 1.0
 
-    return round(score, 2)
+    # Tính tổng điểm (Weighted Sum Model)
+    final_score = sum(scores[k] * WEIGHTS[k] for k in WEIGHTS)
+
+    return min(round(final_score, 2), 5.0)
 
 def get_candidate_accommodations(preference) -> list[Accommodation]:
     base_qs = Accommodation.objects.filter(capacity__gte=preference.guest_count)
 
     if preference.budget and preference.budget > 0:
-        base_qs = base_qs.filter(price_per_night__lte=preference.budget)
+        base_qs = base_qs.filter(price_per_night__lte=preference.budget + 300_000)
 
     if preference.preferred_type:
         base_qs = base_qs.filter(accommodation_type=preference.preferred_type)
