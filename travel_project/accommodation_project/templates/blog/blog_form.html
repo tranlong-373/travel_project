@@ -1,0 +1,77 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<main class="blog-page">
+    <div class="blog-form-shell">
+        <div class="blog-form-head">
+            <p class="blog-kicker">Tạo bài viết</p>
+            <h1>Chia sẻ trải nghiệm khách sạn</h1>
+        </div>
+
+        <form method="get" action="{% url 'blog_create' %}" class="hotel-search-form">
+            <label for="hotel-search">Tìm tên khách sạn</label>
+            <div class="hotel-search-row">
+                <input
+                    id="hotel-search"
+                    type="text"
+                    name="q"
+                    value="{{ search_query }}"
+                    placeholder="Nhập tên, khu vực hoặc địa chỉ khách sạn..."
+                    required
+                >
+                <button type="submit">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    Tìm
+                </button>
+            </div>
+        </form>
+
+        <form method="post" enctype="multipart/form-data" class="blog-create-form">
+            {% csrf_token %}
+
+            <div class="blog-field">
+                <label>Chọn khách sạn gần đúng nhất</label>
+                {% if accommodation_results %}
+                    <div class="hotel-result-list">
+                        {% for accommodation in accommodation_results %}
+                            <label class="hotel-result">
+                                <input type="radio" name="accommodation" value="{{ accommodation.id }}" required>
+                                <span>
+                                    <strong>{{ accommodation.name }}</strong>
+                                    {{ accommodation.address }}, {{ accommodation.area }}
+                                </span>
+                            </label>
+                        {% endfor %}
+                    </div>
+                {% elif search_query %}
+                    <p class="blog-muted">Không tìm thấy khách sạn phù hợp. Hãy thử từ khóa khác.</p>
+                {% else %}
+                    <p class="blog-muted">Nhập tên khách sạn ở ô tìm kiếm để chọn khách sạn cần liên kết.</p>
+                {% endif %}
+            </div>
+
+            <div class="blog-field">
+                <label for="{{ form.caption.id_for_label }}">Caption</label>
+                {{ form.caption }}
+                {% for error in form.caption.errors %}
+                    <p class="blog-error">{{ error }}</p>
+                {% endfor %}
+            </div>
+
+            <div class="blog-field">
+                <label for="blog-images">Ảnh bài viết</label>
+                <input id="blog-images" type="file" name="images" accept="image/*" multiple class="blog-file-input">
+                <p class="blog-muted">Có thể chọn nhiều ảnh hoặc bỏ trống.</p>
+            </div>
+
+            <div class="blog-actions">
+                <a href="{% url 'blog_list' %}" class="blog-secondary-btn">Hủy</a>
+                <button type="submit" class="blog-primary-btn">
+                    <i class="fa-solid fa-paper-plane"></i>
+                    Đăng bài
+                </button>
+            </div>
+        </form>
+    </div>
+</main>
+{% endblock %}

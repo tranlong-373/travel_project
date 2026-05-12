@@ -369,10 +369,14 @@ def profile_view(request):
     favorites = Favorite.objects.filter(user=request.user).select_related('accommodation')
 
     if request.method == 'POST':
-        profile.full_name = request.POST.get('full_name', '')
-        profile.phone = request.POST.get('phone', '')
-        profile.address = request.POST.get('address', '')
+        if 'full_name' in request.POST:
+            profile.full_name = request.POST.get('full_name', '')
+            profile.phone = request.POST.get('phone', '')
+            profile.address = request.POST.get('address', '')
+        if request.FILES.get('avatar'):
+            profile.avatar = request.FILES['avatar']
         profile.save()
+        messages.success(request, 'Đã cập nhật hồ sơ cá nhân.')
         return redirect('profile')
 
     return render(request, 'accounts/profile.html', {

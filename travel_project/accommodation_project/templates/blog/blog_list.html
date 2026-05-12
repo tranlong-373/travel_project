@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<main class="blog-page">
+    <div class="blog-header">
+        <div>
+            <p class="blog-kicker">Travel community</p>
+            {% if selected_accommodation %}
+                <h1>Bài đăng về {{ selected_accommodation.name }}</h1>
+            {% else %}
+                <h1>Blog chia sẻ khách sạn</h1>
+            {% endif %}
+        </div>
+        {% if user.is_authenticated %}
+            <a href="{% url 'blog_create' %}" class="blog-primary-btn">
+                <i class="fa-solid fa-pen-to-square"></i>
+                Đăng bài
+            </a>
+        {% else %}
+            <a href="{% url 'login' %}" class="blog-primary-btn">
+                <i class="fa-solid fa-lock"></i>
+                Đăng nhập để đăng bài
+            </a>
+        {% endif %}
+    </div>
+
+    <div class="blog-feed">
+        {% for post in page_obj %}
+            <article class="blog-post">
+                <div class="blog-post-head">
+                    <div class="blog-avatar">{{ post.author.username|slice:":1"|upper }}</div>
+                    <div>
+                        <p class="blog-author">{{ post.author.username }}</p>
+                        <p class="blog-date">{{ post.created_at|date:"d/m/Y H:i" }}</p>
+                    </div>
+                </div>
+
+                <p class="blog-caption">{{ post.caption|linebreaksbr }}</p>
+
+                {% if post.images.all %}
+                    <div class="blog-image-grid count-{{ post.images.all|length }}">
+                        {% for image in post.images.all %}
+                            <img src="{{ image.image.url }}" alt="Ảnh bài đăng của {{ post.author.username }}" class="blog-image">
+                        {% endfor %}
+                    </div>
+                {% endif %}
+
+                <a href="{% url 'accommodation_detail' post.accommodation.id %}" class="blog-hotel-link">
+                    <i class="fa-solid fa-hotel"></i>
+                    <span>
+                        <strong>Liên kết tới khách sạn</strong>
+                        {{ post.accommodation.name }} - {{ post.accommodation.address }}
+                    </span>
+                </a>
+
+                <div class="blog-comments">
+                    <p class="blog-comment-title">{{ post.comments.count }} bình luận</p>
+
+                    {% for comment in post.comments.all %}
+                        <div class="blog-comment">
+                            <div class="blog-comment-avatar">{{ comment.author.username|slice:":1"|upper }}</div>
+                            <div class="blog-comment-body">
+                                <p><strong>{{ comment.author.username }}</strong> {{ comment.content }}</p>
+                                <span>{{ comment.created_at|date:"d/m/Y H:i" }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+
+                    {% if user.is_authenticated %}
+                        <form method="post" action="{% url 'blog_add_comment' post.id %}" class="blog-comment-form">
+                            {% csrf_token %}
+                            {{ comment_form.content }}
+                            <button type="submit" title="Gửi bình luận" aria-label="Gửi bình luận">
+                                <i class="fa-solid fa-paper-plane"></i>
+                            </button>
+                        </form>
+                    {% else %}
+                        <p class="blog-login-hint"><a href="{% url 'login' %}">Đăng nhập</a> để bình luận.</p>
+                    {% endif %}
+                </div>
+            </article>
+        {% empty %}
+            <div class="blog-empty">
+                <i class="fa-regular fa-newspaper"></i>
+                <p>Chưa có bài đăng nào.</p>
+            </div>
+        {% endfor %}
+    </div>
+
+    {% if page_obj.has_other_pages %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a class="page-btn" href="?page={{ page_obj.previous_page_number }}{% if query_string %}&{{ query_string }}{% endif %}">&lt;</a>
+            {% endif %}
+            <span class="page-btn active">{{ page_obj.number }}</span>
+            {% if page_obj.has_next %}
+                <a class="page-btn" href="?page={{ page_obj.next_page_number }}{% if query_string %}&{{ query_string }}{% endif %}">&gt;</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</main>
+{% endblock %}

@@ -19,6 +19,7 @@
             <a href="/">Home</a>
             <a href="/accommodations/">Accommodation List</a>
             <a href="/preferences/">Find Recommendation</a>
+            <a href="/blog/">Blog</a>
         </div>
         {% endif %}
 
@@ -67,6 +68,14 @@
 
     </nav>
 
+
+    {% if messages %}
+        <div class="message-stack">
+            {% for message in messages %}
+                <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
 
     {% block content %}{% endblock %}
 
