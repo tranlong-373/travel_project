@@ -5,7 +5,7 @@ firebase-admin==6.5.0
 
 # Database SQL Server
 mssql-django==1.5
-pyodbc==5.1.0
+pyodbc>=5.1.0
 
 # Map + location
 folium==0.20.0
