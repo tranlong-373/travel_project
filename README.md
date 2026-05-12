@@ -30,7 +30,7 @@ user text/voice
 
 ## Yêu Cầu Môi Trường
 
-- Python 3.10+.
+- Python 3.10+; local hiện tại đã kiểm tra với Python 3.12.3.
 - SQL Server local hoặc remote, có database `AccommodationDB`.
 - Microsoft ODBC Driver 18 for SQL Server.
 - Các package Python trong `travel_project/accommodation_project/requirements.txt`.
@@ -65,32 +65,38 @@ DATABASE_OVERRIDES = {
 
 ## Cài Và Chạy Web
 
-Từ repo root:
+### Từ repo root:
 
 ```bash
 cd travel_project/accommodation_project
-python3 -m venv .venv
-source .venv/bin/activate
+python -m venv venv
+venv\Scripts\activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 cp .env.example .env
-python -B manage.py migrate
-python -B seed.py
-python -B manage.py runserver
+python manage.py makemigrations
+python manage.py check
+python manage.py migrate
+python seed.py
+python manage.py createsuperuser
+python manage.py runserver
 ```
 
-Trên Windows PowerShell:
+### Trên Windows PowerShell:
 
 ```powershell
 cd travel_project\accommodation_project
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+py -3 -m venv venv
+.\venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 copy .env.example .env
-python -B manage.py migrate
-python -B seed.py
-python -B manage.py runserver
+python manage.py makemigrations
+python manage.py check
+python manage.py migrate
+python seed.py
+python manage.py createsuperuser
+python manage.py runserver
 ```
 
 Server mặc định:
@@ -181,6 +187,24 @@ Request submit sau khi user xác nhận:
   "locale": "vi"
 }
 ```
+
+## API Chat Nhanh
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat/parse/ \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Khách sạn ở Sài Gòn cho 2 người, 2 ngày, budget 900k, có wifi"}'
+```
+
+Submit sau khi xác nhận:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat/submit/ \
+  -H "Content-Type: application/json" \
+  -d '{"confirmed":true,"slots":{"area":"tp hcm","budget":900000,"guest_count":2,"trip_days":2,"preferred_type":"hotel","required_amenities":["wifi"]}}'
+```
+
+Nếu response có `recommendation_url`, mở URL đó trên browser.
 
 ## Cấu Hình `.env`
 
