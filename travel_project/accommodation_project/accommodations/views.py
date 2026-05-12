@@ -4,6 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Q
 
 from accounts.models import Favorite
+from blog.models import BlogPost
 from .models import Accommodation, AccommodationReview, Room
 
 
@@ -69,6 +70,39 @@ def accommodation_list(request):
     paginator = Paginator(qs, 5)
     page_number = request.GET.get('page', 1)
     page_obj = paginator.get_page(page_number)
+    page_accommodations = list(page_obj.object_list)
+    accommodation_ids = [accommodation.id for accommodation in page_accommodations]
+
+    latest_reviews = (
+        AccommodationReview.objects.filter(
+            accommodation_id__in=accommodation_ids,
+            is_approved=True,
+        )
+        .select_related('user', 'accommodation')
+        .order_by('accommodation_id', '-created_at')
+    )
+    latest_posts = (
+        BlogPost.objects.filter(accommodation_id__in=accommodation_ids)
+        .select_related('author', 'accommodation')
+        .prefetch_related('images', 'comments')
+        .order_by('accommodation_id', '-created_at')
+    )
+
+    reviews_by_accommodation = {}
+    for review in latest_reviews:
+        reviews_by_accommodation.setdefault(review.accommodation_id, [])
+        if len(reviews_by_accommodation[review.accommodation_id]) < 2:
+            reviews_by_accommodation[review.accommodation_id].append(review)
+
+    posts_by_accommodation = {}
+    for post in latest_posts:
+        posts_by_accommodation.setdefault(post.accommodation_id, [])
+        if len(posts_by_accommodation[post.accommodation_id]) < 2:
+            posts_by_accommodation[post.accommodation_id].append(post)
+
+    for accommodation in page_accommodations:
+        accommodation.preview_reviews = reviews_by_accommodation.get(accommodation.id, [])
+        accommodation.preview_posts = posts_by_accommodation.get(accommodation.id, [])
 
     query_params = request.GET.copy()
     query_params.pop('page', None)

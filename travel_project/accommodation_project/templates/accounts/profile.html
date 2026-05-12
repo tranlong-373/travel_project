@@ -8,11 +8,25 @@
     <div class="profile-top">
 
         <!-- Avatar + tên -->
-        <div class="profile-avatar-wrap">
-            <div class="profile-avatar">{{ request.user.username|slice:":1"|upper }}</div>
+        <form method="post" enctype="multipart/form-data" class="profile-avatar-wrap">
+            {% csrf_token %}
+            <label for="profile-avatar-input" class="profile-avatar-picker">
+                {% if profile.avatar %}
+                    <img src="{{ profile.avatar.url }}" alt="{{ request.user.username }}" class="profile-avatar-img">
+                {% elif profile.avatar_url %}
+                    <img src="{{ profile.avatar_url }}" alt="{{ request.user.username }}" class="profile-avatar-img">
+                {% else %}
+                    <div class="profile-avatar">{{ request.user.username|slice:":1"|upper }}</div>
+                {% endif %}
+                <span class="profile-avatar-edit">
+                    <i class="fa-solid fa-camera"></i>
+                </span>
+            </label>
+            <input id="profile-avatar-input" type="file" name="avatar" accept="image/*" class="profile-avatar-input" hidden onchange="this.form.submit()" />
+            <label for="profile-avatar-input" class="profile-avatar-action">Chọn ảnh đại diện</label>
             <h2 class="profile-username">{{ request.user.username }}</h2>
             <p class="profile-email">{{ request.user.email }}</p>
-        </div>
+        </form>
 
         <!-- Form chỉnh sửa -->
         <div class="profile-form-wrap">

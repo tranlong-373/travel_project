@@ -147,15 +147,19 @@
 
             <div class="acc-list">
                 {% for room in accommodations %}
-                <a href="{% url 'accommodation_detail' room.pk %}" class="acc-card">
+                <article class="acc-card">
                     <div class="acc-img-wrap">
-                        <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
+                        <a href="{% url 'accommodation_detail' room.pk %}">
+                            <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
+                        </a>
                     </div>
                     <div class="acc-body">
                         <div class="acc-top">
                             <div>
                                 <p class="acc-type">{{ room.accommodation_type }}</p>
-                                <p class="acc-name">{{ room.name }}</p>
+                                <a href="{% url 'accommodation_detail' room.pk %}" class="acc-name-link">
+                                    <p class="acc-name">{{ room.name }}</p>
+                                </a>
                                 <p class="acc-address">
                                     <i class="fa-solid fa-location-dot"></i>
                                     {{ room.address }}, {{ room.area }}
@@ -164,6 +168,39 @@
                             <div class="acc-rating">★ {{ room.rating }}</div>
                         </div>
                         <p class="acc-desc">{{ room.description }}</p>
+                        <div class="acc-social-preview">
+                            <div class="acc-preview-panel">
+                                <div class="acc-preview-head">
+                                    <span><i class="fa-solid fa-star"></i> Review mới</span>
+                                    <a href="{% url 'accommodation_detail' room.pk %}">Xem review</a>
+                                </div>
+                                {% for review in room.preview_reviews %}
+                                    <div class="acc-preview-item">
+                                        <strong>{{ review.user.username }}</strong>
+                                        <span>{{ review.score }}/5</span>
+                                        <p>{{ review.comment|truncatechars:110 }}</p>
+                                    </div>
+                                {% empty %}
+                                    <p class="acc-preview-empty">Chưa có review được duyệt.</p>
+                                {% endfor %}
+                            </div>
+
+                            <div class="acc-preview-panel">
+                                <div class="acc-preview-head">
+                                    <span><i class="fa-solid fa-newspaper"></i> Bài đăng liên quan</span>
+                                    <a href="{% url 'blog_list' %}?accommodation={{ room.id }}">Xem bài đăng</a>
+                                </div>
+                                {% for post in room.preview_posts %}
+                                    <a href="{% url 'blog_list' %}?accommodation={{ room.id }}" class="acc-preview-item post-link">
+                                        <strong>{{ post.author.username }}</strong>
+                                        <span>{{ post.created_at|date:"d/m/Y" }}</span>
+                                        <p>{{ post.caption|truncatechars:110 }}</p>
+                                    </a>
+                                {% empty %}
+                                    <p class="acc-preview-empty">Chưa có bài đăng liên quan.</p>
+                                {% endfor %}
+                            </div>
+                        </div>
                         <div class="acc-bottom">
                             <div class="acc-info">
                                 <span><i class="fa-solid fa-user"></i> {{ room.capacity }} khách</span>
@@ -175,11 +212,11 @@
                                 <p class="acc-price">
                                     <span>{{ room.price_per_night|floatformat:0 }}₫</span>/night
                                 </p>
-                                <span class="hotel-book-btn">Xem chi tiết</span>
+                                <a href="{% url 'accommodation_detail' room.pk %}" class="hotel-book-btn">Xem chi tiết</a>
                             </div>
                         </div>
                     </div>
-                </a>
+                </article>
                 {% empty %}
                 <div style="text-align:center; padding:60px 0; grid-column:1/-1;">
                     <i class="fa-solid fa-magnifying-glass" style="font-size:40px; color:#cbd5e1; display:block; margin-bottom:12px;"></i>

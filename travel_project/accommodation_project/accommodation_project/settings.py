@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'accounts',
     'chat_api',
     'voice_api',
+    'blog',
 ]
 
 MIDDLEWARE = [
@@ -96,7 +97,7 @@ DATABASES = {
          "HOST": "localhost",
          "PORT": "",
          "OPTIONS": {
-             "driver": "ODBC Driver 18 for SQL Server",
+             "driver": "ODBC Driver 17 for SQL Server",
              "trusted_connection": "yes",
              "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
          },
@@ -144,6 +145,9 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

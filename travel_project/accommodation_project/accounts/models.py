@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.core.validators import FileExtensionValidator
 from accommodations.models import Accommodation
 
 
@@ -10,6 +11,15 @@ class Profile(models.Model):
     address = models.CharField(max_length=255, blank=True)
     firebase_uid = models.CharField(max_length=128, blank=True, db_index=True)
     avatar_url = models.URLField(blank=True)
+    avatar = models.FileField(
+        upload_to='accounts/avatars/',
+        blank=True,
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['jpg', 'jpeg', 'png', 'gif', 'webp']
+            )
+        ],
+    )
 
     def __str__(self):
         return self.user.username
