@@ -3,8 +3,13 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path, include
 
+from . import admin as custom_admin  # noqa: F401
 from accounts.views import firebase_login, google_callback, google_start
 from accommodations.views import home_view
+
+admin.site.site_header = 'Travel Accommodation Admin'
+admin.site.site_title = 'Travel Admin'
+admin.site.index_title = 'Quan ly khach san, blog va nguoi dung'
 
 urlpatterns = [
     path('admin/', admin.site.urls),
