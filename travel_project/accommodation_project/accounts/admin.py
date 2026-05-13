@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.admin.models import LogEntry
 from django.utils.html import format_html, format_html_join
 
 from .models import Favorite, Profile
@@ -59,7 +60,6 @@ class ProfileAdmin(admin.ModelAdmin):
         favorites = Favorite.objects.filter(user=obj.user).select_related('accommodation').order_by('-created_at')
         if not favorites:
             return 'No favorite hotels'
-
         items = format_html_join(
             '',
             '<li>{} <span style="color:#64748b;">({})</span></li>',
@@ -71,3 +71,28 @@ class ProfileAdmin(admin.ModelAdmin):
         return format_html('<ul style="margin:0;padding-left:18px;">{}</ul>', items)
 
     favorite_hotels.short_description = 'Favorite hotels'
+
+
+@admin.register(Favorite)
+class FavoriteAdmin(admin.ModelAdmin):
+    list_display = ('user', 'accommodation', 'created_at')
+    search_fields = ('user__username', 'accommodation__name')
+    list_filter = ('created_at',)
+
+
+# ─── Audit Logs: Lịch sử hoạt động Admin (Read-only) ─────────────────────────
+@admin.register(LogEntry)
+class LogEntryAdmin(admin.ModelAdmin):
+    list_display = ('action_time', 'user', 'content_type', 'object_repr', 'action_flag', 'change_message')
+    list_filter = ('action_time', 'user', 'content_type')
+    search_fields = ('object_repr', 'change_message')
+    date_hierarchy = 'action_time'
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

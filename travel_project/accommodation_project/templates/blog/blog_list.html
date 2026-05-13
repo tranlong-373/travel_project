@@ -57,12 +57,28 @@
                     <p class="blog-comment-title">{{ post.comments.count }} bình luận</p>
 
                     {% for comment in post.comments.all %}
-                        <div class="blog-comment">
+                        <div class="blog-comment" style="position: relative; padding-right: 60px;">
                             <div class="blog-comment-avatar">{{ comment.author.username|slice:":1"|upper }}</div>
                             <div class="blog-comment-body">
-                                <p><strong>{{ comment.author.username }}</strong> {{ comment.content }}</p>
+                                <p>
+                                    <strong>{{ comment.author.username }}</strong> 
+                                    {% if "[REPORTED]" in comment.content %}
+                                        <span style="color:red; font-size:12px;">(Đã bị báo cáo vi phạm)</span>
+                                    {% else %}
+                                        {{ comment.content }}
+                                    {% endif %}
+                                </p>
                                 <span>{{ comment.created_at|date:"d/m/Y H:i" }}</span>
                             </div>
+                            
+                            {% if user.is_authenticated and "[REPORTED]" not in comment.content %}
+                                <form method="post" action="{% url 'blog_report_comment' comment.id %}" style="position: absolute; right: 0; top: 10px;">
+                                    {% csrf_token %}
+                                    <button type="submit" style="background: none; border: none; color: #dc3545; cursor: pointer; font-size: 12px;" title="Báo cáo vi phạm" onclick="return confirm('Bạn có chắc muốn báo cáo bình luận này?');">
+                                        <i class="fa-solid fa-flag"></i> Báo cáo
+                                    </button>
+                                </form>
+                            {% endif %}
                         </div>
                     {% endfor %}
 
