@@ -1,0 +1,287 @@
+"""
+Service layer for OpenStreetMap_API.
+
+All external HTTP calls to Nominatim / Overpass are isolated here.
+Other apps should only import from this module (not from views directly).
+"""
+
+import logging
+import math
+import urllib.parse
+
+import requests
+
+from .constants import (
+    DEFAULT_RADIUS,
+    NOMINATIM_REVERSE_URL,
+    NOMINATIM_SEARCH_URL,
+    NOMINATIM_USER_AGENT,
+    OVERPASS_API_URLS,
+    POI_TYPES,
+    RADIUS_CHOICES,
+    REQUEST_TIMEOUT,
+)
+
+logger = logging.getLogger(__name__)
+
+# ── shared session (reuse connections) ───────────────────────────────────────
+_session = requests.Session()
+_session.headers.update({"User-Agent": NOMINATIM_USER_AGENT})
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _safe_get(url: str, params: dict) -> dict | list | None:
+    """Perform a GET request and return parsed JSON or None on error."""
+    try:
+        resp = _session.get(url, params=params, timeout=REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("OSM request failed: %s | url=%s params=%s", exc, url, params)
+        return None
+
+
+def _poi_meta(poi_type: str) -> dict:
+    """Return icon / color / label for a POI type key."""
+    return POI_TYPES.get(poi_type, {"label": poi_type, "icon": "📍", "color": "#718096"})
+
+
+# ── public service functions ──────────────────────────────────────────────────
+
+def geocode_address(address: str, country_codes: str = "vn") -> dict | None:
+    """
+    Forward-geocode an address string.
+
+    Returns {'lat': float, 'lon': float, 'display_name': str} or None.
+    """
+    data = _safe_get(
+        NOMINATIM_SEARCH_URL,
+        {
+            "q": address,
+            "format": "json",
+            "limit": 1,
+            "countrycodes": country_codes,
+            "addressdetails": 1,
+        },
+    )
+    if data and len(data) > 0:
+        item = data[0]
+        return {
+            "lat": float(item["lat"]),
+            "lon": float(item["lon"]),
+            "display_name": item.get("display_name", address),
+        }
+    return None
+
+
+def reverse_geocode(lat: float, lon: float) -> dict | None:
+    """
+    Reverse-geocode a coordinate pair.
+
+    Returns address dict or None.
+    """
+    data = _safe_get(
+        NOMINATIM_REVERSE_URL,
+        {"lat": lat, "lon": lon, "format": "json"},
+    )
+    if data and "display_name" in data:
+        return {
+            "display_name": data["display_name"],
+            "address": data.get("address", {}),
+        }
+    return None
+
+
+def get_accommodation_coordinates(accommodation) -> dict:
+    """
+    Return the map-ready coordinate payload for an Accommodation instance.
+
+    Tries stored lat/lon first, then falls back to geocoding the address.
+    """
+    lat = accommodation.latitude
+    lon = accommodation.longitude
+
+    if lat is None or lon is None:
+        # Try geocoding from address
+        query = f"{accommodation.address}, {accommodation.area}, Vietnam"
+        geo = geocode_address(query)
+        if geo:
+            lat = geo["lat"]
+            lon = geo["lon"]
+
+    if lat is None or lon is None:
+        return {"success": False, "error": "Không thể xác định tọa độ cho chỗ ở này."}
+
+    return {
+        "success": True,
+        "accommodation_id": accommodation.pk,
+        "name": accommodation.name,
+        "lat": lat,
+        "lon": lon,
+        "address": f"{accommodation.address}, {accommodation.area}",
+        "image_url": accommodation.image_url or "",
+        "rating": accommodation.rating,
+        "price_per_night": accommodation.price_per_night,
+        "accommodation_type": accommodation.accommodation_type,
+    }
+
+
+def _build_overpass_query(lat: float, lon: float, radius: int, poi_types: list[str]) -> str:
+    """Build an Overpass QL query for multiple POI types around a point."""
+    union_parts = []
+    for poi_type in poi_types:
+        meta = POI_TYPES.get(poi_type)
+        if not meta:
+            continue
+        for key, value in meta["tags"]:
+            union_parts.append(f'node["{key}"="{value}"](around:{radius},{lat},{lon});')
+            union_parts.append(f'way["{key}"="{value}"](around:{radius},{lat},{lon});')
+
+    if not union_parts:
+        return ""
+
+    parts_str = "\n  ".join(union_parts)
+    return f"""
+[out:json][timeout:25];
+(
+  {parts_str}
+);
+out center tags;
+""".strip()
+
+
+def _query_overpass(query: str) -> dict | None:
+    """
+    POST Overpass QL to public mirrors until one returns HTTP 200 and JSON.
+
+    Mirrors differ in availability by region/IP; the main .de instance often
+    returns 406 for some datacenter or cloud egress IPs.
+    """
+    timeout = REQUEST_TIMEOUT + 20
+    last_detail = ""
+    for url in OVERPASS_API_URLS:
+        try:
+            resp = _session.post(url, data={"data": query}, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, dict):
+                return data
+            last_detail = f"{url}: response is not a JSON object"
+        except ValueError as exc:
+            last_detail = f"{url}: invalid JSON ({exc})"
+        except requests.RequestException as exc:
+            last_detail = f"{url}: {exc}"
+    logger.warning("Overpass query failed on all mirrors: %s", last_detail)
+    return None
+
+
+def search_pois(
+    lat: float,
+    lon: float,
+    radius: int = DEFAULT_RADIUS,
+    poi_types: list[str] | None = None,
+) -> list[dict]:
+    """
+    Query Overpass API for POIs around (lat, lon).
+
+    Parameters
+    ----------
+    lat, lon   : float  – centre point
+    radius     : int    – search radius in metres (clamped to RADIUS_CHOICES)
+    poi_types  : list   – subset of POI_TYPES keys; None means all types
+
+    Returns list of POI dicts ready for JSON serialisation.
+    """
+    # Clamp radius
+    if radius not in RADIUS_CHOICES:
+        radius = min(RADIUS_CHOICES, key=lambda r: abs(r - radius))
+
+    types_to_query = poi_types if poi_types else list(POI_TYPES.keys())
+
+    query = _build_overpass_query(lat, lon, radius, types_to_query)
+    if not query:
+        return []
+
+    raw = _query_overpass(query)
+    if raw is None:
+        return []
+
+    elements = raw.get("elements", [])
+    pois = []
+    seen = set()
+
+    for el in elements:
+        tags = el.get("tags", {})
+        name = tags.get("name") or tags.get("name:vi") or tags.get("name:en")
+        if not name:
+            continue
+
+        # Deduplicate by name + type (ways & nodes can both appear)
+        el_lat = el.get("lat") or (el.get("center") or {}).get("lat")
+        el_lon = el.get("lon") or (el.get("center") or {}).get("lon")
+        if el_lat is None or el_lon is None:
+            continue
+
+        uid = (name, round(el_lat, 5), round(el_lon, 5))
+        if uid in seen:
+            continue
+        seen.add(uid)
+
+        # Detect which poi_type this element belongs to
+        detected_type = _detect_poi_type(tags)
+        meta = _poi_meta(detected_type)
+
+        # Distance from centre
+        dist = _haversine(lat, lon, el_lat, el_lon)
+
+        pois.append(
+            {
+                "id": el.get("id"),
+                "name": name,
+                "type": detected_type,
+                "type_label": meta["label"],
+                "icon": meta["icon"],
+                "color": meta["color"],
+                "lat": el_lat,
+                "lon": el_lon,
+                "distance_m": round(dist),
+                "tags": {
+                    "phone": tags.get("phone") or tags.get("contact:phone", ""),
+                    "website": tags.get("website") or tags.get("contact:website", ""),
+                    "opening_hours": tags.get("opening_hours", ""),
+                    "cuisine": tags.get("cuisine", ""),
+                },
+            }
+        )
+
+    # Sort by distance
+    pois.sort(key=lambda p: p["distance_m"])
+    return pois
+
+
+def _detect_poi_type(tags: dict) -> str:
+    """Match OSM tags against POI_TYPES definitions and return the type key."""
+    for type_key, meta in POI_TYPES.items():
+        for osm_key, osm_value in meta["tags"]:
+            if tags.get(osm_key) == osm_value:
+                return type_key
+    return "other"
+
+
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance in metres between two coordinates."""
+    R = 6_371_000  # Earth radius in metres
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def get_poi_types_metadata() -> list[dict]:
+    """Return all registered POI types as a list (for frontend dropdowns)."""
+    return [
+        {"key": k, "label": v["label"], "icon": v["icon"], "color": v["color"]}
+        for k, v in POI_TYPES.items()
+    ]

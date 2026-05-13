@@ -55,6 +55,7 @@ INSTALLED_APPS = [
     'chat_api',
     'voice_api',
     'blog',
+    'OpenStreetMap_API',
 ]
 
 MIDDLEWARE = [
@@ -97,7 +98,7 @@ DATABASES = {
          "HOST": "localhost",
          "PORT": "",
          "OPTIONS": {
-             "driver": "ODBC Driver 17 for SQL Server",
+             "driver": "ODBC Driver 18 for SQL Server",
              "trusted_connection": "yes",
              "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
          },
