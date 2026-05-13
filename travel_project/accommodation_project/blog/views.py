@@ -93,3 +93,14 @@ def add_comment(request, post_id):
             comment.save()
 
     return redirect('blog_list')
+
+
+@login_required
+def report_comment(request, comment_id):
+    if request.method == 'POST':
+        comment = get_object_or_404(BlogComment, id=comment_id)
+        if not comment.content.startswith('[REPORTED]'):
+            comment.content = f'[REPORTED] {comment.content}'
+            comment.save()
+            messages.success(request, 'Đã gửi báo cáo vi phạm cho Quản trị viên.')
+    return redirect('blog_list')
