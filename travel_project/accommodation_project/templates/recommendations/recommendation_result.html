@@ -22,7 +22,7 @@
             </label>
             <select id="resultSort" name="sort" onchange="this.form.submit()">
                 {% for value, label in sort_options %}
-                    <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
+                <option value="{{ value }}" {% if selected_sort==value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </form>
@@ -34,20 +34,20 @@
 
             <div class="acc-img-wrap">
                 {% if item.image_url %}
-                    <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
+                <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
                 {% else %}
-                    <div class="acc-img acc-img-placeholder">
-                        <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
-                    </div>
+                <div class="acc-img acc-img-placeholder">
+                    <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
+                </div>
                 {% endif %}
 
                 <!-- Score tối đa 5.0 → đổi sang % -->
                 {% if score >= 4.5 %}
-                    <div class="rec-score-badge badge-excellent">Xuất sắc ★</div>
+                <div class="rec-score-badge badge-excellent">Xuất sắc ★</div>
                 {% elif score >= 3.5 %}
-                    <div class="rec-score-badge badge-good">Phù hợp</div>
+                <div class="rec-score-badge badge-good">Phù hợp</div>
                 {% else %}
-                    <div class="rec-score-badge badge-ok">Tạm được</div>
+                <div class="rec-score-badge badge-ok">Tạm được</div>
                 {% endif %}
             </div>
 
@@ -81,12 +81,29 @@
                     <div class="acc-info">
                         <span><i class="fa-solid fa-user"></i> {{ item.capacity }} khách</span>
                         {% for amenity in item.amenities %}
-                            <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                            {% if amenity == "discount_percent" or amenity == "discount_amount" %}
+                                <span><i class="fa-solid fa-tag"></i> Khuyến mãi</span>
+                            {% else %}
+                                <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                            {% endif %}
                         {% endfor %}
                     </div>
                     <div class="acc-price-wrap">
                         <p class="acc-price">
-                            <span>{{ item.price_per_night|floatformat:0 }}₫</span>/night
+                            {% if item.has_discount %}
+                            <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{
+                                item.price_per_night|floatformat:0 }}₫</span>
+                            <span
+                                style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
+                                {% if item.amenities.discount_percent %}-{{ item.amenities.discount_percent }}%{% else
+                                %}Giảm giá{% endif %}
+                            </span><br>
+                            <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0
+                                }}₫</span>
+                            {% else %}
+                            <span>{{ item.price_per_night|floatformat:0 }}₫</span>
+                            {% endif %}
+                            /đêm
                         </p>
                         <button class="hotel-book-btn">Book Now</button>
                     </div>
@@ -95,11 +112,12 @@
 
         </a>
         {% empty %}
-            <div style="text-align:center; padding: 60px 20px; grid-column: 1/-1;">
-                <i class="fa-solid fa-magnifying-glass" style="font-size:48px; color:#cbd5e1; display:block; margin-bottom:16px;"></i>
-                <p style="color:#94a3b8; font-size:16px;">Không tìm thấy chỗ ở phù hợp.</p>
-                <a href="/preferences/" class="view-all-btn" style="margin-top:16px; display:inline-block;">Thử lại</a>
-            </div>
+        <div style="text-align:center; padding: 60px 20px; grid-column: 1/-1;">
+            <i class="fa-solid fa-magnifying-glass"
+                style="font-size:48px; color:#cbd5e1; display:block; margin-bottom:16px;"></i>
+            <p style="color:#94a3b8; font-size:16px;">Không tìm thấy chỗ ở phù hợp.</p>
+            <a href="/preferences/" class="view-all-btn" style="margin-top:16px; display:inline-block;">Thử lại</a>
+        </div>
         {% endfor %}
     </div>
 

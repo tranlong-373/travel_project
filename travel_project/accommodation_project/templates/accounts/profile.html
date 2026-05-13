@@ -86,7 +86,16 @@
                     </p>
                     <div class="hotel-bottom">
                         <p class="hotel-price">
-                            <span>{{ item.accommodation.price_per_night|floatformat:0 }}₫</span>/night
+                            {% if item.accommodation.has_discount %}
+                                <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{ item.accommodation.price_per_night|floatformat:0 }}₫</span>
+                                <span style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
+                                    {% if item.accommodation.amenities.discount_percent %}-{{ item.accommodation.amenities.discount_percent }}%{% else %}Giảm giá{% endif %}
+                                </span><br>
+                                <span style="color: #dc3545; font-weight: bold;">{{ item.accommodation.final_price|floatformat:0 }}₫</span>
+                            {% else %}
+                                <span>{{ item.accommodation.price_per_night|floatformat:0 }}₫</span>
+                            {% endif %}
+                            /đêm
                         </p>
                         <span class="hotel-book-btn">Xem chi tiết</span>
                     </div>

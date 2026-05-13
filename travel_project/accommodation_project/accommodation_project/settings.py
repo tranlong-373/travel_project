@@ -95,7 +95,7 @@ DATABASES = {
      "default": {
          "ENGINE": "mssql",
          "NAME": "AccommodationDB",
-         "HOST": "LAPTOP-D898CKUI\\SQLEXPRESS",
+         "HOST": "localhost",
          "PORT": "",
          "OPTIONS": {
              "driver": "ODBC Driver 18 for SQL Server",
@@ -105,9 +105,9 @@ DATABASES = {
      }
 
     ##'default': {
-      ##  'ENGINE': 'django.db.backends.sqlite3',
+       ## 'ENGINE': 'django.db.backends.sqlite3',
         ##'NAME': BASE_DIR / 'db.sqlite3',
-    ##}
+    #}
 }
 
 # Password validation
