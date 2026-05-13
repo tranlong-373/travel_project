@@ -25,6 +25,7 @@ urlpatterns = [
     path('api/chat/', include('chat_api.urls')),
     path('api/voice/', include('voice_api.urls')),
     path('blog/', include('blog.urls')),
+    path('api/map/', include('OpenStreetMap_API.urls', namespace='osm')),
 ]
 
 if settings.DEBUG:
