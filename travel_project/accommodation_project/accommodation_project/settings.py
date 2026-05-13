@@ -95,7 +95,7 @@ DATABASES = {
      "default": {
          "ENGINE": "mssql",
          "NAME": "AccommodationDB",
-         "HOST": "localhost",
+         "HOST": "LAPTOP-D898CKUI\\SQLEXPRESS",
          "PORT": "",
          "OPTIONS": {
              "driver": "ODBC Driver 18 for SQL Server",
