@@ -397,6 +397,17 @@
       <div class="osm-status-bar" id="osm-status-bar" style="display: none">
         <span id="osm-status-text"></span>
       </div>
+
+      <!-- Floating map results -->
+      <div class="osm-map-results" id="osm-map-results" style="display: none">
+        <div class="osm-map-results-head">
+          <span id="osm-map-results-title">Địa điểm tìm thấy</span>
+          <button type="button" onclick="document.getElementById('osm-map-results').style.display='none'">
+            &#x2715;
+          </button>
+        </div>
+        <div class="osm-map-results-list" id="osm-map-results-list"></div>
+      </div>
     </div>
 
     <!-- POI legend / list -->
@@ -1184,12 +1195,152 @@
 
   /* Status bar */
   .osm-status-bar {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    z-index: 850;
+    border: 1px solid #bae6fd;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
     padding: 10px 18px;
     background: #f0f9ff;
-    border-top: 1px solid #bae6fd;
     font-size: 13px;
     color: #0369a1;
-    font-weight: 500;
+    font-weight: 700;
+  }
+
+  .osm-map-results {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 850;
+    width: min(360px, calc(100% - 32px));
+    max-height: 430px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #dbeafe;
+    border-radius: 16px;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+  }
+
+  .osm-map-results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #eff6ff;
+    border-bottom: 1px solid #dbeafe;
+  }
+
+  .osm-map-results-head span {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .osm-map-results-head button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+  }
+
+  .osm-map-results-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .osm-map-result-item {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+  }
+
+  .osm-map-result-item:hover,
+  .osm-map-result-item.active {
+    background: #eff6ff;
+    transform: translateX(-2px);
+  }
+
+  .osm-map-result-number {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  .osm-map-result-name {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .osm-map-result-type {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .osm-map-result-distance {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .osm-numbered-marker {
+    width: 34px;
+    height: 34px;
+    border: 3px solid #fff;
+    border-radius: 12px 12px 12px 4px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.28);
+    transform: rotate(-45deg);
+  }
+
+  .osm-numbered-marker span {
+    transform: rotate(45deg);
+  }
+
+  .osm-poi-popup-action {
+    display: inline-flex;
+    margin-top: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    text-decoration: none;
   }
 
   /* POI result panel */
@@ -1252,6 +1403,11 @@
     border: 1px solid #e2e8f0;
     cursor: pointer;
     transition: all 0.15s;
+  }
+
+  .osm-poi-item.active {
+    background: #dbeafe;
+    border-color: #60a5fa;
   }
   .osm-poi-item:hover {
     background: #eff6ff;
@@ -1572,12 +1728,13 @@
               }).addTo(osmMap);
 
               // Draw POI markers
-              data.pois.forEach(function (poi) {
-                  addPOIMarker(poi);
+              data.pois.forEach(function (poi, idx) {
+                  addPOIMarker(poi, idx);
               });
 
               // Show POI list
               renderPOIList(data.pois, data.count);
+              renderMapResults(data.pois, data.count);
 
               setStatus(`✅ Tìm thấy ${data.count} địa điểm trong bán kính ${currentRadius / 1000} km`, 'ok');
 
@@ -1591,20 +1748,12 @@
           }
       };
 
-      function addPOIMarker(poi) {
+      function addPOIMarker(poi, idx) {
+          const number = idx + 1;
           const icon = L.divIcon({
-              html: `<div style="
-                  background:${poi.color};
-                  border:2px solid #fff;
-                  border-radius:8px;
-                  width:30px;height:30px;
-                  display:flex;align-items:center;justify-content:center;
-                  box-shadow:0 2px 8px rgba(0,0,0,.25);
-                  font-size:14px;
-                  cursor:pointer;
-              ">${poi.icon}</div>`,
-              iconSize: [30, 30],
-              iconAnchor: [15, 30],
+              html: `<div class="osm-numbered-marker" style="background:${poi.color};"><span>${number}</span></div>`,
+              iconSize: [34, 34],
+              iconAnchor: [17, 34],
               popupAnchor: [0, -32],
               className: '',
           });
@@ -1616,17 +1765,95 @@
               : poi.distance_m + ' m';
 
           let popupHtml = `<div class="osm-popup">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                  <span style="display:inline-flex;width:26px;height:26px;border-radius:8px;background:${poi.color};color:#fff;align-items:center;justify-content:center;font-weight:900;">${number}</span>
+                  <span style="font-size:18px;">${poi.icon}</span>
+              </div>
               <p class="osm-popup-name">${escHtml(poi.name)}</p>
               <p class="osm-popup-type">${poi.icon} ${escHtml(poi.type_label)}</p>
               <div class="osm-popup-meta">
                   <div>📏 Cách ${dist}</div>`;
           if (poi.tags && poi.tags.phone) popupHtml += `<div>📞 ${escHtml(poi.tags.phone)}</div>`;
           if (poi.tags && poi.tags.opening_hours) popupHtml += `<div>🕐 ${escHtml(poi.tags.opening_hours)}</div>`;
-          popupHtml += `</div></div>`;
+          popupHtml += `</div>
+              <a class="osm-poi-popup-action" href="https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lon}" target="_blank" rel="noopener">Mở chỉ đường</a>
+          </div>`;
 
           marker.bindPopup(popupHtml, { maxWidth: 240 });
+          marker.on('click', function () {
+              highlightPOI(idx);
+          });
           marker.addTo(osmMap);
           poiMarkers.push(marker);
+      }
+
+      function renderMapResults(pois, count) {
+          const panel = document.getElementById('osm-map-results');
+          const list = document.getElementById('osm-map-results-list');
+          const title = document.getElementById('osm-map-results-title');
+
+          if (!pois.length) {
+              panel.style.display = 'none';
+              return;
+          }
+
+          title.textContent = `${count} địa điểm trên bản đồ`;
+          list.innerHTML = '';
+
+          pois.slice(0, 8).forEach(function (poi, idx) {
+              const dist = poi.distance_m >= 1000
+                  ? (poi.distance_m / 1000).toFixed(1) + ' km'
+                  : poi.distance_m + ' m';
+
+              const item = document.createElement('div');
+              item.className = 'osm-map-result-item';
+              item.dataset.poiIndex = idx;
+              item.innerHTML = `
+                  <div class="osm-map-result-number" style="background:${poi.color};">${idx + 1}</div>
+                  <div>
+                      <div class="osm-map-result-name">${escHtml(poi.name)}</div>
+                      <div class="osm-map-result-type">${poi.icon} ${escHtml(poi.type_label)}</div>
+                  </div>
+                  <div class="osm-map-result-distance">${dist}</div>
+              `;
+              item.addEventListener('click', function () {
+                  focusPOI(idx, poi);
+              });
+              list.appendChild(item);
+          });
+
+          if (pois.length > 8) {
+              const more = document.createElement('div');
+              more.className = 'osm-map-result-item';
+              more.style.cursor = 'default';
+              more.innerHTML = `
+                  <div class="osm-map-result-number" style="background:#64748b;">+</div>
+                  <div>
+                      <div class="osm-map-result-name">Còn ${pois.length - 8} địa điểm khác</div>
+                      <div class="osm-map-result-type">Xem đầy đủ ở danh sách phía dưới bản đồ</div>
+                  </div>
+                  <div></div>
+              `;
+              list.appendChild(more);
+          }
+
+          panel.style.display = 'block';
+      }
+
+      function focusPOI(idx, poi) {
+          if (!osmMap || !poiMarkers[idx]) return;
+          osmMap.setView([poi.lat, poi.lon], 17);
+          poiMarkers[idx].openPopup();
+          highlightPOI(idx);
+      }
+
+      function highlightPOI(idx) {
+          document.querySelectorAll('.osm-map-result-item, .osm-poi-item').forEach(function (el) {
+              el.classList.remove('active');
+          });
+          document.querySelectorAll(`[data-poi-index="${idx}"]`).forEach(function (el) {
+              el.classList.add('active');
+          });
       }
 
       function renderPOIList(pois, count) {
@@ -1647,11 +1874,12 @@
 
                   const item = document.createElement('div');
                   item.className = 'osm-poi-item';
+                  item.dataset.poiIndex = idx;
                   item.innerHTML = `
                       <div class="osm-poi-icon-wrap" style="background:${poi.color}22;">
-                          <span>${poi.icon}</span>
+                          <span style="font-weight:900;color:${poi.color};">${idx + 1}</span>
                       </div>
-                      <div class="osm-poi-info">
+                  <div class="osm-poi-info">
                           <div class="osm-poi-name">${escHtml(poi.name)}</div>
                           <div class="osm-poi-meta">
                               <span class="osm-poi-type-badge" style="background:${poi.color}15;color:${poi.color};">${escHtml(poi.type_label)}</span>
@@ -1661,10 +1889,7 @@
                   `;
                   // Click to open marker popup
                   item.addEventListener('click', function () {
-                      if (poiMarkers[idx]) {
-                          osmMap.setView([poi.lat, poi.lon], 17);
-                          poiMarkers[idx].openPopup();
-                      }
+                      focusPOI(idx, poi);
                   });
                   list.appendChild(item);
               });
@@ -1675,6 +1900,7 @@
 
       /* ── Clear POIs ─────────────────────────────────────────────────── */
       window.osmClearPOIs = function (hidePanel) {
+          document.getElementById('osm-map-results').style.display = 'none';
           if (hidePanel !== false) {
               document.getElementById('osm-poi-panel').style.display = 'none';
               document.getElementById('osm-status-bar').style.display = 'none';
