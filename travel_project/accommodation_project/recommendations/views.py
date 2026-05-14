@@ -1,8 +1,9 @@
 from django.shortcuts import render, get_object_or_404
 from preferences.models import UserPreference
-from .services import calculate_matching_score, get_candidate_accommodations
+from .services import calculate_matching_score, get_candidate_accommodations, preference_has_user_location
 
 SORT_OPTIONS = (
+    ("distance_asc", "Gần bạn nhất"),
     ("recommended", "Phù hợp nhất"),
     ("price_asc", "Giá thấp nhất"),
     ("price_desc", "Giá cao nhất"),
@@ -44,13 +45,19 @@ def sort_scored_results(scored_results, sort_key):
                 -result[1],
             ),
         )
+    if sort_key == "distance_asc":
+        return sorted(
+            scored_results,
+            key=lambda result: (getattr(result[0], "distance_km", float("inf")), -result[1]),
+        )
 
     return sorted(scored_results, key=lambda result: result[1], reverse=True)
 
 
 def recommendation_result(request, pref_id):
     preference = get_object_or_404(UserPreference, id=pref_id)
-    selected_sort = normalize_sort_key(request.GET.get("sort", "recommended"))
+    default_sort = "distance_asc" if preference_has_user_location(preference) else "recommended"
+    selected_sort = normalize_sort_key(request.GET.get("sort", default_sort))
 
     accommodations = get_candidate_accommodations(preference)
 

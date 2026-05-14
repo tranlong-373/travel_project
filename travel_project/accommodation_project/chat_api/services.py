@@ -43,7 +43,7 @@ INCLUDE_PARSE_DIAGNOSTICS = os.getenv("CHAT_API_INCLUDE_DIAGNOSTICS", "0") == "1
 logger = logging.getLogger(__name__)
 
 CONFIRM_CORE_KEYS = ("area", "guest_count", "budget", "trip_days")
-CONFIRM_SKIP_KEYS = {"budget_min", "budget_max"}
+CONFIRM_SKIP_KEYS = {"budget_min", "budget_max", "user_location", "use_current_location"}
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
     "guest_count",

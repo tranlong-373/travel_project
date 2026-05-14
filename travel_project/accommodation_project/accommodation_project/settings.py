@@ -99,8 +99,9 @@ DATABASES = {
          "PORT": "",
          "OPTIONS": {
              "driver": "ODBC Driver 18 for SQL Server",
+             #"driver": "ODBC Driver 18 for SQL Server",#
              "trusted_connection": "yes",
-             "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
+             "extra_params": "Encrypt=No;TrustServerCertificate=Yes;",
          },
      }
 
