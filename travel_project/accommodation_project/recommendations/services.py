@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unicodedata
+from math import asin, cos, radians, sin, sqrt
 
 from accommodations.models import Accommodation
 
+DEFAULT_NEARBY_RADIUS_KM = 10.0
 
 AMENITY_ALIASES = {
     # Từ khóa Wifi
@@ -141,6 +143,42 @@ def calculate_area_score(accommodation_area: str, requested_area: str) -> float:
     return 0.0
 
 
+def preference_has_user_location(req) -> bool:
+    return (
+        getattr(req, "user_latitude", None) is not None
+        and getattr(req, "user_longitude", None) is not None
+    )
+
+
+def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius_km = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * radius_km * asin(sqrt(a))
+
+
+def accommodation_distance_km(accom: Accommodation, req) -> float | None:
+    if not preference_has_user_location(req):
+        return None
+    if accom.latitude is None or accom.longitude is None:
+        return None
+    return haversine_distance_km(
+        float(req.user_latitude),
+        float(req.user_longitude),
+        float(accom.latitude),
+        float(accom.longitude),
+    )
+
+
+def calculate_distance_score(distance_km: float | None, radius_km: float) -> float:
+    if distance_km is None:
+        return 0.0
+    if distance_km <= 1:
+        return 1.0
+    return max(0.0, 1.0 - (distance_km / max(radius_km, 1.0)))
+
+
 def is_quality_first_request(req) -> bool:
     return (
         not getattr(req, "area", None)
@@ -244,7 +282,18 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
             scores["amenities"] = 1.0
 
     # 3. Điểm vị trí (Location Score) [0.0 - 1.0]
-    scores["location"] = calculate_area_score(accom.area, req.area)
+    if preference_has_user_location(req):
+        distance_km = getattr(accom, "distance_km", None)
+        if distance_km is None:
+            distance_km = accommodation_distance_km(accom, req)
+            if distance_km is not None:
+                accom.distance_km = round(distance_km, 2)
+        scores["location"] = calculate_distance_score(
+            distance_km,
+            getattr(req, "search_radius_km", None) or DEFAULT_NEARBY_RADIUS_KM,
+        )
+    else:
+        scores["location"] = calculate_area_score(accom.area, req.area)
 
     # 4. Điểm chất lượng (Quality Score) theo Bayesian Average [0.0 - 1.0]
     # Khắc phục lỗi: Khách sạn 5 sao ít review bị đánh giá sai lệch
@@ -284,4 +333,21 @@ def get_candidate_accommodations(preference) -> list[Accommodation]:
         unique_items.setdefault(item.name, item)
 
     candidates = list(unique_items.values())
+    if preference_has_user_location(preference):
+        radius_km = preference.search_radius_km or DEFAULT_NEARBY_RADIUS_KM
+        located_candidates = []
+        nearest_candidates = []
+        for item in candidates:
+            distance_km = accommodation_distance_km(item, preference)
+            if distance_km is None:
+                continue
+            item.distance_km = round(distance_km, 2)
+            nearest_candidates.append(item)
+            if distance_km <= radius_km:
+                located_candidates.append(item)
+
+        if located_candidates:
+            return sorted(located_candidates, key=lambda item: item.distance_km)
+        return sorted(nearest_candidates, key=lambda item: item.distance_km)[:20]
+
     return [item for item in candidates if area_matches(item.area, preference.area)]

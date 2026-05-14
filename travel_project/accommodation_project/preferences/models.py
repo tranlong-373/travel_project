@@ -13,6 +13,9 @@ class UserPreference(models.Model):
     guest_count = models.IntegerField()
     preferred_type = models.CharField(max_length=20, choices=TYPE_CHOICES, blank=True, null=True)
     required_amenities = models.JSONField(default=list, blank=True)
+    user_latitude = models.FloatField(blank=True, null=True)
+    user_longitude = models.FloatField(blank=True, null=True)
+    search_radius_km = models.FloatField(default=10.0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):

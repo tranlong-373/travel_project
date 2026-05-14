@@ -10,6 +10,10 @@
             Khu vực: <strong>{{ preference.area }}</strong> &nbsp;|&nbsp;
             Ngân sách: <strong>{{ preference.budget|floatformat:0 }}₫</strong> &nbsp;|&nbsp;
             {{ preference.guest_count }} khách
+            {% if preference.user_latitude and preference.user_longitude %}
+            <br>
+            <strong>Đang gợi ý theo vị trí hiện tại của bạn trong bán kính {{ preference.search_radius_km|floatformat:0 }} km.</strong>
+            {% endif %}
         </p>
     </div>
 
@@ -22,7 +26,7 @@
             </label>
             <select id="resultSort" name="sort" onchange="this.form.submit()">
                 {% for value, label in sort_options %}
-                <option value="{{ value }}" {% if selected_sort==value %}selected{% endif %}>{{ label }}</option>
+                <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </form>
@@ -60,6 +64,12 @@
                             <i class="fa-solid fa-location-dot"></i>
                             {{ item.address }}, {{ item.area }}
                         </p>
+                        {% if preference.user_latitude and item.distance_km %}
+                        <p class="acc-address">
+                            <i class="fa-solid fa-route"></i>
+                            Cách bạn khoảng {{ item.distance_km|floatformat:1 }} km
+                        </p>
+                        {% endif %}
                     </div>
                     <div class="acc-rating">★ {{ item.rating }}</div>
                 </div>

@@ -65,6 +65,7 @@ def submit_message(request):
     locale = _normalize_locale(body.get("locale"))
     quick_reply_payload = _read_quick_reply_payload(body)
     context_slots = _read_context_slots(body)
+    user_location = _read_user_location(body)
     if quick_reply_payload:
         context_slots = _merge_payload(context_slots, quick_reply_payload)
 
@@ -83,6 +84,8 @@ def submit_message(request):
         except Exception:
             logger.exception("chat_api submit endpoint failed")
             return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
+
+    _attach_user_location(result, user_location)
 
     if not result.get("can_show_recommendations", result.get("ready_for_recommendation")):
         result.update(
@@ -153,6 +156,48 @@ def _merge_payload(context_slots, payload):
     if "budget_max" in payload and "budget" not in payload:
         merged["budget"] = payload["budget_max"]
     return merged
+
+
+def _read_user_location(body):
+    raw_location = body.get("user_location")
+    if not isinstance(raw_location, dict):
+        return None
+
+    try:
+        lat = float(raw_location.get("lat"))
+        lon = float(raw_location.get("lon"))
+    except (TypeError, ValueError):
+        return None
+
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+
+    location = {"lat": lat, "lon": lon}
+    accuracy = raw_location.get("accuracy")
+    try:
+        if accuracy is not None:
+            location["accuracy"] = float(accuracy)
+    except (TypeError, ValueError):
+        pass
+    return location
+
+
+def _attach_user_location(result, user_location):
+    if not user_location:
+        return
+
+    slots = dict(result.get("slots") or {})
+    slots["user_location"] = user_location
+    slots["use_current_location"] = True
+    slots["area"] = "Vị trí hiện tại"
+
+    result["slots"] = slots
+    result["user_location"] = user_location
+    result["canonical_area"] = slots.get("area")
+    result["location_status"] = "ok"
+    result["location_source"] = "browser_geolocation"
+    result["ready_for_recommendation"] = True
+    result["can_show_recommendations"] = True
 
 
 def _build_confirmed_result(slots):
