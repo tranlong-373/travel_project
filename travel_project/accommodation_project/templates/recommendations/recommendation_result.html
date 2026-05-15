@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="rec-page">
+    <div class="section-title" style="margin-bottom: 32px;">
+        <h1 class="section-heading">Kết quả tìm kiếm</h1>
+        <p class="section-subtitle">
+            Khu vực: <strong>{{ preference.area }}</strong> &nbsp;|&nbsp;
+            Ngân sách: <strong>{{ preference.budget|floatformat:0 }}₫</strong> &nbsp;|&nbsp;
+            {{ preference.guest_count }} khách
+            {% if preference.user_latitude and preference.user_longitude %}
+            <br>
+            <strong>Đang gợi ý theo vị trí hiện tại của bạn trong bán kính {{ preference.search_radius_km|floatformat:0 }} km.</strong>
+            {% endif %}
+        </p>
+    </div>
+
+    <div class="rec-toolbar">
+        <p class="rec-count">{{ results|length }} đề xuất phù hợp</p>
+        <form method="get" class="rec-sort-form">
+            <label for="resultSort">
+                <i class="fa-solid fa-arrow-up-wide-short"></i>
+                Sắp xếp
+            </label>
+            <select id="resultSort" name="sort" onchange="this.form.submit()">
+                {% for value, label in sort_options %}
+                <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+
+    <div class="acc-list">
+        {% for item, score in results %}
+        <a href="{% url 'accommodation_detail' item.pk %}" class="acc-card">
+
+            <div class="acc-img-wrap">
+                {% if item.image_url %}
+                <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
+                {% else %}
+                <div class="acc-img acc-img-placeholder">
+                    <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
+                </div>
+                {% endif %}
+
+                <!-- Score tối đa 5.0 → đổi sang % -->
+                {% if score >= 4.5 %}
+                <div class="rec-score-badge badge-excellent">Xuất sắc ★</div>
+                {% elif score >= 3.5 %}
+                <div class="rec-score-badge badge-good">Phù hợp</div>
+                {% else %}
+                <div class="rec-score-badge badge-ok">Tạm được</div>
+                {% endif %}
+            </div>
+
+            <div class="acc-body">
+                <div class="acc-top">
+                    <div>
+                        <p class="acc-type">{{ item.accommodation_type }}</p>
+                        <p class="acc-name">{{ item.name }}</p>
+                        <p class="acc-address">
+                            <i class="fa-solid fa-location-dot"></i>
+                            {{ item.address }}, {{ item.area }}
+                        </p>
+                        {% if preference.user_latitude and item.distance_km %}
+                        <p class="acc-address">
+                            <i class="fa-solid fa-route"></i>
+                            Cách bạn khoảng {{ item.distance_km|floatformat:1 }} km
+                        </p>
+                        {% endif %}
+                    </div>
+                    <div class="acc-rating">★ {{ item.rating }}</div>
+                </div>
+
+                <p class="acc-desc">{{ item.description }}</p>
+
+                <!-- Score bar -->
+                <div class="score-bar-wrap">
+                    <span class="score-label">Độ phù hợp</span>
+                    <div class="score-bar">
+                        <!-- score/5*100 = %, tính thủ công trong template -->
+                        {% widthratio score 5 100 as score_pct %}
+                        <div class="score-fill" style="width: {{ score_pct }}%;"></div>
+                    </div>
+                    <span class="score-num">{{ score }}/5</span>
+                </div>
+
+                <div class="acc-bottom">
+                    <div class="acc-info">
+                        <span><i class="fa-solid fa-user"></i> {{ item.capacity }} khách</span>
+                        {% for amenity in item.amenities %}
+                            {% if amenity == "discount_percent" or amenity == "discount_amount" %}
+                                <span><i class="fa-solid fa-tag"></i> Khuyến mãi</span>
+                            {% else %}
+                                <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                    <div class="acc-price-wrap">
+                        <p class="acc-price">
+                            {% if item.has_discount %}
+                            <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{
+                                item.price_per_night|floatformat:0 }}₫</span>
+                            <span
+                                style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
+                                {% if item.amenities.discount_percent %}-{{ item.amenities.discount_percent }}%{% else
+                                %}Giảm giá{% endif %}
+                            </span><br>
+                            <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0
+                                }}₫</span>
+                            {% else %}
+                            <span>{{ item.price_per_night|floatformat:0 }}₫</span>
+                            {% endif %}
+                            /đêm
+                        </p>
+                        <button class="hotel-book-btn">Book Now</button>
+                    </div>
+                </div>
+            </div>
+
+        </a>
+        {% empty %}
+        <div style="text-align:center; padding: 60px 20px; grid-column: 1/-1;">
+            <i class="fa-solid fa-magnifying-glass"
+                style="font-size:48px; color:#cbd5e1; display:block; margin-bottom:16px;"></i>
+            <p style="color:#94a3b8; font-size:16px;">Không tìm thấy chỗ ở phù hợp.</p>
+            <a href="/preferences/" class="view-all-btn" style="margin-top:16px; display:inline-block;">Thử lại</a>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div style="text-align:center; margin-top: 40px;">
+        <a href="/" class="view-all-btn">Về trang chủ</a>
+        <a href="/preferences/" class="view-all-btn" style="margin-left:12px;">Tìm kiếm lại</a>
+    </div>
+</div>
+
+{% endblock %}

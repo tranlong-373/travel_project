@@ -1,0 +1,23 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block title %}{{ title }} | Travel Accommodation Admin{% endblock %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin_custom.css' %}">
+{% endblock %}
+
+{% block branding %}
+<div class="custom-admin-brand">
+    <div class="custom-admin-logo">
+        TA
+    </div>
+    <div>
+        <h1 id="site-name">
+            <a href="{% url 'admin:index' %}">Travel Accommodation Admin</a>
+        </h1>
+        <p>Quản lý khách sạn, blog, người dùng và gợi ý</p>
+    </div>
+</div>
+{% endblock %}

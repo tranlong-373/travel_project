@@ -1,89 +1,54 @@
 # Accommodation Recommendation Project
 
-Project Django này quản lý dữ liệu chỗ ở và cung cấp flow gợi ý chỗ ở từ câu nhập tự nhiên của user.
-
-Flow chính:
+Project Django quản lý dữ liệu chỗ ở và hỗ trợ gợi ý nơi ở từ nhu cầu nhập bằng text hoặc voice. Code chính nằm trong:
 
 ```text
-user text -> chat_api parse -> chat_api submit -> UserPreference -> recommendations result
+travel_project/accommodation_project
 ```
 
-`chat_api` không tự recommend trực tiếp. Module này dịch câu tự nhiên thành dữ liệu có cấu trúc. Recommender đọc dữ liệu sạch qua `UserPreference`, không đọc raw text của user.
+Luồng chính hiện tại:
+
+```text
+user text/voice
+-> chat_api parse slots
+-> user xác nhận
+-> chat_api submit / voice_api save
+-> UserPreference
+-> recommendations result
+```
+
+`chat_api` không tự recommend trực tiếp. App này chuẩn hóa câu tự nhiên thành slots có cấu trúc. `recommendations` đọc dữ liệu sạch qua `UserPreference` rồi tính điểm với dữ liệu `Accommodation`.
 
 ## App Chính
-- `chat_api`: deterministic parser cho text tự nhiên, có `/api/chat/parse/` và `/api/chat/submit/`.
-- `preferences`: lưu nhu cầu đã chuẩn hóa vào model `UserPreference`.
-- `recommendations`: đọc `pref_id`, lấy `UserPreference`, tính score và render kết quả.
-- `accommodations`: lưu dữ liệu chỗ ở trong model `Accommodation`.
-- `accounts`: đăng ký, đăng nhập và profile user.
 
-## Cấu hình databse
-python manage.py makemigrations
-python manage.py migrate
-## Tạo tài khoản admin
-python manage.py createsuperuser
-(ở dòng nhập mật khẩu admin á khi nhập bằng terminal nó bị ẩn đi không có hiện nhưng mà mọi người cứ nhập rồi enter bình thường nhan)
+- `accommodations`: danh sách chỗ ở, chi tiết, phòng, review, favorite.
+- `accounts`: đăng ký, đăng nhập, profile, Firebase token login, Google OAuth login.
+- `chat_api`: parse text tự nhiên, quản lý core slots, tạo `UserPreference` qua API submit.
+- `voice_api`: nhận audio upload, transcribe bằng Hugging Face ASR, cleanup transcript rồi đưa qua `chat_api`.
+- `preferences`: model/form lưu nhu cầu người dùng.
+- `recommendations`: lấy `pref_id`, chọn candidate accommodations, tính score và render kết quả HTML.
 
-## Thêm một API mới 
-Đưa terminal đến cùng cấp với file manage.py 
-Gõ : python manage.py startapp TEN_API 
-sau đó cập nhập một số setting cơ bản 
+## Yêu Cầu Môi Trường
 
-## Flow Tổng Quát
+- Python 3.10+; local hiện tại đã kiểm tra với Python 3.12.3.
+- SQL Server local hoặc remote, có database `AccommodationDB`.
+- Microsoft ODBC Driver 18 for SQL Server.
+- Các package Python trong `travel_project/accommodation_project/requirements.txt`.
 
-1. Frontend gửi câu user vào `POST /api/chat/parse/`.
-2. Nếu thiếu core slots, API trả `follow_up_question`.
-3. Frontend hỏi tiếp và gửi câu trả lời kèm `context_slots` cũ.
-4. Khi đủ `area`, `budget`, `guest_count` và `location_status = "ok"`, frontend gọi `POST /api/chat/submit/`.
-5. `chat_api` tạo `UserPreference` và trả `pref_id`, `recommendation_url`.
-6. Frontend mở hoặc gọi `GET /recommendations/<pref_id>/` để lấy trang kết quả recommendation.
+Database mặc định trong `settings.py`:
 
-Core slots bắt buộc:
-
-- `area`
-- `budget`
-- `guest_count`
-
-Optional slots parser có thể trả:
-
-- `preferred_type`
-- `required_amenities`
-- `priorities`
-- `special_requirements`
-- `trip_days`
-
-Lưu ý: `priorities`, `special_requirements`, `trip_days` hiện có trong parse response nhưng chưa được lưu vào `UserPreference` và chưa được dùng trực tiếp trong recommender.
-
-## Cài Và Chạy Local
-
-Từ repo root:
-
-```powershell
-cd accommodation_project
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install django mssql-django pyodbc
-python manage.py migrate
-python seed.py
-python manage.py runserver
+```text
+ENGINE: mssql
+NAME: AccommodationDB
+HOST: localhost
+DRIVER: ODBC Driver 18 for SQL Server
 ```
 
-Repo hiện chưa có `requirements.txt`. Nếu team thêm file này sau, có thể thay bước cài package bằng:
+Nếu máy dùng DB/instance khác, tạo file local override tại:
 
-```powershell
-python -m pip install -r requirements.txt
+```text
+travel_project/accommodation_project/accommodation_project/settings_local.py
 ```
-
-## Database Và Local Settings
-
-`accommodation_project/accommodation_project/settings.py` đang dùng SQL Server qua `mssql-django`:
-
-- database name: `AccommodationDB`
-- host mặc định: `localhost`
-- driver: `ODBC Driver 18 for SQL Server`
-
-File `accommodation_project/accommodation_project/settings_local.py` là optional local override và không nên commit. Nếu máy khác dùng SQL Server instance khác, tạo file này để override `DATABASES["default"]`.
 
 Ví dụ:
 
@@ -92,14 +57,226 @@ DATABASE_OVERRIDES = {
     "HOST": r"YOUR_MACHINE\SQLEXPRESS",
     "OPTIONS": {
         "driver": "ODBC Driver 18 for SQL Server",
+        "trusted_connection": "yes",
+        "extra_params": "Encrypt=no;TrustServerCertificate=yes;",
     },
 }
 ```
 
+## Cài Và Chạy Web
+
+### Từ repo root:
+
+```bash
+cd travel_project/accommodation_project
+python -m venv venv
+venv\Scripts\activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+cp .env.example .env
+python manage.py makemigrations
+python manage.py check
+python manage.py migrate
+python seed.py
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+### Trên Windows PowerShell:
+
+```powershell
+cd travel_project\accommodation_project
+py -3 -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+copy .env.example .env
+python manage.py makemigrations
+python manage.py check
+python manage.py migrate
+python seed.py
+python manage.py createsuperuser
+python manage.py runserver
+```
+
+Server mặc định:
+
+```text
+http://127.0.0.1:8000/
+```
+
+Lưu ý: `seed.py` xóa dữ liệu `Accommodation` hiện có rồi tạo dữ liệu demo. Chỉ chạy trên database local/demo.
+
+## URL Và API Chính
+
+Web pages:
+
+- `GET /`: trang home.
+- `GET /admin/`: Django admin.
+- `GET /accounts/login/`: đăng nhập thường, Firebase client login và Google login.
+- `GET /accounts/register/`: đăng ký tài khoản.
+- `GET /accounts/profile/`: profile user.
+- `GET /accommodations/`: danh sách chỗ ở.
+- `GET /accommodations/<id>/`: chi tiết chỗ ở.
+- `GET /recommendations/<pref_id>/`: kết quả gợi ý dạng HTML.
+
+Chat API:
+
+- `GET /api/chat/health/`
+- `POST /api/chat/parse/`
+- `POST /api/chat/submit/`
+
+Voice API:
+
+- `POST /api/voice/parse/` với multipart field `audio` hoặc `file`.
+
+Auth API:
+
+- `POST /api/auth/firebase-login/`
+- `GET /auth/google/start`
+- `GET /auth/google/callback`
+
+## Flow Chat Recommendation
+
+1. Frontend gửi câu user vào `POST /api/chat/parse/`.
+2. API trả slots đã parse, `missing_slots`, `follow_up_question`, trạng thái location và bảng xác nhận nếu đủ dữ liệu.
+3. Nếu còn thiếu dữ liệu, frontend hỏi tiếp và gửi câu trả lời kèm `context_slots` hoặc `current_slots`.
+4. Khi user xác nhận, frontend gọi `POST /api/chat/submit/` với `slots` hoặc `confirmed_slots`.
+5. API tạo `UserPreference`, trả `pref_id` và `recommendation_url`.
+6. Frontend mở `GET /recommendations/<pref_id>/`.
+
+Core slots:
+
+- `area`
+- `budget`
+- `guest_count`
+- `trip_days`
+
+Optional slots:
+
+- `preferred_type`
+- `required_amenities`
+- `priorities`
+- `special_requirements`
+
+Hiện `UserPreference` chỉ lưu `area`, `budget`, `guest_count`, `preferred_type`, `required_amenities`. Các field `trip_days`, `priorities`, `special_requirements` có trong response để phục vụ hội thoại/xác nhận nhưng chưa được lưu vào model downstream.
+
+Request parse mẫu:
+
+```json
+{
+  "text": "Khách sạn ở Sài Gòn cho 2 người, 2 ngày, budget 900k, có wifi",
+  "locale": "vi",
+  "context_slots": {}
+}
+```
+
+Request submit sau khi user xác nhận:
+
+```json
+{
+  "confirmed": true,
+  "slots": {
+    "area": "tp hcm",
+    "budget": 900000,
+    "guest_count": 2,
+    "trip_days": 2,
+    "preferred_type": "hotel",
+    "required_amenities": ["wifi"]
+  },
+  "locale": "vi"
+}
+```
+
+## API Chat Nhanh
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat/parse/ \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Khách sạn ở Sài Gòn cho 2 người, 2 ngày, budget 900k, có wifi"}'
+```
+
+Submit sau khi xác nhận:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/chat/submit/ \
+  -H "Content-Type: application/json" \
+  -d '{"confirmed":true,"slots":{"area":"tp hcm","budget":900000,"guest_count":2,"trip_days":2,"preferred_type":"hotel","required_amenities":["wifi"]}}'
+```
+
+Nếu response có `recommendation_url`, mở URL đó trên browser.
+
+## Cấu Hình `.env`
+
+Tạo `.env` từ file mẫu:
+
+```bash
+cd travel_project/accommodation_project
+cp .env.example .env
+```
+
+Nhóm biến chính:
+
+- Firebase client: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_MEASUREMENT_ID`.
+- Firebase admin: toàn bộ nhóm `FIREBASE_ADMIN_*`.
+- Google OAuth: `GOOGLE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`, `COOKIE_SECURE`.
+- Chat/HF parser: `CHAT_API_ENABLE_HF_AGENT`, `CHAT_API_LLM_STRATEGY`, `CHAT_API_MODEL`, `CHAT_API_FALLBACK_MODEL`, `CHAT_API_DEVICE`, `CHAT_API_TIMEOUT_SECONDS`, `CHAT_API_USE_NER`, `CHAT_API_NER_MODEL`.
+- Voice: `VOICE_ASR_MODEL`, `VOICE_DEVICE`, `VOICE_MAX_AUDIO_MB`, `VOICE_MAX_NEW_TOKENS`, `VOICE_CHUNK_LENGTH_S`.
+
+Google OAuth local redirect mặc định:
+
+```text
+http://127.0.0.1:8000/auth/google/callback
+```
+
+Không thêm dấu `/` cuối callback. Nếu đổi sang `localhost` hoặc domain deploy, cập nhật đồng thời trong `.env` và Google Cloud Console.
+
+## Requirements Đã Rà
+
+`travel_project/accommodation_project/requirements.txt` là file dependency bắt buộc của project Django, nên giữ nguyên khi setup. Mình đã rà với code hiện tại:
+
+- Core web: `Django`, `python-dotenv`, `requests`.
+- SQL Server: `mssql-django`, `pyodbc`.
+- Firebase/Google auth: `firebase-admin`; `google-auth` đang có qua dependency của Firebase Admin trong venv.
+- Hugging Face text/voice parser: `transformers`, `torch`, `accelerate`.
+- Các package cũ như `folium`, `overpy`, `google-generativeai`, `langchain*`, `chromadb` vẫn nằm trong requirements theo yêu cầu project, dù chưa thấy import trực tiếp trong code Django hiện tại.
+
+Nếu dùng voice API mà môi trường mới báo thiếu audio runtime, kiểm tra thêm các package audio phụ thuộc của Hugging Face như `librosa`, `soundfile`, `torchaudio` hoặc cài `ffmpeg` ở cấp hệ điều hành.
+
+## Test Nhanh
+
+Chạy từ `travel_project/accommodation_project`:
+
+```bash
+python -B manage.py check
+python -B manage.py makemigrations --check --dry-run
+python -B manage.py test chat_api
+```
+
+Kiểm tra dependency trong venv:
+
+```bash
+python -m pip check
+```
+
+Nếu `makemigrations --check --dry-run` cảnh báo không kết nối được SQL Server, kiểm tra lại SQL Server, database `AccommodationDB`, ODBC Driver 18 và `settings_local.py`.
+
+## Không Commit Secret
+
+Không commit `.env`, private key JSON, token hoặc service account. Trước khi push có thể kiểm tra nhanh:
+
+```bash
+git status --short
+git check-ignore -v travel_project/accommodation_project/.env
+rg --hidden -n "AIz[a-zA-Z0-9_-]{30,}|GOCSPX-[A-Za-z0-9_-]+|BEGIN[ ]PRIVATE[ ]KEY|firebase-adminsdk-[A-Za-z0-9]+@" --glob '!**/.env' --glob '!**/.venv/**' --glob '!**/.git/**'
+```
+
+Nếu lỡ paste key thật vào git hoặc chat, rotate lại key trong Firebase/Google Cloud trước khi dùng tiếp.
+
 ## Giới Hạn Hiện Tại
 
-- `chat_api` chỉ auto-ready khi đủ `area`, `budget`, `guest_count` và `location_status = "ok"`.
-- Location resolver hiện chỉ hỗ trợ scope: TP HCM, Hà Nội, Thanh Hóa, Đồng Nai, An Giang, Bình Định.
-- `preferred_type = "resort"` chưa bật vì model downstream chỉ có `hotel`, `homestay`, `hostel`, `apartment`.
-- `GET /recommendations/<pref_id>/` hiện render HTML template, không phải JSON API.
-- Dữ liệu seed hiện chủ yếu là demo ở TP HCM, nên kết quả recommendation phụ thuộc dữ liệu thật trong DB.
+- `GET /recommendations/<pref_id>/` render HTML template, chưa phải JSON API.
+- Dữ liệu seed chủ yếu là demo, kết quả recommendation phụ thuộc dữ liệu thật trong DB.
+- `preferred_type = "resort"` không lưu downstream vì model hiện chỉ hỗ trợ `hotel`, `homestay`, `hostel`, `apartment`.
+- HF model mặc định có thể nặng và có thể cần tải model ở lần chạy đầu tiên.
+- Voice API phụ thuộc chất lượng audio và runtime audio của máy local.

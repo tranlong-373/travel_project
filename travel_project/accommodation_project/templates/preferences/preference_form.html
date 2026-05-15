@@ -1,0 +1,549 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+
+<div class="pref-page">
+
+    <div class="section-title" style="margin-bottom: 40px;">
+        <h1 class="section-heading">Find Recommendation</h1>
+        <p class="section-subtitle">Enter your details manually or let AI help you find results faster.</p>
+    </div>
+
+    <div class="pref-columns">
+
+        <!-- CỘT TRÁI: FORM THỦ CÔNG -->
+        <div class="pref-card">
+            <div class="pref-card-header">
+                <i class="fa-solid fa-sliders"></i>
+                <h3>Tìm kiếm thủ công</h3>
+            </div>
+
+            <form method="post" class="pref-form">
+                {% csrf_token %}
+
+                <div class="pref-field">
+                    <label>Khu vực</label>
+                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Ngân sách tối đa (₫/đêm)</label>
+                    <input type="number" name="budget" placeholder="Vd: 500000" min="0" required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Số khách</label>
+                    <input type="number" name="guest_count" placeholder="Vd: 2" min="1" required />
+                </div>
+
+                <div class="pref-field">
+                    <label>Loại chỗ ở</label>
+                    <select name="preferred_type">
+                        <option value="">Không quan trọng</option>
+                        <option value="hotel">Khách sạn</option>
+                        <option value="homestay">Homestay</option>
+                        <option value="hostel">Hostel</option>
+                        <option value="apartment">Căn hộ</option>
+                    </select>
+                </div>
+
+                <div class="pref-field">
+                    <label>Tiện nghi cần có</label>
+                    <div class="amenity-checks">
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="wifi" /> Wifi
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="air_conditioner" /> Điều hòa
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="pool" /> Hồ bơi
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="parking" /> Đỗ xe
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="kitchen" /> Bếp
+                        </label>
+                        <label class="check-item">
+                            <input type="checkbox" name="required_amenities" value="washing_machine" /> Máy giặt
+                        </label>
+                    </div>
+                </div>
+
+                <button type="submit" class="pref-submit-btn">
+                    <i class="fa-solid fa-magnifying-glass"></i> Tìm kiếm
+                </button>
+            </form>
+        </div>
+
+        <!-- CỘT PHẢI: AI CHAT -->
+        <div class="pref-card ai-card">
+            <div class="pref-card-header">
+                <i class="fa-solid fa-robot"></i>
+                <h3>AI Recommendation</h3>
+            </div>
+
+            <p class="ai-hint">
+                <i class="fa-solid fa-lightbulb"></i>
+                Vd: <em>"Tôi cần khách sạn ở Quận 7 cho 2 người, dưới 500k, có wifi và hồ bơi"</em>
+            </p>
+
+            <div class="ai-chat-box" id="chatBox">
+                <div class="ai-msg bot">Xin chào! Mô tả nhu cầu của bạn và mình sẽ tìm ngay.</div>
+            </div>
+
+            <div class="ai-input-wrap">
+                <button type="button" id="prefVoiceBtn" onclick="togglePrefVoiceRecording()" class="ai-icon-btn ai-voice-btn" aria-label="Ghi âm" title="Ghi âm">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button type="button" onclick="resetPrefChat()" class="ai-icon-btn ai-reset-btn" aria-label="Làm mới chat" title="Làm mới chat">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <textarea id="userText" rows="2" placeholder="Nhập nhu cầu của bạn..." onkeydown="handlePrefChatKey(event)"></textarea>
+                <button type="button" id="prefSendBtn" onclick="submitChat()" class="ai-icon-btn ai-send-btn" aria-label="Gửi" title="Gửi">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+            <p class="ai-hint-small"><span id="prefVoiceStatus"></span><span>Enter để gửi, Shift + Enter để xuống dòng</span></p>
+        </div>
+
+    </div>
+</div>
+
+<script>
+let prefContextSlots = {};
+let prefRecorder = null;
+let prefAudioChunks = [];
+let prefRecordingTimer = null;
+let prefRecordingStartedAt = null;
+let prefIsRecording = false;
+let prefIsBusy = false;
+
+const PREF_MAX_RECORDING_MS = 15000;
+const PREF_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+const PREF_GREETING = 'Xin chào! Mô tả nhu cầu của bạn và mình sẽ tìm ngay.';
+const PREF_CHAT_STORAGE_KEY = 'travel_pref_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
+let prefChatHistory = [{ kind: 'message', text: PREF_GREETING, type: 'bot' }];
+
+function persistPrefChatState() {
+    try {
+        localStorage.setItem(PREF_CHAT_STORAGE_KEY, JSON.stringify({
+            messages: prefChatHistory,
+            contextSlots: prefContextSlots || {}
+        }));
+    } catch (err) {}
+}
+
+function addMsg(text, type, persist = true) {
+    const box = document.getElementById('chatBox');
+    const div = document.createElement('div');
+    div.className = 'ai-msg ' + type;
+    div.textContent = text;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+
+    if (persist) {
+        prefChatHistory.push({ kind: 'message', text, type });
+        persistPrefChatState();
+    }
+}
+
+function resetPrefChat() {
+    if (prefIsBusy || prefIsRecording) return;
+
+    prefContextSlots = {};
+    prefChatHistory = [{ kind: 'message', text: PREF_GREETING, type: 'bot' }];
+    try {
+        localStorage.removeItem(PREF_CHAT_STORAGE_KEY);
+    } catch (err) {}
+
+    const box = document.getElementById('chatBox');
+    box.innerHTML = '';
+    addMsg(PREF_GREETING, 'bot', false);
+    document.getElementById('userText').value = '';
+    setPrefVoiceStatus('');
+    persistPrefChatState();
+}
+
+function visiblePrefConfirmItems(items) {
+    return (items || []).map((item) => {
+        if (item.key !== 'priorities') return item;
+        const rawValue = item.display_value !== undefined ? item.display_value : item.value;
+        const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
+        const visibleValues = values.filter((value) => value && value !== 'high_rating' && value !== 'Đánh giá cao');
+        if (!visibleValues.length) return null;
+        return { ...item, display_value: visibleValues.join(', ') };
+    }).filter(Boolean);
+}
+
+function formatPrefMoney(value) {
+    const number = typeof value === 'number'
+        ? value
+        : Number(String(value || '').replace(/[^\d]/g, ''));
+    if (!number) return 'Không giới hạn';
+    return new Intl.NumberFormat('vi-VN').format(number) + 'đ/đêm';
+}
+
+function formatPrefConfirmValue(item) {
+    const value = item.display_value !== undefined ? item.display_value : item.value;
+    if (Array.isArray(value)) {
+        return value.join(', ');
+    }
+    if (typeof value === 'boolean') {
+        return value ? 'Có' : 'Không';
+    }
+    if (['budget', 'budget_min', 'budget_max'].includes(item.key)) {
+        return formatPrefMoney(value);
+    }
+    if (item.key === 'guest_count' && value) {
+        return value + ' khách';
+    }
+    if (item.key === 'trip_days' && value) {
+        return value + ' ngày';
+    }
+    return value;
+}
+
+function addPrefConfirmationTable(result, persist = true) {
+    const confirmItems = visiblePrefConfirmItems(result.confirm_table || []);
+    if (!confirmItems.length) return;
+
+    const box = document.getElementById('chatBox');
+    const card = document.createElement('div');
+    card.className = 'ai-msg bot chat-confirm-card';
+
+    const title = document.createElement('p');
+    title.className = 'chat-confirm-title';
+    title.textContent = result.confirmation_heading || 'Xác nhận thông tin';
+    card.appendChild(title);
+
+    const question = document.createElement('p');
+    question.className = 'chat-confirm-question';
+    question.textContent = result.primary_message || result.polite_bot_message || result.bot_message || result.confirmation_prompt || 'Mình sẽ gợi ý trước theo thông tin hiện có.';
+    card.appendChild(question);
+
+    const table = document.createElement('table');
+    table.className = 'chat-confirm-table';
+    confirmItems.forEach((item) => {
+        const row = document.createElement('tr');
+        const label = document.createElement('th');
+        const value = document.createElement('td');
+        label.textContent = item.label;
+        value.textContent = formatPrefConfirmValue(item);
+        row.appendChild(label);
+        row.appendChild(value);
+        table.appendChild(row);
+    });
+    card.appendChild(table);
+
+    const actions = document.createElement('div');
+    actions.className = 'chat-confirm-actions';
+
+    const recommendationUrl = result.recommendation_url;
+    if (recommendationUrl) {
+        const recommendBtn = document.createElement('button');
+        recommendBtn.type = 'button';
+        recommendBtn.className = 'primary';
+        recommendBtn.textContent = 'Xem đề xuất';
+        recommendBtn.onclick = () => {
+            window.location.href = recommendationUrl;
+        };
+        actions.appendChild(recommendBtn);
+    }
+
+    const addMoreBtn = document.createElement('button');
+    addMoreBtn.type = 'button';
+    addMoreBtn.className = 'secondary';
+    addMoreBtn.textContent = 'Tôi muốn bổ sung thêm thông tin';
+    addMoreBtn.onclick = () => {
+        addMsg('Bạn nhập thêm thông tin, mình sẽ cập nhật và lọc lại ngay.', 'bot');
+        document.getElementById('userText').focus();
+    };
+
+    actions.appendChild(addMoreBtn);
+    card.appendChild(actions);
+    box.appendChild(card);
+    box.scrollTop = box.scrollHeight;
+
+    if (persist) {
+        prefChatHistory.push({
+            kind: 'confirmation',
+            result: {
+                confirmation_heading: result.confirmation_heading || 'Xác nhận thông tin',
+                confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
+                primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                confirm_table: confirmItems,
+                recommendation_url: result.recommendation_url || null,
+                recommendation_level: result.recommendation_level || null
+            }
+        });
+        persistPrefChatState();
+    }
+}
+
+function restorePrefChatState() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(PREF_CHAT_STORAGE_KEY) || 'null');
+        if (!saved || !Array.isArray(saved.messages) || saved.messages.length === 0) {
+            return;
+        }
+
+        prefChatHistory = saved.messages;
+        prefContextSlots = saved.contextSlots || {};
+        const box = document.getElementById('chatBox');
+        box.innerHTML = '';
+        prefChatHistory.forEach((entry) => {
+            if (entry.kind === 'confirmation') {
+                addPrefConfirmationTable(entry.result || {}, false);
+            } else {
+                addMsg(entry.text || '', entry.type || 'bot', false);
+            }
+        });
+    } catch (err) {}
+}
+
+function getCookie(name) {
+    let value = null;
+    document.cookie.split(';').forEach(c => {
+        c = c.trim();
+        if (c.startsWith(name + '=')) value = decodeURIComponent(c.slice(name.length + 1));
+    });
+    return value;
+}
+
+function setPrefBusy(isBusy) {
+    prefIsBusy = isBusy;
+    document.getElementById('prefSendBtn').disabled = isBusy;
+    document.getElementById('userText').disabled = isBusy;
+    if (!prefIsRecording) {
+        document.getElementById('prefVoiceBtn').disabled = isBusy;
+    }
+}
+
+function setPrefVoiceStatus(text) {
+    document.getElementById('prefVoiceStatus').textContent = text || '';
+}
+
+function setPrefRecordingState(isRecording) {
+    prefIsRecording = isRecording;
+    const voiceBtn = document.getElementById('prefVoiceBtn');
+    const icon = voiceBtn.querySelector('i');
+    voiceBtn.classList.toggle('recording', isRecording);
+    voiceBtn.disabled = false;
+    voiceBtn.setAttribute('aria-label', isRecording ? 'Dừng ghi âm' : 'Ghi âm');
+    voiceBtn.title = isRecording ? 'Dừng ghi âm' : 'Ghi âm';
+    icon.className = isRecording ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+    setPrefVoiceStatus(isRecording ? 'Đang nghe...' : '');
+}
+
+function handlePrefChatKey(event) {
+    if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        submitChat();
+    }
+}
+
+function addPrefLoading() {
+    const loading = document.createElement('div');
+    loading.className = 'ai-msg bot ai-loading';
+    loading.textContent = '...';
+    document.getElementById('chatBox').appendChild(loading);
+    return loading;
+}
+
+function handlePrefChatResult(data) {
+    const result = data.parsed_result || data;
+    if (result.slots || data.slots) {
+        prefContextSlots = result.slots || data.slots;
+        persistPrefChatState();
+    }
+
+    if (data.save_error) {
+        addMsg('Mình đã hiểu nhu cầu nhưng chưa lưu được yêu cầu. Vui lòng thử lại.', 'bot error');
+        return;
+    }
+
+    const primaryMessage = result.polite_bot_message || result.bot_message;
+    const recommendationUrl = data.recommendation_url || result.recommendation_url;
+    result.recommendation_url = recommendationUrl || null;
+    result.primary_message = primaryMessage || null;
+
+    const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+    if (hasConfirmTable) {
+        addPrefConfirmationTable(result);
+        return;
+    }
+
+    if (primaryMessage) {
+        addMsg(primaryMessage, 'bot');
+    }
+
+    if (!primaryMessage && result.follow_up_question) {
+        addMsg(result.follow_up_question, 'bot');
+    } else if (data.confirmation && data.confirmation.question) {
+        addMsg(data.confirmation.question, 'bot');
+    } else if (primaryMessage) {
+        return;
+    } else {
+        addMsg('Bạn có thể mô tả thêm nhu cầu không?', 'bot');
+    }
+
+    if (!primaryMessage && result.missing_slots && result.missing_slots.length > 0) {
+        addMsg('Còn thiếu: ' + result.missing_slots.join(', '), 'bot hint');
+    }
+}
+
+async function submitChat() {
+    const text = document.getElementById('userText').value.trim();
+    if (!text || prefIsBusy) return;
+
+    addMsg(text, 'user');
+    document.getElementById('userText').value = '';
+
+    setPrefBusy(true);
+    const loading = addPrefLoading();
+
+    try {
+        const res = await fetch('/chat_api/submit/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({ text, locale: 'vi', context_slots: prefContextSlots })
+        });
+
+        loading.remove();
+        const data = await res.json();
+        handlePrefChatResult(data);
+    } catch (err) {
+        loading.remove();
+        addMsg('Có lỗi xảy ra, vui lòng thử lại.', 'bot error');
+    } finally {
+        setPrefBusy(false);
+    }
+}
+
+restorePrefChatState();
+
+function getPrefRecorderOptions() {
+    const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+    if (!window.MediaRecorder) return {};
+    for (const mimeType of preferredTypes) {
+        if (MediaRecorder.isTypeSupported(mimeType)) {
+            return { mimeType };
+        }
+    }
+    return {};
+}
+
+async function togglePrefVoiceRecording() {
+    if (prefIsRecording) {
+        stopPrefVoiceRecording();
+        return;
+    }
+    if (prefIsBusy) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+        addMsg('Trình duyệt hiện không hỗ trợ ghi âm.', 'bot error');
+        return;
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        prefAudioChunks = [];
+        prefRecorder = new MediaRecorder(stream, getPrefRecorderOptions());
+
+        prefRecorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) {
+                prefAudioChunks.push(event.data);
+            }
+        };
+
+        prefRecorder.onstop = () => {
+            stream.getTracks().forEach((track) => track.stop());
+            finishPrefVoiceRecording();
+        };
+
+        prefRecorder.start();
+        prefRecordingStartedAt = Date.now();
+        setPrefRecordingState(true);
+        prefRecordingTimer = window.setTimeout(stopPrefVoiceRecording, PREF_MAX_RECORDING_MS);
+    } catch (err) {
+        addMsg('Mình chưa lấy được quyền microphone. Hãy kiểm tra quyền ghi âm của trình duyệt.', 'bot error');
+    }
+}
+
+function stopPrefVoiceRecording() {
+    window.clearTimeout(prefRecordingTimer);
+    if (prefRecorder && prefRecorder.state !== 'inactive') {
+        prefRecorder.stop();
+    } else {
+        setPrefRecordingState(false);
+    }
+}
+
+async function finishPrefVoiceRecording() {
+    setPrefRecordingState(false);
+    if (!prefAudioChunks.length) {
+        addMsg('Mình chưa nhận được âm thanh. Bạn thử nói lại gần micro hơn nhé.', 'bot error');
+        return;
+    }
+
+    const mimeType = prefRecorder && prefRecorder.mimeType ? prefRecorder.mimeType : 'audio/webm';
+    const audioBlob = new Blob(prefAudioChunks, { type: mimeType });
+    const audioDuration = prefRecordingStartedAt ? (Date.now() - prefRecordingStartedAt) / 1000 : null;
+    prefRecordingStartedAt = null;
+    if (audioBlob.size > PREF_MAX_AUDIO_BYTES) {
+        addMsg('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot error');
+        return;
+    }
+
+    await submitVoiceChat(audioBlob, mimeType, audioDuration);
+}
+
+async function submitVoiceChat(audioBlob, mimeType, audioDuration) {
+    setPrefBusy(true);
+    setPrefVoiceStatus('Đang xử lý...');
+    const loading = addPrefLoading();
+
+    const form = new FormData();
+    const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+    form.append('audio', audioBlob, `find-recommendation.${extension}`);
+    form.append('locale', 'vi');
+    form.append('feature_mode', 'chat');
+    if (audioDuration !== null) {
+        form.append('audio_duration', audioDuration.toFixed(1));
+    }
+    form.append('context_slots', JSON.stringify(prefContextSlots || {}));
+
+    try {
+        const res = await fetch('/api/voice/parse/', {
+            method: 'POST',
+            body: form
+        });
+        const data = await res.json();
+        loading.remove();
+
+        if (!res.ok || !data.success) {
+            addMsg(data.error || 'Mình chưa nhận được nội dung giọng nói. Bạn thử lại nhé.', 'bot error');
+            return;
+        }
+
+        const heardText = data.cleaned_transcript || data.transcript;
+        if (heardText) {
+            addMsg(heardText, 'user');
+        }
+        handlePrefChatResult(data);
+    } catch (err) {
+        loading.remove();
+        addMsg('Có lỗi khi xử lý giọng nói, vui lòng thử lại.', 'bot error');
+    } finally {
+        setPrefVoiceStatus('');
+        setPrefBusy(false);
+    }
+}
+</script>
+
+{% endblock %}

@@ -1,0 +1,195 @@
+{% extends "admin/base_site.html" %}
+{% load i18n static %}
+
+{% block bodyclass %}{{ block.super }} dashboard custom-admin-dashboard{% endblock %}
+
+{% block breadcrumbs %}{% endblock %}
+
+{% block content %}
+<div class="admin-hero">
+    <div>
+        <p class="admin-kicker">Dashboard</p>
+        <h2>Travel Admin</h2>
+        <span>Tổng quan hệ thống quản lý khách sạn, blog và người dùng.</span>
+    </div>
+    <a class="admin-view-site" href="/" target="_blank" rel="noopener">
+        Xem website
+    </a>
+</div>
+
+<div class="admin-metric-grid">
+    <a href="{% url 'admin:accommodations_accommodation_changelist' %}" class="admin-metric-card">
+        <span class="admin-metric-icon">H</span>
+        <strong>Khách sạn</strong>
+        <small>Quản lý nơi lưu trú</small>
+    </a>
+    <a href="{% url 'admin:accommodations_room_changelist' %}" class="admin-metric-card">
+        <span class="admin-metric-icon">R</span>
+        <strong>Phòng</strong>
+        <small>Giá, sức chứa, tồn phòng</small>
+    </a>
+    <a href="{% url 'admin:blog_blogpost_changelist' %}" class="admin-metric-card">
+        <span class="admin-metric-icon">B</span>
+        <strong>Blog</strong>
+        <small>Bài đăng và hình ảnh</small>
+    </a>
+    <a href="{% url 'admin:accounts_profile_changelist' %}" class="admin-metric-card">
+        <span class="admin-metric-icon">U</span>
+        <strong>Người dùng</strong>
+        <small>Hồ sơ và avatar</small>
+    </a>
+</div>
+
+<div class="admin-tabs">
+    <input type="radio" name="admin-tab" id="tab-overview" checked>
+    <input type="radio" name="admin-tab" id="tab-accommodation">
+    <input type="radio" name="admin-tab" id="tab-blog">
+    <input type="radio" name="admin-tab" id="tab-users">
+    <input type="radio" name="admin-tab" id="tab-preferences">
+
+    <div class="admin-tab-labels">
+        <label for="tab-overview">Tổng quan</label>
+        <label for="tab-accommodation">Khách sạn</label>
+        <label for="tab-blog">Blog</label>
+        <label for="tab-users">Người dùng</label>
+        <label for="tab-preferences">Gợi ý</label>
+    </div>
+
+    <section class="admin-tab-panel panel-overview">
+        <div class="admin-section-head">
+            <h3>Tất cả khu vực quản lý</h3>
+            <p>Các bảng dữ liệu hiện có trong hệ thống.</p>
+        </div>
+        <div class="admin-card-grid">
+            {% for app in app_list %}
+                {% for model in app.models %}
+                    <div class="admin-model-card">
+                        <div>
+                            <span class="admin-model-app">{{ app.name }}</span>
+                            <h4><a href="{{ model.admin_url }}">{{ model.name }}</a></h4>
+                        </div>
+                        <div class="admin-model-actions">
+                            {% if model.add_url %}
+                                <a href="{{ model.add_url }}">Thêm</a>
+                            {% endif %}
+                            <a href="{{ model.admin_url }}">Quản lý</a>
+                        </div>
+                    </div>
+                {% endfor %}
+            {% empty %}
+                <p class="admin-empty">Bạn chưa có quyền xem module nào.</p>
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="admin-tab-panel panel-accommodation">
+        <div class="admin-section-head">
+            <h3>Quản lý khách sạn</h3>
+            <p>Khách sạn, phòng và review của khách.</p>
+        </div>
+        <div class="admin-card-grid">
+            {% for app in app_list %}
+                {% if app.app_label == 'accommodations' %}
+                    {% for model in app.models %}
+                        <div class="admin-model-card">
+                            <div>
+                                <span class="admin-model-app">Khách sạn</span>
+                                <h4><a href="{{ model.admin_url }}">
+                                    {% if model.object_name == 'Accommodation' %}Khách sạn{% elif model.object_name == 'Room' %}Phòng{% elif model.object_name == 'AccommodationReview' %}Đánh giá{% else %}{{ model.name }}{% endif %}
+                                </a></h4>
+                            </div>
+                            <div class="admin-model-actions">
+                                {% if model.add_url %}<a href="{{ model.add_url }}">Thêm</a>{% endif %}
+                                <a href="{{ model.admin_url }}">Quản lý</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="admin-tab-panel panel-blog">
+        <div class="admin-section-head">
+            <h3>Quản lý blog</h3>
+            <p>Bài đăng, ảnh và bình luận được quản lý chung trong từng bài viết.</p>
+        </div>
+        <div class="admin-card-grid">
+            {% for app in app_list %}
+                {% if app.app_label == 'blog' %}
+                    {% for model in app.models %}
+                        <div class="admin-model-card">
+                            <div>
+                                <span class="admin-model-app">Blog</span>
+                                <h4><a href="{{ model.admin_url }}">
+                                    {% if model.object_name == 'BlogPost' %}Bài đăng{% elif model.object_name == 'BlogImage' %}Ảnh bài đăng{% elif model.object_name == 'BlogComment' %}Bình luận{% else %}{{ model.name }}{% endif %}
+                                </a></h4>
+                            </div>
+                            <div class="admin-model-actions">
+                                {% if model.add_url %}<a href="{{ model.add_url }}">Thêm</a>{% endif %}
+                                <a href="{{ model.admin_url }}">Quản lý</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="admin-tab-panel panel-users">
+        <div class="admin-section-head">
+            <h3>Quản lý người dùng</h3>
+            <p>Tài khoản, hồ sơ, avatar, quyền và danh sách yêu thích.</p>
+        </div>
+        <div class="admin-card-grid">
+            {% for app in app_list %}
+                {% if app.app_label == 'accounts' %}
+                    {% for model in app.models %}
+                        <div class="admin-model-card">
+                            <div>
+                                <span class="admin-model-app">Người dùng</span>
+                                <h4><a href="{{ model.admin_url }}">
+                                    {% if model.object_name == 'Profile' %}Hồ sơ và yêu thích{% else %}{{ model.name }}{% endif %}
+                                </a></h4>
+                            </div>
+                            <div class="admin-model-actions">
+                                {% if model.add_url %}<a href="{{ model.add_url }}">Thêm</a>{% endif %}
+                                <a href="{{ model.admin_url }}">Quản lý</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+
+    <section class="admin-tab-panel panel-preferences">
+        <div class="admin-section-head">
+            <h3>Gợi ý và nhu cầu</h3>
+            <p>Quản lý dữ liệu nhu cầu người dùng và các module hỗ trợ gợi ý.</p>
+        </div>
+        <div class="admin-card-grid">
+            {% for app in app_list %}
+                {% if app.app_label == 'preferences' or app.app_label == 'recommendations' %}
+                    {% for model in app.models %}
+                        <div class="admin-model-card">
+                            <div>
+                                <span class="admin-model-app">Gợi ý</span>
+                                <h4><a href="{{ model.admin_url }}">
+                                    {% if model.object_name == 'UserPreference' %}Nhu cầu tìm kiếm{% else %}{{ model.name }}{% endif %}
+                                </a></h4>
+                            </div>
+                            <div class="admin-model-actions">
+                                {% if model.add_url %}<a href="{{ model.add_url }}">Thêm</a>{% endif %}
+                                <a href="{{ model.admin_url }}">Quản lý</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block sidebar %}{% endblock %}
