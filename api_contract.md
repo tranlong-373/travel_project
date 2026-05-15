@@ -8,7 +8,8 @@ Tài liệu này mô tả contract hiện tại giữa frontend, `chat_api`, `pr
 User nhập text
 -> POST /api/chat/parse/
 -> nếu thiếu core slot: dùng follow_up_question để hỏi tiếp
--> nếu đủ dữ liệu: POST /api/chat/submit/
+-> nếu đủ dữ liệu: frontend hiển thị confirm_table để user xác nhận
+-> user xác nhận: POST /api/chat/submit/ với slots đã xác nhận
 -> nhận pref_id + recommendation_url
 -> GET /recommendations/<pref_id>/
 ```
@@ -43,18 +44,20 @@ Request:
 
 ```json
 {
-  "text": "Khách sạn ở Sài Gòn cho 2 người, budget 900k, có wifi",
-  "locale": "vi"
+  "text": "Khách sạn ở Sài Gòn cho 2 người, 2 ngày, budget 900k, có wifi",
+  "locale": "vi",
+  "context_slots": {}
 }
 ```
 
 `locale` optional. Giá trị hợp lệ hiện tại: `vi`, `en`. Nếu không gửi hoặc gửi giá trị khác, server dùng `vi`.
+Frontend có thể gửi `context_slots` hoặc alias `current_slots` để merge lượt chat mới với slots cũ.
 
 Response mẫu khi đủ dữ liệu:
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "2.0",
   "intent": "recommend_accommodation",
   "slots": {
     "area": "tp hcm",
@@ -64,13 +67,27 @@ Response mẫu khi đủ dữ liệu:
     "required_amenities": ["wifi"],
     "priorities": [],
     "special_requirements": [],
-    "trip_days": null
+    "trip_days": 2
   },
   "missing_slots": [],
   "suggested_questions": [],
   "ready_for_recommendation": true,
+  "awaiting_confirmation": true,
+  "confirmation_required": true,
+  "confirm_table": [
+    {"key": "area", "label": "Khu vực", "value": "tp hcm"},
+    {"key": "guest_count", "label": "Số người", "value": 2},
+    {"key": "budget", "label": "Ngân sách", "value": 900000},
+    {"key": "trip_days", "label": "Số ngày", "value": 2},
+    {"key": "preferred_type", "label": "Loại chỗ ở", "value": "hotel"},
+    {"key": "required_amenities", "label": "Tiện nghi yêu cầu", "value": ["wifi"]}
+  ],
+  "confirmation_options": [
+    {"id": "confirm", "label": "Xác nhận thông tin"},
+    {"id": "add_more", "label": "Tôi còn yêu cầu thêm"}
+  ],
   "should_ask_optional": false,
-  "follow_up_question": null,
+  "follow_up_question": "Bạn vui lòng kiểm tra lại thông tin bên dưới. Bạn muốn xác nhận hay thêm yêu cầu khác?",
   "parser_mode": "deterministic_fast",
   "location_status": "ok",
   "location_candidates": [],
@@ -82,7 +99,7 @@ Response mẫu khi thiếu dữ liệu:
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "2.0",
   "intent": "recommend_accommodation",
   "slots": {
     "area": "hà nội",
@@ -94,9 +111,11 @@ Response mẫu khi thiếu dữ liệu:
     "special_requirements": [],
     "trip_days": null
   },
-  "missing_slots": ["budget"],
+  "missing_slots": ["budget", "trip_days"],
   "suggested_questions": ["Ngân sách tối đa của bạn khoảng bao nhiêu VND/đêm?"],
   "ready_for_recommendation": false,
+  "awaiting_confirmation": false,
+  "confirmation_required": false,
   "should_ask_optional": false,
   "follow_up_question": "Ngân sách tối đa của bạn khoảng bao nhiêu VND/đêm?",
   "parser_mode": "deterministic_fast",
@@ -115,20 +134,30 @@ POST /api/chat/submit/
 Content-Type: application/json
 ```
 
-Request giống `/parse/`:
+Request khi user đã xác nhận bảng thông tin:
 
 ```json
 {
-  "text": "Khách sạn ở Sài Gòn cho 2 người, budget 900k, có wifi",
+  "confirmed": true,
+  "slots": {
+    "area": "tp hcm",
+    "budget": 900000,
+    "guest_count": 2,
+    "trip_days": 2,
+    "preferred_type": "hotel",
+    "required_amenities": ["wifi"]
+  },
   "locale": "vi"
 }
 ```
+
+Endpoint vẫn nhận request dạng cũ có `text`, nhưng UI hiện tại chỉ gọi `/submit/` sau khi user xác nhận.
 
 Nếu đủ dữ liệu, response status hiện tại là `201`:
 
 ```json
 {
-  "schema_version": "1.1",
+  "schema_version": "2.0",
   "intent": "recommend_accommodation",
   "slots": {
     "area": "tp hcm",
@@ -138,11 +167,13 @@ Nếu đủ dữ liệu, response status hiện tại là `201`:
     "required_amenities": ["wifi"],
     "priorities": [],
     "special_requirements": [],
-    "trip_days": null
+    "trip_days": 2
   },
   "missing_slots": [],
   "suggested_questions": [],
   "ready_for_recommendation": true,
+  "awaiting_confirmation": false,
+  "confirmation_required": false,
   "should_ask_optional": false,
   "follow_up_question": null,
   "parser_mode": "deterministic_fast",
@@ -193,7 +224,7 @@ Lượt 2:
 
 ```json
 {
-  "text": "900k",
+  "text": "900k 2 ngày",
   "context_slots": {
     "area": "hà nội",
     "budget": null,
@@ -212,6 +243,7 @@ Lượt 2:
 - `slots.area`: khu vực canonical dùng để tạo `UserPreference.area`.
 - `slots.budget`: số nguyên VND mỗi đêm.
 - `slots.guest_count`: số khách là người, không tính chó/mèo/pet.
+- `slots.trip_days`: số ngày đi, hiện dùng để xác nhận flow chat trước khi submit.
 - `slots.preferred_type`: optional. Có thể là `null`.
 - `slots.required_amenities`: list key canonical.
 - `missing_slots`: core slots còn thiếu.
@@ -247,6 +279,7 @@ Supported recommendation areas trong `chat_api`:
 - `đồng nai`
 - `an giang`
 - `bình định`
+- `đà lạt`
 
 Allowed `preferred_type`:
 
@@ -288,6 +321,21 @@ Allowed `special_requirements`:
 - `safe_area`
 
 Hiện `priorities`, `special_requirements`, `trip_days` chưa được lưu vào `UserPreference` và chưa được recommender dùng trực tiếp.
+
+## Firebase Auth
+
+```http
+POST /api/auth/firebase-login/
+Content-Type: application/json
+```
+
+Request:
+
+```json
+{"idToken": "firebase_id_token"}
+```
+
+Backend verify token bằng Firebase Admin, tạo/cập nhật `User` + `Profile.firebase_uid` trong SQL Server, rồi login session Django.
 
 ## Error Response
 

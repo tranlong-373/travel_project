@@ -1,0 +1,594 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Accommodation Recommendation</title>
+    <link rel="stylesheet" href="{% static 'css.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+</head>
+
+<body class='body'>
+    <nav class="nav">
+        <a href="/" class="nav-brand">Accommodation <br> <span class='recommendation'>Recommendation</span></a>
+
+        {% if request.path != '/accounts/login/' and request.path != '/accounts/register/' %}
+        <div class="nav-links">
+            <a href="/">Home</a>
+            <a href="/accommodations/">Accommodation List</a>
+            <a href="/preferences/">Find Recommendation</a>
+            <a href="/blog/">Blog</a>
+        </div>
+        {% endif %}
+
+        <div class="nav-auth">
+            {% if user.is_authenticated %}
+                <a href="/accounts/profile/" class="login-btn">{{ user.username }}</a>
+                <a href="/accounts/logout/" class="register-btn">Logout</a>
+            {% else %}
+                <a href="/accounts/login/" class="login-btn">Login</a>
+                <a href="/accounts/register/" class="register-btn">Register</a>
+            {% endif %}
+        </div>
+
+        <!-- CHATBOT BUTTON -->
+        <div class="chat-btn" id="chatBtn" onclick="toggleChat()">
+            <i class="fa-solid fa-comment-dots"></i>
+        </div>
+
+        <!-- CHATBOT WIDGET -->
+        <div class="chat-widget" id="chatWidget">
+            <div class="chat-header">
+                <div class="chat-title">
+                    <span>Trợ lý tìm phòng</span>
+                    <small id="chatVoiceStatus" aria-live="polite"></small>
+                </div>
+                <button type="button" class="chat-header-icon" onclick="toggleChat()" aria-label="Đóng chat" title="Đóng chat">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="chat-msg bot">Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?</div>
+            </div>
+            <div class="chat-input-wrap">
+                <button type="button" class="chat-icon-btn chat-voice-btn" id="chatVoiceBtn" onclick="toggleVoiceRecording()" aria-label="Ghi âm" title="Ghi âm">
+                    <i class="fa-solid fa-microphone"></i>
+                </button>
+                <button type="button" class="chat-icon-btn chat-reset-btn" onclick="resetChat()" aria-label="Làm mới chat" title="Làm mới chat">
+                    <i class="fa-solid fa-rotate-left"></i>
+                </button>
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" />
+                <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </div>
+        </div>
+
+    </nav>
+
+
+    {% if messages %}
+        <div class="message-stack">
+            {% for message in messages %}
+                <div class="message {{ message.tags }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+
+</body>
+
+<script>
+    const nav = document.querySelector('.nav');
+    const transparentPages = ['/', '/accounts/login/', '/accounts/register/'];
+    const isTransparent = transparentPages.includes(window.location.pathname);
+
+    function checkScroll() {
+        if (!isTransparent) {
+            nav.classList.add('nav-scrolled');
+            return;
+        }
+        if (window.scrollY > 200) {
+            nav.classList.add('nav-scrolled');
+        } else {
+            nav.classList.remove('nav-scrolled');
+        }
+    }
+
+    checkScroll();
+    window.addEventListener('scroll', checkScroll);
+
+    let contextSlots = {};
+    let chatRecorder = null;
+    let chatAudioChunks = [];
+    let chatRecordingTimer = null;
+    let chatRecordingStartedAt = null;
+    let chatIsRecording = false;
+    let chatIsBusy = false;
+
+    const CHAT_MAX_RECORDING_MS = 15000;
+    const CHAT_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+    const CHAT_GREETING = 'Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?';
+    const CHAT_STORAGE_KEY = 'travel_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
+    const CHAT_OPEN_STORAGE_KEY = CHAT_STORAGE_KEY + '_open';
+    let chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
+
+    function toggleChat() {
+        const widget = document.getElementById('chatWidget');
+        const isOpen = widget.classList.toggle('open');
+        try {
+            localStorage.setItem(CHAT_OPEN_STORAGE_KEY, isOpen ? '1' : '0');
+        } catch (err) {}
+    }
+
+    function persistChatState() {
+        try {
+            localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify({
+                messages: chatHistory,
+                contextSlots: contextSlots || {}
+            }));
+        } catch (err) {}
+    }
+
+    function addMessage(text, type, persist = true) {
+        const box = document.getElementById('chatMessages');
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + type;
+        div.textContent = text;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+
+        if (persist) {
+            chatHistory.push({ kind: 'message', text, type });
+            persistChatState();
+        }
+    }
+
+    function resetChat() {
+        if (chatIsBusy || chatIsRecording) return;
+
+        contextSlots = {};
+        chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
+        try {
+            localStorage.removeItem(CHAT_STORAGE_KEY);
+        } catch (err) {}
+
+        const box = document.getElementById('chatMessages');
+        box.innerHTML = '';
+        addMessage(CHAT_GREETING, 'bot', false);
+        document.getElementById('chatInput').value = '';
+        setVoiceStatus('');
+        persistChatState();
+    }
+
+    function visibleConfirmItems(items) {
+        return (items || []).map((item) => {
+            if (item.key !== 'priorities') return item;
+            const rawValue = item.display_value !== undefined ? item.display_value : item.value;
+            const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
+            const visibleValues = values.filter((value) => value && value !== 'high_rating' && value !== 'Đánh giá cao');
+            if (!visibleValues.length) return null;
+            return { ...item, display_value: visibleValues.join(', ') };
+        }).filter(Boolean);
+    }
+
+    function formatMoney(value) {
+        const number = typeof value === 'number'
+            ? value
+            : Number(String(value || '').replace(/[^\d]/g, ''));
+        if (!number) return 'Không giới hạn';
+        return new Intl.NumberFormat('vi-VN').format(number) + 'đ/đêm';
+    }
+
+    function formatConfirmValue(item) {
+        const value = item.display_value !== undefined ? item.display_value : item.value;
+        if (Array.isArray(value)) {
+            return value.join(', ');
+        }
+        if (value && typeof value === 'object') {
+            if (item.key === 'user_location' && value.lat !== undefined && value.lon !== undefined) {
+                return 'Vị trí hiện tại';
+            }
+            return '';
+        }
+        if (typeof value === 'boolean') {
+            return value ? 'Có' : 'Không';
+        }
+        if (['budget', 'budget_min', 'budget_max'].includes(item.key)) {
+            return formatMoney(value);
+        }
+        if (item.key === 'guest_count' && value) {
+            return value + ' khách';
+        }
+        if (item.key === 'trip_days' && value) {
+            return value + ' ngày';
+        }
+        return value;
+    }
+
+    function addConfirmationTable(result, persist = true) {
+        const confirmItems = visibleConfirmItems(result.confirm_table || []);
+        if (!confirmItems.length) return;
+
+        const box = document.getElementById('chatMessages');
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card';
+
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = result.confirmation_heading || 'Xác nhận thông tin';
+        card.appendChild(title);
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.primary_message || result.polite_bot_message || result.bot_message || result.confirmation_prompt || 'Mình sẽ gợi ý trước theo thông tin hiện có.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table';
+        confirmItems.forEach((item) => {
+            const row = document.createElement('tr');
+            const label = document.createElement('th');
+            const value = document.createElement('td');
+            label.textContent = item.label;
+            value.textContent = formatConfirmValue(item);
+            row.appendChild(label);
+            row.appendChild(value);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+
+        const actions = document.createElement('div');
+        actions.className = 'chat-confirm-actions';
+
+        const recommendationUrl = result.recommendation_url;
+        if (recommendationUrl) {
+            const recommendBtn = document.createElement('button');
+            recommendBtn.type = 'button';
+            recommendBtn.className = 'primary';
+            recommendBtn.textContent = 'Xem đề xuất';
+            recommendBtn.onclick = () => {
+                window.location.href = recommendationUrl;
+            };
+            actions.appendChild(recommendBtn);
+        }
+
+        const addMoreBtn = document.createElement('button');
+        addMoreBtn.type = 'button';
+        addMoreBtn.className = 'secondary';
+        addMoreBtn.textContent = 'Tôi muốn bổ sung thêm thông tin';
+        addMoreBtn.onclick = () => {
+            addMessage('Bạn nhập thêm thông tin, mình sẽ cập nhật và lọc lại ngay.', 'bot');
+            document.getElementById('chatInput').focus();
+        };
+
+        actions.appendChild(addMoreBtn);
+        card.appendChild(actions);
+        box.appendChild(card);
+        box.scrollTop = box.scrollHeight;
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'confirmation',
+                result: {
+                    confirmation_heading: result.confirmation_heading || 'Xác nhận thông tin',
+                    confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
+                    primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                    confirm_table: confirmItems,
+                    recommendation_url: result.recommendation_url || null,
+                    recommendation_level: result.recommendation_level || null
+                }
+            });
+            persistChatState();
+        }
+    }
+
+    function restoreChatState() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(CHAT_STORAGE_KEY) || 'null');
+            if (saved && Array.isArray(saved.messages) && saved.messages.length > 0) {
+                chatHistory = saved.messages;
+                contextSlots = saved.contextSlots || {};
+                const box = document.getElementById('chatMessages');
+                box.innerHTML = '';
+                chatHistory.forEach((entry) => {
+                    if (entry.kind === 'confirmation') {
+                        addConfirmationTable(entry.result || {}, false);
+                    } else {
+                        addMessage(entry.text || '', entry.type || 'bot', false);
+                    }
+                });
+            }
+
+            if (localStorage.getItem(CHAT_OPEN_STORAGE_KEY) === '1') {
+                document.getElementById('chatWidget').classList.add('open');
+            }
+        } catch (err) {}
+    }
+
+    function setChatBusy(isBusy) {
+        chatIsBusy = isBusy;
+        document.getElementById('chatSendBtn').disabled = isBusy;
+        document.getElementById('chatInput').disabled = isBusy;
+        if (!chatIsRecording) {
+            document.getElementById('chatVoiceBtn').disabled = isBusy;
+        }
+    }
+
+    function setVoiceStatus(text) {
+        document.getElementById('chatVoiceStatus').textContent = text || '';
+    }
+
+    function setRecordingState(isRecording) {
+        chatIsRecording = isRecording;
+        const voiceBtn = document.getElementById('chatVoiceBtn');
+        const icon = voiceBtn.querySelector('i');
+        voiceBtn.classList.toggle('recording', isRecording);
+        voiceBtn.disabled = false;
+        voiceBtn.setAttribute('aria-label', isRecording ? 'Dừng ghi âm' : 'Ghi âm');
+        voiceBtn.title = isRecording ? 'Dừng ghi âm' : 'Ghi âm';
+        icon.className = isRecording ? 'fa-solid fa-stop' : 'fa-solid fa-microphone';
+        setVoiceStatus(isRecording ? 'Đang nghe...' : '');
+    }
+
+    function handleChatKey(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            sendMessage();
+        }
+    }
+
+    function normalizeChatText(text) {
+        return (text || '')
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/đ/g, 'd');
+    }
+
+    function chatNeedsCurrentLocation(text) {
+        const normalized = normalizeChatText(text);
+        return [
+            'gan toi',
+            'gan cho toi',
+            'gan day',
+            'quanh day',
+            'xung quanh toi',
+            'o gan toi',
+            'near me',
+            'nearby'
+        ].some((keyword) => normalized.includes(keyword));
+    }
+
+    function getCurrentLocationForChat() {
+        return new Promise((resolve) => {
+            if (!navigator.geolocation) {
+                resolve(null);
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    resolve({
+                        lat: position.coords.latitude,
+                        lon: position.coords.longitude,
+                        accuracy: position.coords.accuracy
+                    });
+                },
+                () => resolve(null),
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 300000
+                }
+            );
+        });
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text || chatIsBusy) return;
+
+        addMessage(text, 'user');
+        input.value = '';
+        setChatBusy(true);
+
+        try {
+            const payload = {
+                text: text,
+                locale: 'vi',
+                context_slots: contextSlots
+            };
+
+            if (chatNeedsCurrentLocation(text)) {
+                addMessage('Mình cần quyền vị trí của trình duyệt để tìm khách sạn gần bạn.', 'bot');
+                const userLocation = await getCurrentLocationForChat();
+                if (userLocation) {
+                    payload.user_location = userLocation;
+                    contextSlots.user_location = userLocation;
+                    contextSlots.use_current_location = true;
+                } else {
+                    addMessage('Mình chưa lấy được vị trí hiện tại. Bạn có thể bật quyền vị trí hoặc nhập tên khu vực/quận.', 'bot');
+                }
+            } else if (contextSlots.use_current_location && contextSlots.user_location) {
+                payload.user_location = contextSlots.user_location;
+            }
+
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Có lỗi xảy ra, vui lòng thử lại.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
+    function handleChatResult(data) {
+        const result = data.parsed_result || data;
+        contextSlots = result.slots || data.slots || {};
+        persistChatState();
+
+        if (data.save_error) {
+            addMessage('Mình đã hiểu nhu cầu của bạn nhưng chưa lưu được yêu cầu. Vui lòng thử lại sau.', 'bot');
+            return;
+        }
+
+        const primaryMessage = result.polite_bot_message || result.bot_message;
+        const recommendationUrl = data.recommendation_url || result.recommendation_url;
+        result.recommendation_url = recommendationUrl || null;
+        result.primary_message = primaryMessage || null;
+
+        const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+        if (hasConfirmTable) {
+            addConfirmationTable(result);
+            return;
+        }
+
+        if (primaryMessage) {
+            addMessage(primaryMessage, 'bot');
+        }
+
+        if (!primaryMessage && result.follow_up_question) {
+            addMessage(result.follow_up_question, 'bot');
+            return;
+        }
+
+        if (primaryMessage) {
+            return;
+        }
+
+        if (data.confirmation && data.confirmation.question) {
+            addMessage(data.confirmation.question, 'bot');
+            return;
+        }
+
+        addMessage('Bạn có thể mô tả thêm nhu cầu của bạn không?', 'bot');
+    }
+
+    function getRecorderOptions() {
+        const preferredTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
+        if (!window.MediaRecorder) return {};
+        for (const mimeType of preferredTypes) {
+            if (MediaRecorder.isTypeSupported(mimeType)) {
+                return { mimeType };
+            }
+        }
+        return {};
+    }
+
+    async function toggleVoiceRecording() {
+        if (chatIsRecording) {
+            stopVoiceRecording();
+            return;
+        }
+        if (chatIsBusy) return;
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+            addMessage('Trình duyệt hiện không hỗ trợ ghi âm.', 'bot');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            chatAudioChunks = [];
+            chatRecorder = new MediaRecorder(stream, getRecorderOptions());
+
+            chatRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    chatAudioChunks.push(event.data);
+                }
+            };
+
+            chatRecorder.onstop = () => {
+                stream.getTracks().forEach((track) => track.stop());
+                finishVoiceRecording();
+            };
+
+            chatRecorder.start();
+            chatRecordingStartedAt = Date.now();
+            setRecordingState(true);
+            chatRecordingTimer = window.setTimeout(stopVoiceRecording, CHAT_MAX_RECORDING_MS);
+        } catch (err) {
+            addMessage('Mình chưa lấy được quyền microphone. Hãy kiểm tra quyền ghi âm của trình duyệt.', 'bot');
+        }
+    }
+
+    function stopVoiceRecording() {
+        window.clearTimeout(chatRecordingTimer);
+        if (chatRecorder && chatRecorder.state !== 'inactive') {
+            chatRecorder.stop();
+        } else {
+            setRecordingState(false);
+        }
+    }
+
+    async function finishVoiceRecording() {
+        setRecordingState(false);
+        if (!chatAudioChunks.length) {
+            addMessage('Mình chưa nhận được âm thanh. Bạn thử nói lại gần micro hơn nhé.', 'bot');
+            return;
+        }
+
+        const mimeType = chatRecorder && chatRecorder.mimeType ? chatRecorder.mimeType : 'audio/webm';
+        const audioBlob = new Blob(chatAudioChunks, { type: mimeType });
+        const audioDuration = chatRecordingStartedAt ? (Date.now() - chatRecordingStartedAt) / 1000 : null;
+        chatRecordingStartedAt = null;
+        if (audioBlob.size > CHAT_MAX_AUDIO_BYTES) {
+            addMessage('Bản ghi hơi dài. Bạn thử nói ngắn hơn một chút nhé.', 'bot');
+            return;
+        }
+
+        await sendVoiceMessage(audioBlob, mimeType, audioDuration);
+    }
+
+    async function sendVoiceMessage(audioBlob, mimeType, audioDuration) {
+        setChatBusy(true);
+        setVoiceStatus('Đang xử lý...');
+
+        const form = new FormData();
+        const extension = mimeType.includes('mp4') ? 'mp4' : 'webm';
+        form.append('audio', audioBlob, `chat-voice.${extension}`);
+        form.append('locale', 'vi');
+        form.append('feature_mode', 'chat');
+        if (audioDuration !== null) {
+            form.append('audio_duration', audioDuration.toFixed(1));
+        }
+        form.append('context_slots', JSON.stringify(contextSlots || {}));
+
+        try {
+            const res = await fetch('/api/voice/parse/', {
+                method: 'POST',
+                body: form
+            });
+            const data = await res.json();
+
+            if (!res.ok || !data.success) {
+                addMessage(data.error || 'Mình chưa nhận được nội dung giọng nói. Bạn thử lại nhé.', 'bot');
+                return;
+            }
+
+            const heardText = data.cleaned_transcript || data.transcript;
+            if (heardText) {
+                addMessage(heardText, 'user');
+            }
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Có lỗi khi xử lý giọng nói, vui lòng thử lại.', 'bot');
+        } finally {
+            setVoiceStatus('');
+            setChatBusy(false);
+        }
+    }
+
+    restoreChatState();
+</script>
+</html>

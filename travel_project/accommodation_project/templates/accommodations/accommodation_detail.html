@@ -1,0 +1,2049 @@
+{% extends 'base.html' %} {% load static %} {% block content %}
+<div class="detail-page">
+  <!-- TOP -->
+  <div class="top-card">
+    <div class="top-left">
+      {% if accommodation.image_url %}
+      <img
+        src="{{ accommodation.image_url }}"
+        alt="{{ accommodation.name }}"
+        class="top-image"
+      />
+      {% else %}
+      <div class="top-image placeholder-image">
+        <i class="fa-solid fa-building"></i>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="top-right">
+      <p class="acc-type">{{ accommodation.accommodation_type }}</p>
+
+      <h1 class="acc-name">{{ accommodation.name }}</h1>
+
+      <p class="acc-address">
+        <i class="fa-solid fa-location-dot"></i>
+        {{ accommodation.address }}, {{ accommodation.area }}
+      </p>
+
+      <div class="acc-rating">
+        <span class="rating-star"
+          >⭐ {{ accommodation.rating|floatformat:1 }} / 5</span
+        >
+        <span class="rating-count"
+          >({{ accommodation.review_count }} đánh giá)</span
+        >
+      </div>
+
+      <p class="acc-desc">{{ accommodation.description }}</p>
+
+      <div class="acc-amenities">
+        {% for amenity in accommodation.amenities %}
+        {% if amenity == "discount_percent" or amenity == "discount_amount" %}
+        <span class="amenity-chip"
+          ><i class="fa-solid fa-tag"></i> Khuyến mãi</span
+        >
+        {% else %}
+        <span class="amenity-chip"
+          ><i class="fa-solid fa-check"></i> {{ amenity }}</span
+        >
+        {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="acc-meta">
+        <span
+          ><i class="fa-solid fa-user"></i> {{ accommodation.capacity }}
+          khách</span
+        >
+      </div>
+
+      {% if user.is_authenticated %}
+      <div class="favorite-wrap">
+        {% if is_favorited %}
+        <form
+          method="post"
+          action="{% url 'remove_favorite' accommodation.id %}"
+        >
+          {% csrf_token %}
+          <button type="submit" class="fav-btn remove">
+            <i class="fa-solid fa-heart-crack"></i> Xóa yêu thích
+          </button>
+        </form>
+        {% else %}
+        <form method="post" action="{% url 'add_favorite' accommodation.id %}">
+          {% csrf_token %}
+          <button type="submit" class="fav-btn">
+            <i class="fa-regular fa-heart"></i> Thêm yêu thích
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% else %}
+      <p class="login-note">
+        <i class="fa-solid fa-lock"></i>
+        <a href="{% url 'login' %}">Đăng nhập</a> để thêm vào yêu thích.
+      </p>
+      {% endif %}
+
+      <div class="price-block">
+        <p class="price-label">Giá trung bình</p>
+        <div class="price-main">
+          {% if accommodation.any_room_has_discount %}
+          <span
+            style="
+              text-decoration: line-through;
+              color: #94a3b8;
+              font-size: 0.6em;
+            "
+            >{{ accommodation.price_per_night|floatformat:0 }}₫</span
+          >
+          <span style="color: #dc3545"
+            >{{ accommodation.avg_final_price|floatformat:0 }}₫</span
+          >
+          {% else %} {{ accommodation.price_per_night|floatformat:0 }}₫ {% endif %}
+        </div>
+        <div class="price-night">/đêm</div>
+
+        <a
+          href="{% url 'accommodation_list' %}{% if current_filters %}?{{ current_filters }}{% endif %}"
+          class="more-btn"
+        >
+          Xem thêm chỗ ở khác
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROOMS -->
+  <div class="section-card">
+    <h2 class="section-title">Các phòng hiện có</h2>
+
+    {% if rooms %}
+    <div class="room-list">
+      {% for room in rooms %}
+      <div class="room-card">
+        <div class="room-image-wrap">
+          <div class="room-image-placeholder">
+            <i class="fa-solid fa-bed"></i>
+          </div>
+        </div>
+
+        <div class="room-content">
+          <div class="room-head">
+            <div>
+              <h3 class="room-name">{{ room.name }}</h3>
+              <p class="room-type">
+                {{ room.get_room_type_display }} · {{ room.capacity }} người
+              </p>
+            </div>
+
+            <div class="room-price-box">
+              {% if room.has_discount %}
+              <div style="text-align: right">
+                <span
+                  style="
+                    text-decoration: line-through;
+                    color: #94a3b8;
+                    font-size: 14px;
+                  "
+                  >{{ room.price_per_night|floatformat:0 }}₫</span
+                >
+                <span
+                  style="
+                    color: #dc3545;
+                    font-size: 11px;
+                    margin-left: 4px;
+                    background: #fee2e2;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                  "
+                  >-{{ room.accommodation.amenities.discount_percent }}%</span
+                >
+              </div>
+              <div class="room-price" style="color: #dc3545">
+                {{ room.final_price|floatformat:0 }}₫
+              </div>
+              {% else %}
+              <div class="room-price">
+                {{ room.price_per_night|floatformat:0 }}₫
+              </div>
+              {% endif %}
+              <div class="room-price-night">/đêm</div>
+            </div>
+          </div>
+
+          <div class="room-meta">
+            <span
+              ><i class="fa-solid fa-door-open"></i> 
+              Mã phòng: {{ room.room_code|default:"---" }}
+            </span>
+            <span
+              ><i class="fa-solid fa-layer-group"></i> 
+              Tổng: {{ room.total_rooms }}
+            </span>
+            <span
+              ><i class="fa-solid fa-bed"></i> 
+              Còn trống: {{ room.available_rooms }}
+            </span>
+          </div>
+
+          {% if room.description %}
+          <p class="room-desc">{{ room.description }}</p>
+          {% endif %} {% if room.amenities %}
+          <div class="room-amenities">
+            {% for amenity in room.amenities %}
+            {% if amenity == "discount_percent" or amenity == "discount_amount" %}
+            <span class="room-chip"
+              ><i class="fa-solid fa-tag"></i> Khuyến mãi</span
+            >
+            {% else %}
+            <span class="room-chip">{{ amenity }}</span>
+            {% endif %}
+            {% endfor %}
+          </div>
+          {% endif %}
+
+          <div class="room-status">
+            {% if room.available_rooms > 0 %}
+            <span class="badge available">Còn phòng</span>
+            {% else %}
+            <span class="badge soldout">Hết phòng</span>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-box">Hiện tại chỗ ở này chưa có dữ liệu phòng.</div>
+    {% endif %}
+  </div>
+
+  <!-- REVIEWS -->
+<!-- ═══════════════════════════════════════════════════════════════════════
+     REVIEWS + MAP — 2 cột đứng cạnh nhau
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="reviews-map-grid">
+
+  <!-- REVIEWS (cột trái) -->
+  <div class="section-card reviews-col">
+    <h2 class="section-title">Đánh giá chỗ ở</h2>
+
+    {% if user.is_authenticated %}
+    <div class="review-form-box">
+      <h3>Viết đánh giá</h3>
+      <form
+        method="post"
+        action="/accommodations/review/{{ accommodation.id }}/"
+        class="review-form"
+      >
+        {% csrf_token %}
+        <div class="review-top">
+          <label>Số sao:</label>
+          <select name="score" class="score-select">
+            <option value="5">★★★★★ 5 sao</option>
+            <option value="4">★★★★ 4 sao</option>
+            <option value="3">★★★ 3 sao</option>
+            <option value="2">★★ 2 sao</option>
+            <option value="1">★ 1 sao</option>
+          </select>
+        </div>
+        <textarea
+          name="comment"
+          rows="3"
+          placeholder="Nhận xét của bạn..."
+          class="review-textarea"
+        ></textarea>
+        <button type="submit" class="submit-btn">Gửi đánh giá</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="login-note">
+      <i class="fa-solid fa-lock"></i>
+      <a href="/accounts/login/">Đăng nhập</a> để gửi đánh giá.
+    </div>
+    {% endif %}
+
+    <div class="review-list scroll-inner">
+      {% for review in reviews %}
+      <div class="review-card">
+        <div class="review-header">
+          <div class="review-avatar">
+            {{ review.user.username|slice:":1"|upper }}
+          </div>
+          <div>
+            <p class="review-user">{{ review.user.username }}</p>
+            <p class="review-date">{{ review.created_at|date:"d/m/Y" }}</p>
+          </div>
+          <div class="review-stars">
+            {% for i in "12345" %}
+            {% if forloop.counter <= review.score %}
+            <span style="color: #f59e0b">★</span>
+            {% else %}
+            <span style="color: #e2e8f0">★</span>
+            {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        <p class="review-comment">{{ review.comment }}</p>
+      </div>
+      {% empty %}
+      <p class="empty-review">Chưa có đánh giá nào.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- OSM MAP (cột phải) -->
+  <div class="osm-map-section" id="osm-map-section">
+    <div class="osm-header">
+      <div class="osm-header-left">
+        <div>
+          <h2 class="osm-title">Bản đồ &amp; Điểm lân cận</h2>
+          <p class="osm-subtitle">Khám phá tiện ích xung quanh</p>
+        </div>
+      </div>
+      <button
+        class="osm-collapse-btn"
+        id="osm-toggle-btn"
+        onclick="osmToggleSection()"
+      >
+        <span id="osm-toggle-icon">▼</span> Thu gọn
+      </button>
+    </div>
+
+    <div id="osm-body">
+      <!-- Controls bar -->
+      <div class="osm-controls">
+        <div class="osm-control-group">
+          <label class="osm-control-label">
+            <span>🔍</span> Bán kính
+          </label>
+          <div class="osm-radius-pills" id="osm-radius-pills">
+            <button class="osm-pill active" data-radius="1000" onclick="osmSetRadius(1000, this)">1 km</button>
+            <button class="osm-pill" data-radius="2000" onclick="osmSetRadius(2000, this)">2 km</button>
+            <button class="osm-pill" data-radius="3000" onclick="osmSetRadius(3000, this)">3 km</button>
+            <button class="osm-pill" data-radius="5000" onclick="osmSetRadius(5000, this)">5 km</button>
+          </div>
+        </div>
+
+        <div class="osm-control-group">
+          <label class="osm-control-label"><span>🏷️</span> Loại địa điểm</label>
+          <div class="osm-poi-filters" id="osm-poi-filters"></div>
+        </div>
+
+        <div class="osm-actions">
+          <button class="osm-btn-primary" id="osm-search-btn" onclick="osmSearchPOIs()">
+            <span class="osm-btn-icon">🔍</span>
+            <span id="osm-search-label">Tìm lân cận</span>
+          </button>
+          <button class="osm-btn-secondary" onclick="osmClearPOIs()">
+            <span class="osm-btn-icon">&#x2715;</span> Xóa
+          </button>
+        </div>
+      </div>
+
+      <!-- Map container -->
+      <div class="osm-map-wrap">
+        <div id="osm-leaflet-map"></div>
+
+        <div class="osm-loading" id="osm-loading" style="display: none">
+          <div class="osm-spinner"></div>
+          <p>Đang tải dữ liệu...</p>
+        </div>
+
+        <div class="osm-status-bar" id="osm-status-bar" style="display: none">
+          <span id="osm-status-text"></span>
+        </div>
+
+        <div class="osm-map-results" id="osm-map-results" style="display: none">
+          <div class="osm-map-results-head">
+            <span id="osm-map-results-title">Địa điểm tìm thấy</span>
+            <button type="button" onclick="document.getElementById('osm-map-results').style.display='none'">
+              &#x2715;
+            </button>
+          </div>
+          <div class="osm-map-results-list" id="osm-map-results-list"></div>
+        </div>
+      </div>
+
+      <!-- POI legend / list -->
+      <div class="osm-poi-panel" id="osm-poi-panel" style="display: none">
+        <div class="osm-poi-panel-header">
+          <h3 id="osm-poi-count-title">Kết quả tìm kiếm</h3>
+          <button class="osm-close-panel"
+            onclick="document.getElementById('osm-poi-panel').style.display = 'none'">
+            &#x2715;
+          </button>
+        </div>
+        <div class="osm-poi-list" id="osm-poi-list"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- ════════════════════════════════════════ end Reviews + Map -->
+<!-- ════════════════════════════════════════ end OSM block -->
+
+<style>
+  .detail-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  /* ===== REVIEWS + MAP GRID 2 CỘT ===== */
+.reviews-map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 1400px;
+  margin: 0 auto 28px;
+  align-items: start;
+}
+
+.reviews-map-grid .section-card,
+.reviews-map-grid .osm-map-section {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+}
+
+.reviews-map-grid .reviews-col {
+  padding: 24px;
+  max-height: 760px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.reviews-map-grid .reviews-col .section-title {
+  font-size: 22px;
+  margin-bottom: 16px;
+}
+
+.reviews-map-grid .review-form-box {
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.reviews-map-grid .review-form-box h3 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+.reviews-map-grid .scroll-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.reviews-map-grid .review-card {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+/* Map cột phải - thu nhỏ */
+.reviews-map-grid .osm-map-section {
+  padding: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+  background: #fff;
+}
+
+.reviews-map-grid .osm-header {
+  border-radius: 0;
+  padding: 16px 20px;
+}
+
+.reviews-map-grid .osm-title {
+  font-size: 18px;
+}
+
+.reviews-map-grid .osm-subtitle {
+  font-size: 12px;
+}
+
+.reviews-map-grid .osm-controls {
+  padding: 14px 18px;
+  gap: 12px;
+}
+
+.reviews-map-grid .osm-control-group {
+  min-width: 100%;
+  flex: 1 1 100%;
+}
+
+.reviews-map-grid .osm-pill {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.reviews-map-grid .osm-poi-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.reviews-map-grid .osm-btn-primary,
+.reviews-map-grid .osm-btn-secondary {
+  padding: 9px 14px;
+  font-size: 13px;
+}
+
+.reviews-map-grid #osm-leaflet-map {
+  height: 420px;
+}
+
+.reviews-map-grid .osm-map-results {
+  width: min(280px, calc(100% - 24px));
+  max-height: 340px;
+}
+
+.reviews-map-grid .osm-poi-panel {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-top: 1px solid #e2e8f0;
+}
+
+.reviews-map-grid .osm-poi-list {
+  max-height: 220px;
+}
+
+/* Responsive: stack lại trên màn hình nhỏ */
+@media (max-width: 1100px) {
+  .reviews-map-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reviews-map-grid .reviews-col {
+    max-height: none;
+  }
+
+  .reviews-map-grid #osm-leaflet-map {
+    height: 380px;
+  }
+}
+
+  .top-card,
+  .section-card {
+    background: #fff;
+    border-radius: 24px;
+    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+
+  .top-card {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 520px;
+  }
+
+  .top-left {
+    background: #eef2f7;
+    min-height: 520px;
+  }
+
+  .top-image {
+    width: 100%;
+    height: 100%;
+    min-height: 520px;
+    object-fit: cover;
+    display: block;
+  }
+
+  .placeholder-image {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 520px;
+    background: #eef2f7;
+  }
+
+  .placeholder-image i {
+    font-size: 72px;
+    color: #cbd5e1;
+  }
+
+  .top-right {
+    padding: 36px 40px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+  }
+
+  .acc-type {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2563eb;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+  }
+
+  .acc-name {
+    font-size: 42px;
+    line-height: 1.15;
+    margin: 0 0 18px;
+    color: #0f172a;
+    font-weight: 800;
+  }
+
+  .acc-address,
+  .acc-desc,
+  .room-type,
+  .room-desc {
+    color: #64748b;
+  }
+
+  .acc-address {
+    margin-bottom: 14px;
+    font-size: 16px;
+  }
+
+  .acc-address i,
+  .acc-meta i {
+    color: #2563eb;
+    margin-right: 6px;
+  }
+
+  .acc-rating {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+
+  .rating-star {
+    color: #f59e0b;
+    font-weight: 700;
+  }
+
+  .rating-count {
+    color: #94a3b8;
+  }
+
+  .acc-desc {
+    margin-bottom: 18px;
+    line-height: 1.7;
+  }
+
+  .acc-amenities,
+  .room-amenities,
+  .room-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .amenity-chip,
+  .room-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #2563eb;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .acc-meta {
+    margin-top: 18px;
+    font-weight: 600;
+    color: #334155;
+  }
+
+  .favorite-wrap,
+  .login-note {
+    margin-top: 22px;
+  }
+
+  .fav-btn {
+    border: none;
+    background: #eff6ff;
+    color: #2563eb;
+    padding: 11px 16px;
+    border-radius: 14px;
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 15px;
+  }
+
+  .fav-btn.remove {
+    background: #fff1f2;
+    color: #e11d48;
+  }
+
+  .login-note {
+    color: #64748b;
+  }
+
+  .login-note a {
+    color: #2563eb;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .price-block {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .price-label {
+    font-size: 14px;
+    color: #64748b;
+    margin: 0;
+  }
+
+  .price-main {
+    font-size: 42px;
+    font-weight: 800;
+    line-height: 1.05;
+    color: #0f172a;
+    white-space: nowrap;
+    margin: 0;
+  }
+
+  .price-night {
+    color: #94a3b8;
+    font-size: 15px;
+    margin-bottom: 12px;
+  }
+
+  .more-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 260px;
+    min-height: 52px;
+    background: #2563eb;
+    color: #fff;
+    text-decoration: none;
+    border-radius: 16px;
+    font-weight: 700;
+    padding: 14px 22px;
+  }
+
+  .more-btn:hover {
+    background: #1d4ed8;
+  }
+
+  .section-card {
+    padding: 28px;
+  }
+
+  .section-title {
+    font-size: 28px;
+    font-weight: 800;
+    margin: 0 0 20px;
+    color: #1e293b;
+  }
+
+  .room-list,
+  .review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .room-card {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    gap: 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    padding: 18px;
+    background: #f8fafc;
+    align-items: start;
+  }
+
+  .room-image-wrap {
+    width: 100%;
+  }
+
+  .room-image-placeholder {
+    width: 100%;
+    height: 160px;
+    border-radius: 16px;
+    background: #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .room-image-placeholder i {
+    font-size: 42px;
+    color: #94a3b8;
+  }
+
+  .room-content {
+    min-width: 0;
+  }
+
+  .room-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 10px;
+  }
+
+  .room-name {
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: #0f172a;
+  }
+
+  .room-price-box {
+    text-align: right;
+    min-width: 120px;
+  }
+
+  .room-price {
+    font-size: 24px;
+    font-weight: 800;
+    color: #2563eb;
+    white-space: nowrap;
+  }
+
+  .room-price-night {
+    font-size: 13px;
+    color: #64748b;
+  }
+
+  .room-meta {
+    margin: 12px 0;
+    color: #475569;
+    font-size: 14px;
+  }
+
+  .room-desc {
+    line-height: 1.6;
+    margin-bottom: 12px;
+  }
+
+  .room-status {
+    margin-top: 14px;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .available {
+    background: #dcfce7;
+    color: #166534;
+  }
+
+  .soldout {
+    background: #fee2e2;
+    color: #991b1b;
+  }
+
+  .empty-box {
+    padding: 18px;
+    border-radius: 16px;
+    background: #fff7ed;
+    color: #c2410c;
+    font-weight: 500;
+  }
+
+  .review-form-box {
+    background: #f8fafc;
+    border-radius: 18px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  .review-form-box h3 {
+    margin-top: 0;
+    margin-bottom: 14px;
+    color: #0f172a;
+  }
+
+  .review-top {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  .score-select,
+  .review-textarea {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 14px;
+    background: #fff;
+  }
+
+  .review-textarea {
+    resize: vertical;
+    min-height: 100px;
+    margin-bottom: 14px;
+  }
+
+  .submit-btn {
+    border: none;
+    background: #2563eb;
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .review-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 12px;
+  }
+
+  .review-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #dbeafe;
+    color: #1d4ed8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .review-user {
+    margin: 0;
+    font-weight: 700;
+    color: #0f172a;
+  }
+
+  .review-date {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 13px;
+  }
+
+  .review-stars {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .review-comment {
+    color: #334155;
+    line-height: 1.6;
+    margin: 0;
+  }
+
+  .empty-review {
+    color: #94a3b8;
+    text-align: center;
+    padding: 32px 0;
+  }
+
+  @media (max-width: 992px) {
+    .top-card {
+      grid-template-columns: 1fr;
+    }
+
+    .top-left,
+    .top-image,
+    .placeholder-image {
+      min-height: 320px;
+    }
+
+    .acc-name {
+      font-size: 34px;
+    }
+
+    .room-card {
+      grid-template-columns: 1fr;
+    }
+
+    .room-image-placeholder {
+      height: 190px;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .detail-page {
+      padding: 16px;
+    }
+
+    .top-right,
+    .section-card {
+      padding: 20px;
+    }
+
+    .acc-name {
+      font-size: 28px;
+    }
+
+    .price-main {
+      font-size: 34px;
+      white-space: normal;
+    }
+
+    .more-btn {
+      width: 100%;
+      min-width: unset;
+    }
+
+    .room-head,
+    .review-header,
+    .review-top {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .room-price-box,
+    .review-stars {
+      text-align: left;
+      margin-left: 0;
+    }
+  }
+</style>
+
+<!-- ═══════════════════════ OSM Map Styles ════════════════════════ -->
+<style>
+  /* Leaflet CSS */
+  @import url("https://unpkg.com/leaflet@1.9.4/dist/leaflet.css");
+
+  /* Section wrapper */
+  .osm-map-section {
+    max-width: 1400px;
+    margin: 0 auto 28px;
+    padding: 0 24px;
+  }
+
+  .osm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+    border-radius: 20px 20px 0 0;
+    padding: 22px 28px;
+    color: #fff;
+  }
+
+  .osm-header-left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .osm-icon-pin {
+    font-size: 32px;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3));
+  }
+
+  .osm-title {
+    font-size: 22px;
+    font-weight: 800;
+    margin: 0 0 4px;
+    color: #fff;
+  }
+
+  .osm-subtitle {
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.75);
+    margin: 0;
+  }
+
+  .osm-collapse-btn {
+    background: rgba(255, 255, 255, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #fff;
+    padding: 8px 16px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+  .osm-collapse-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  /* Controls */
+  .osm-controls {
+    background: #f8fafc;
+    border-left: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+    padding: 20px 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-end;
+  }
+
+  .osm-control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    min-width: 220px;
+  }
+
+  .osm-control-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: #475569;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* Radius pills */
+  .osm-radius-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .osm-pill {
+    padding: 7px 16px;
+    border-radius: 999px;
+    border: 1.5px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s;
+  }
+  .osm-pill:hover {
+    border-color: #3b82f6;
+    color: #2563eb;
+  }
+  .osm-pill.active {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3);
+  }
+
+  /* POI filter chips */
+  .osm-poi-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .osm-poi-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1.5px solid #e2e8f0;
+    background: #fff;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s;
+    user-select: none;
+    color: #475569;
+  }
+  .osm-poi-chip:hover {
+    border-color: #94a3b8;
+  }
+  .osm-poi-chip.selected {
+    background: #eff6ff;
+    border-color: #3b82f6;
+    color: #1d4ed8;
+  }
+  .osm-poi-chip .osm-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+
+  /* Action buttons */
+  .osm-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .osm-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 22px;
+    background: linear-gradient(135deg, #2563eb, #1d4ed8);
+    color: #fff;
+    border: none;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+  }
+  .osm-btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.45);
+  }
+  .osm-btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .osm-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    background: #fff;
+    color: #64748b;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .osm-btn-secondary:hover {
+    border-color: #94a3b8;
+    color: #334155;
+  }
+
+  .osm-btn-icon {
+    font-size: 15px;
+  }
+
+  /* Map wrapper */
+  .osm-map-wrap {
+    position: relative;
+    border-left: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+  }
+
+  #osm-leaflet-map {
+    height: 500px;
+    width: 100%;
+    z-index: 1;
+  }
+
+  /* Loading overlay */
+  .osm-loading {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    z-index: 999;
+    backdrop-filter: blur(2px);
+  }
+  .osm-loading p {
+    font-weight: 600;
+    color: #475569;
+    margin: 0;
+  }
+
+  .osm-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #e2e8f0;
+    border-top-color: #2563eb;
+    border-radius: 50%;
+    animation: osmSpin 0.8s linear infinite;
+  }
+  @keyframes osmSpin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  /* Status bar */
+  .osm-status-bar {
+    position: absolute;
+    left: 16px;
+    bottom: 16px;
+    z-index: 850;
+    border: 1px solid #bae6fd;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+    padding: 10px 18px;
+    background: #f0f9ff;
+    font-size: 13px;
+    color: #0369a1;
+    font-weight: 700;
+  }
+
+  .osm-map-results {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 850;
+    width: min(360px, calc(100% - 32px));
+    max-height: 430px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #dbeafe;
+    border-radius: 16px;
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+    overflow: hidden;
+    backdrop-filter: blur(8px);
+  }
+
+  .osm-map-results-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    background: #eff6ff;
+    border-bottom: 1px solid #dbeafe;
+  }
+
+  .osm-map-results-head span {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 800;
+  }
+
+  .osm-map-results-head button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    border-radius: 8px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-weight: 800;
+  }
+
+  .osm-map-results-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 10px;
+  }
+
+  .osm-map-result-item {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+  }
+
+  .osm-map-result-item:hover,
+  .osm-map-result-item.active {
+    background: #eff6ff;
+    transform: translateX(-2px);
+  }
+
+  .osm-map-result-number {
+    width: 30px;
+    height: 30px;
+    border-radius: 10px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 850;
+  }
+
+  .osm-map-result-name {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .osm-map-result-type {
+    color: #64748b;
+    font-size: 12px;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .osm-map-result-distance {
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+
+  .osm-numbered-marker {
+    width: 34px;
+    height: 34px;
+    border: 3px solid #fff;
+    border-radius: 12px 12px 12px 4px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    box-shadow: 0 8px 18px rgba(15, 23, 42, 0.28);
+    transform: rotate(-45deg);
+  }
+
+  .osm-numbered-marker span {
+    transform: rotate(45deg);
+  }
+
+  .osm-poi-popup-action {
+    display: inline-flex;
+    margin-top: 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 12px;
+    font-weight: 800;
+    text-decoration: none;
+  }
+
+  /* POI result panel */
+  .osm-poi-panel {
+    background: #fff;
+    border-left: 1px solid #e2e8f0;
+    border-right: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 0 0 20px 20px;
+    overflow: hidden;
+  }
+
+  .osm-poi-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .osm-poi-panel-header h3 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #1e293b;
+  }
+
+  .osm-close-panel {
+    background: none;
+    border: none;
+    font-size: 16px;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background 0.15s;
+  }
+  .osm-close-panel:hover {
+    background: #f1f5f9;
+    color: #475569;
+  }
+
+  .osm-poi-list {
+    max-height: 360px;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .osm-poi-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+
+  .osm-poi-item.active {
+    background: #dbeafe;
+    border-color: #60a5fa;
+  }
+  .osm-poi-item:hover {
+    background: #eff6ff;
+    border-color: #bfdbfe;
+    transform: translateX(2px);
+  }
+
+  .osm-poi-icon-wrap {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .osm-poi-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .osm-poi-name {
+    font-weight: 700;
+    font-size: 14px;
+    color: #0f172a;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .osm-poi-meta {
+    display: flex;
+    gap: 12px;
+    margin-top: 3px;
+  }
+  .osm-poi-type-badge {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+  }
+  .osm-poi-dist {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+  }
+
+  /* No-coordinates fallback */
+  .osm-no-coords {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    gap: 14px;
+    color: #94a3b8;
+    border: 2px dashed #e2e8f0;
+    border-radius: 16px;
+    margin: 12px;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .osm-no-coords span {
+    font-size: 42px;
+  }
+
+  /* Leaflet popup custom */
+  .osm-popup {
+    min-width: 200px;
+  }
+  .osm-popup-img {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    display: block;
+  }
+  .osm-popup-name {
+    font-size: 15px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 0 0 6px;
+  }
+  .osm-popup-type {
+    font-size: 12px;
+    color: #2563eb;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .osm-popup-meta {
+    font-size: 13px;
+    color: #475569;
+  }
+  .osm-popup-meta i {
+    margin-right: 4px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .osm-map-section {
+      padding: 0 12px;
+    }
+    .osm-controls {
+      padding: 14px 16px;
+    }
+    #osm-leaflet-map {
+      height: 380px;
+    }
+    .osm-header {
+      padding: 16px 18px;
+      border-radius: 16px 16px 0 0;
+    }
+    .osm-title {
+      font-size: 18px;
+    }
+  }
+</style>
+
+<!-- ═══════════════════════ Leaflet + OSM JS ══════════════════════ -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+  (function () {
+      'use strict';
+
+      /* ── Config from Django template ───────────────────────────────── */
+      const ACCOMMODATION_ID = {{ accommodation.id }};
+      const API_BASE = '/api/map';
+
+      /* ── State ─────────────────────────────────────────────────────── */
+      let osmMap = null;
+      let accMarker = null;
+      let poiMarkers = [];
+      let radiusCircle = null;
+      let currentRadius = 1000;
+      let selectedTypes = new Set();  // empty = all
+      let poiTypesMeta = [];
+      let isCollapsed = false;
+
+      /* ── Initialise on DOMContentLoaded ────────────────────────────── */
+      document.addEventListener('DOMContentLoaded', function () {
+          initOSMMap();
+      });
+
+      async function initOSMMap() {
+          try {
+              const resp = await fetch(`${API_BASE}/accommodation/${ACCOMMODATION_ID}/map-data/`);
+              const data = await resp.json();
+
+              if (!data.success) {
+                  showNoCoords(data.error || 'Không tìm được tọa độ cho chỗ ở này.');
+                  return;
+              }
+
+              poiTypesMeta = data.poi_types || [];
+              buildPOIFilters(poiTypesMeta);
+
+              buildMap(data);
+          } catch (err) {
+              console.error('[OSM] init error', err);
+              showNoCoords('Không thể kết nối bản đồ. Vui lòng thử lại sau.');
+          }
+      }
+
+      function buildMap(data) {
+          const lat = data.lat;
+          const lon = data.lon;
+
+          osmMap = L.map('osm-leaflet-map', {
+              center: [lat, lon],
+              zoom: 15,
+              zoomControl: true,
+          });
+
+          // Tile layer — CartoDB Voyager (không cần API key, không yêu cầu Referer)
+          // Fallback sang OSM nếu cần: thêm referrerPolicy:'origin' để tránh 403
+          L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+              attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+              subdomains: 'abcd',
+              maxZoom: 20,
+              crossOrigin: true,
+          }).addTo(osmMap);
+
+          // Accommodation marker
+          const accIcon = L.divIcon({
+              html: `<div style="
+                  background:linear-gradient(135deg,#1e40af,#3b82f6);
+                  border:3px solid #fff;
+                  border-radius:50% 50% 50% 0;
+                  transform:rotate(-45deg);
+                  width:36px;height:36px;
+                  display:flex;align-items:center;justify-content:center;
+                  box-shadow:0 4px 14px rgba(37,99,235,.5);
+              "><span style="transform:rotate(45deg);font-size:16px;">🏨</span></div>`,
+              iconSize: [36, 36],
+              iconAnchor: [18, 36],
+              popupAnchor: [0, -36],
+              className: '',
+          });
+
+          accMarker = L.marker([lat, lon], { icon: accIcon }).addTo(osmMap);
+
+          // Popup content
+          let popupHtml = `<div class="osm-popup">`;
+          if (data.image_url) {
+              popupHtml += `<img class="osm-popup-img" src="${escHtml(data.image_url)}" alt="${escHtml(data.name)}" onerror="this.style.display='none'">`;
+          }
+          popupHtml += `<p class="osm-popup-name">${escHtml(data.name)}</p>`;
+          popupHtml += `<p class="osm-popup-type">${escHtml(data.accommodation_type)}</p>`;
+          popupHtml += `<div class="osm-popup-meta">`;
+          popupHtml += `<div>📍 ${escHtml(data.address)}</div>`;
+          popupHtml += `<div>⭐ ${data.rating} · 💰 ${formatPrice(data.price_per_night)}/đêm</div>`;
+          popupHtml += `</div></div>`;
+
+          accMarker.bindPopup(popupHtml, { maxWidth: 280 });
+          accMarker.openPopup();
+      }
+
+      /* ── Build POI filter checkboxes ────────────────────────────────── */
+      function buildPOIFilters(types) {
+          const container = document.getElementById('osm-poi-filters');
+          container.innerHTML = '';
+
+          // "All" chip
+          const allChip = createChip('all', 'Tất cả', '🗺️', '#6366f1', true);
+          allChip.addEventListener('click', function () {
+              selectedTypes.clear();
+              container.querySelectorAll('.osm-poi-chip').forEach(c => c.classList.remove('selected'));
+              allChip.classList.add('selected');
+          });
+          container.appendChild(allChip);
+
+          types.forEach(function (t) {
+              const chip = createChip(t.key, t.label, t.icon, t.color, false);
+              chip.addEventListener('click', function () {
+                  const allEl = container.querySelector('[data-key="all"]');
+                  allEl && allEl.classList.remove('selected');
+
+                  if (selectedTypes.has(t.key)) {
+                      selectedTypes.delete(t.key);
+                      chip.classList.remove('selected');
+                  } else {
+                      selectedTypes.add(t.key);
+                      chip.classList.add('selected');
+                  }
+
+                  if (selectedTypes.size === 0) {
+                      allEl && allEl.classList.add('selected');
+                  }
+              });
+              container.appendChild(chip);
+          });
+      }
+
+      function createChip(key, label, icon, color, active) {
+          const chip = document.createElement('button');
+          chip.className = 'osm-poi-chip' + (active ? ' selected' : '');
+          chip.dataset.key = key;
+          chip.innerHTML = `<span class="osm-chip-dot" style="background:${color}"></span><span>${icon}</span><span>${escHtml(label)}</span>`;
+          return chip;
+      }
+
+      /* ── Radius pill selection ──────────────────────────────────────── */
+      window.osmSetRadius = function (radius, btn) {
+          currentRadius = radius;
+          document.querySelectorAll('.osm-pill').forEach(p => p.classList.remove('active'));
+          btn.classList.add('active');
+          // Update circle if exists
+          if (radiusCircle && osmMap) {
+              radiusCircle.setRadius(radius);
+          }
+      };
+
+      /* ── Search POIs ────────────────────────────────────────────────── */
+      window.osmSearchPOIs = async function () {
+          if (!osmMap) return;
+
+          const btn = document.getElementById('osm-search-btn');
+          const label = document.getElementById('osm-search-label');
+
+          btn.disabled = true;
+          label.textContent = 'Đang tìm...';
+          document.getElementById('osm-loading').style.display = 'flex';
+
+          osmClearPOIs(false);
+
+          try {
+              let url = `${API_BASE}/accommodation/${ACCOMMODATION_ID}/pois/?radius=${currentRadius}`;
+              if (selectedTypes.size > 0) {
+                  url += `&types=${[...selectedTypes].join(',')}`;
+              }
+
+              const resp = await fetch(url);
+              const data = await resp.json();
+
+              if (!data.success) {
+                  setStatus('⚠️ ' + (data.error || 'Lỗi khi tải dữ liệu POI.'), 'error');
+                  return;
+              }
+
+              // Draw radius circle
+              const centre = data.center;
+              radiusCircle = L.circle([centre.lat, centre.lon], {
+                  radius: currentRadius,
+                  color: '#3b82f6',
+                  weight: 2,
+                  opacity: 0.6,
+                  fillColor: '#3b82f6',
+                  fillOpacity: 0.06,
+              }).addTo(osmMap);
+
+              // Draw POI markers
+              data.pois.forEach(function (poi, idx) {
+                  addPOIMarker(poi, idx);
+              });
+
+              // Show POI list
+              renderPOIList(data.pois, data.count);
+              renderMapResults(data.pois, data.count);
+
+              setStatus(`✅ Tìm thấy ${data.count} địa điểm trong bán kính ${currentRadius / 1000} km`, 'ok');
+
+          } catch (err) {
+              console.error('[OSM] POI search error', err);
+              setStatus('❌ Không thể tải dữ liệu. Vui lòng thử lại.', 'error');
+          } finally {
+              btn.disabled = false;
+              label.textContent = 'Tìm địa điểm lân cận';
+              document.getElementById('osm-loading').style.display = 'none';
+          }
+      };
+
+      function addPOIMarker(poi, idx) {
+          const number = idx + 1;
+          const icon = L.divIcon({
+              html: `<div class="osm-numbered-marker" style="background:${poi.color};"><span>${number}</span></div>`,
+              iconSize: [34, 34],
+              iconAnchor: [17, 34],
+              popupAnchor: [0, -32],
+              className: '',
+          });
+
+          const marker = L.marker([poi.lat, poi.lon], { icon: icon });
+
+          const dist = poi.distance_m >= 1000
+              ? (poi.distance_m / 1000).toFixed(1) + ' km'
+              : poi.distance_m + ' m';
+
+          let popupHtml = `<div class="osm-popup">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                  <span style="display:inline-flex;width:26px;height:26px;border-radius:8px;background:${poi.color};color:#fff;align-items:center;justify-content:center;font-weight:900;">${number}</span>
+                  <span style="font-size:18px;">${poi.icon}</span>
+              </div>
+              <p class="osm-popup-name">${escHtml(poi.name)}</p>
+              <p class="osm-popup-type">${poi.icon} ${escHtml(poi.type_label)}</p>
+              <div class="osm-popup-meta">
+                  <div>📏 Cách ${dist}</div>`;
+          if (poi.tags && poi.tags.phone) popupHtml += `<div>📞 ${escHtml(poi.tags.phone)}</div>`;
+          if (poi.tags && poi.tags.opening_hours) popupHtml += `<div>🕐 ${escHtml(poi.tags.opening_hours)}</div>`;
+          popupHtml += `</div>
+              <a class="osm-poi-popup-action" href="https://www.google.com/maps/search/?api=1&query=${poi.lat},${poi.lon}" target="_blank" rel="noopener">Mở chỉ đường</a>
+          </div>`;
+
+          marker.bindPopup(popupHtml, { maxWidth: 240 });
+          marker.on('click', function () {
+              highlightPOI(idx);
+          });
+          marker.addTo(osmMap);
+          poiMarkers.push(marker);
+      }
+
+      function renderMapResults(pois, count) {
+          const panel = document.getElementById('osm-map-results');
+          const list = document.getElementById('osm-map-results-list');
+          const title = document.getElementById('osm-map-results-title');
+
+          if (!pois.length) {
+              panel.style.display = 'none';
+              return;
+          }
+
+          title.textContent = `${count} địa điểm trên bản đồ`;
+          list.innerHTML = '';
+
+          pois.slice(0, 8).forEach(function (poi, idx) {
+              const dist = poi.distance_m >= 1000
+                  ? (poi.distance_m / 1000).toFixed(1) + ' km'
+                  : poi.distance_m + ' m';
+
+              const item = document.createElement('div');
+              item.className = 'osm-map-result-item';
+              item.dataset.poiIndex = idx;
+              item.innerHTML = `
+                  <div class="osm-map-result-number" style="background:${poi.color};">${idx + 1}</div>
+                  <div>
+                      <div class="osm-map-result-name">${escHtml(poi.name)}</div>
+                      <div class="osm-map-result-type">${poi.icon} ${escHtml(poi.type_label)}</div>
+                  </div>
+                  <div class="osm-map-result-distance">${dist}</div>
+              `;
+              item.addEventListener('click', function () {
+                  focusPOI(idx, poi);
+              });
+              list.appendChild(item);
+          });
+
+          if (pois.length > 8) {
+              const more = document.createElement('div');
+              more.className = 'osm-map-result-item';
+              more.style.cursor = 'default';
+              more.innerHTML = `
+                  <div class="osm-map-result-number" style="background:#64748b;">+</div>
+                  <div>
+                      <div class="osm-map-result-name">Còn ${pois.length - 8} địa điểm khác</div>
+                      <div class="osm-map-result-type">Xem đầy đủ ở danh sách phía dưới bản đồ</div>
+                  </div>
+                  <div></div>
+              `;
+              list.appendChild(more);
+          }
+
+          panel.style.display = 'block';
+      }
+
+      function focusPOI(idx, poi) {
+          if (!osmMap || !poiMarkers[idx]) return;
+          osmMap.setView([poi.lat, poi.lon], 17);
+          poiMarkers[idx].openPopup();
+          highlightPOI(idx);
+      }
+
+      function highlightPOI(idx) {
+          document.querySelectorAll('.osm-map-result-item, .osm-poi-item').forEach(function (el) {
+              el.classList.remove('active');
+          });
+          document.querySelectorAll(`[data-poi-index="${idx}"]`).forEach(function (el) {
+              el.classList.add('active');
+          });
+      }
+
+      function renderPOIList(pois, count) {
+          const panel = document.getElementById('osm-poi-panel');
+          const list = document.getElementById('osm-poi-list');
+          const title = document.getElementById('osm-poi-count-title');
+
+          title.textContent = `${count} địa điểm lân cận`;
+          list.innerHTML = '';
+
+          if (pois.length === 0) {
+              list.innerHTML = '<p style="text-align:center;color:#94a3b8;padding:24px 0;">Không tìm thấy địa điểm nào.</p>';
+          } else {
+              pois.forEach(function (poi, idx) {
+                  const dist = poi.distance_m >= 1000
+                      ? (poi.distance_m / 1000).toFixed(1) + ' km'
+                      : poi.distance_m + ' m';
+
+                  const item = document.createElement('div');
+                  item.className = 'osm-poi-item';
+                  item.dataset.poiIndex = idx;
+                  item.innerHTML = `
+                      <div class="osm-poi-icon-wrap" style="background:${poi.color}22;">
+                          <span style="font-weight:900;color:${poi.color};">${idx + 1}</span>
+                      </div>
+                  <div class="osm-poi-info">
+                          <div class="osm-poi-name">${escHtml(poi.name)}</div>
+                          <div class="osm-poi-meta">
+                              <span class="osm-poi-type-badge" style="background:${poi.color}15;color:${poi.color};">${escHtml(poi.type_label)}</span>
+                              <span class="osm-poi-dist">📏 ${dist}</span>
+                          </div>
+                      </div>
+                  `;
+                  // Click to open marker popup
+                  item.addEventListener('click', function () {
+                      focusPOI(idx, poi);
+                  });
+                  list.appendChild(item);
+              });
+          }
+
+          panel.style.display = 'block';
+      }
+
+      /* ── Clear POIs ─────────────────────────────────────────────────── */
+      window.osmClearPOIs = function (hidePanel) {
+          document.getElementById('osm-map-results').style.display = 'none';
+          if (hidePanel !== false) {
+              document.getElementById('osm-poi-panel').style.display = 'none';
+              document.getElementById('osm-status-bar').style.display = 'none';
+          }
+          poiMarkers.forEach(function (m) { osmMap && osmMap.removeLayer(m); });
+          poiMarkers = [];
+          if (radiusCircle && osmMap) {
+              osmMap.removeLayer(radiusCircle);
+              radiusCircle = null;
+          }
+      };
+
+      /* ── Toggle collapse ────────────────────────────────────────────── */
+      window.osmToggleSection = function () {
+          isCollapsed = !isCollapsed;
+          const body = document.getElementById('osm-body');
+          const icon = document.getElementById('osm-toggle-icon');
+          const btn  = document.getElementById('osm-toggle-btn');
+          body.style.display = isCollapsed ? 'none' : '';
+          icon.textContent = isCollapsed ? '▶' : '▼';
+          btn.lastChild.textContent = isCollapsed ? ' Mở rộng' : ' Thu gọn';
+          if (!isCollapsed && osmMap) {
+              setTimeout(function () { osmMap.invalidateSize(); }, 300);
+          }
+      };
+
+      /* ── Helpers ────────────────────────────────────────────────────── */
+      function setStatus(msg, type) {
+          const bar = document.getElementById('osm-status-bar');
+          const txt = document.getElementById('osm-status-text');
+          bar.style.display = 'block';
+          txt.textContent = msg;
+          bar.style.background = type === 'error' ? '#fff1f2' : '#f0f9ff';
+          bar.style.borderTopColor = type === 'error' ? '#fecdd3' : '#bae6fd';
+          bar.style.color = type === 'error' ? '#be123c' : '#0369a1';
+      }
+
+      function showNoCoords(msg) {
+          const container = document.getElementById('osm-leaflet-map');
+          container.innerHTML = `<div class="osm-no-coords"><span>🗺️</span><p>${escHtml(msg)}</p></div>`;
+      }
+
+      function escHtml(str) {
+          if (!str) return '';
+          return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
+
+      function formatPrice(price) {
+          if (!price) return '---';
+          return Number(price).toLocaleString('vi-VN') + '₫';
+      }
+
+  })();
+</script>
+
+{% endblock %}
