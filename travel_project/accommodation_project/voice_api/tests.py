@@ -1,3 +1,4 @@
+import tempfile
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -6,7 +7,10 @@ from django.test import Client, SimpleTestCase
 from .services.speech_to_text import (
     ASR_MODEL_PROFILES,
     FAST_ASR_MODEL,
+    HF_API_BACKEND,
+    LOCAL_BACKEND,
     SpeechToTextConfig,
+    SpeechToTextError,
     SpeechToTextResult,
     SpeechToTextService,
     _default_model_name,
@@ -16,9 +20,11 @@ from .services.stt_model_selector import (
     STRONG,
     WEAK,
     get_stronger_model,
+    get_stt_model_defaults,
     select_stt_model,
     should_retry_with_stronger_model,
 )
+from .services.transcript_cleanup import cleanup_transcript
 
 
 class FakeUpload:
@@ -38,15 +44,31 @@ class FakePipeline:
         return self.response
 
 
-class STTModelSelectorTests(SimpleTestCase):
-    def test_short_command_uses_weak_model(self):
-        self.assertEqual(
-            select_stt_model(feature_mode="command", audio_duration=2.0, accuracy_required="speed"),
-            WEAK,
-        )
+class FakeResponse:
+    def __init__(self, status_code=200, payload=None, text=""):
+        self.status_code = status_code
+        self.payload = payload or {}
+        self.text = text
 
-    def test_normal_chat_uses_balanced_model(self):
-        self.assertEqual(select_stt_model(feature_mode="chat", audio_duration=7.0), BALANCED)
+    def json(self):
+        return self.payload
+
+
+class STTModelSelectorTests(SimpleTestCase):
+    def test_recommendation_search_and_chat_never_use_weak_model(self):
+        self.assertEqual(select_stt_model(feature_mode="chat", audio_duration=2.0), BALANCED)
+        self.assertEqual(select_stt_model(feature_mode="search", audio_duration=2.0), BALANCED)
+        self.assertEqual(select_stt_model(feature_mode="recommendation", audio_duration=2.0), BALANCED)
+
+    def test_accuracy_required_uses_strong_model(self):
+        self.assertEqual(select_stt_model(feature_mode="chat", accuracy_required="true"), STRONG)
+        self.assertEqual(select_stt_model(feature_mode="chat", accuracy_required="high"), STRONG)
+
+    def test_noisy_audio_uses_strong_model(self):
+        self.assertEqual(select_stt_model(feature_mode="chat", audio_quality="noisy"), STRONG)
+
+    def test_realtime_preview_uses_weak_model(self):
+        self.assertEqual(select_stt_model(feature_mode="realtime_preview", is_realtime=True), WEAK)
 
     def test_translation_uses_strong_model(self):
         self.assertEqual(select_stt_model(feature_mode="translation", audio_duration=4.0), STRONG)
@@ -73,6 +95,7 @@ class SpeechToTextConfigTests(SimpleTestCase):
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(_default_model_name(), ASR_MODEL_PROFILES["balanced"])
             self.assertEqual(SpeechToTextConfig().model_name, ASR_MODEL_PROFILES["balanced"])
+            self.assertEqual(SpeechToTextConfig().backend, LOCAL_BACKEND)
 
     def test_profiles_and_explicit_model_are_supported(self):
         with patch.dict("os.environ", {"VOICE_ASR_PROFILE": "fast"}, clear=True):
@@ -88,9 +111,9 @@ class SpeechToTextConfigTests(SimpleTestCase):
         with patch.dict(
             "os.environ",
             {
-                "VOICE_ASR_WEAK_MODEL": "custom/weak",
-                "VOICE_ASR_BALANCED_MODEL": "custom/balanced",
-                "VOICE_ASR_STRONG_MODEL": "custom/strong",
+                "VOICE_WEAK_MODEL": "custom/weak",
+                "VOICE_BALANCED_MODEL": "custom/balanced",
+                "VOICE_STRONG_MODEL": "custom/strong",
             },
             clear=True,
         ):
@@ -98,6 +121,7 @@ class SpeechToTextConfigTests(SimpleTestCase):
             self.assertEqual(config.weak_model_name, "custom/weak")
             self.assertEqual(config.model_name, "custom/balanced")
             self.assertEqual(config.strong_model_name, "custom/strong")
+            self.assertEqual(get_stt_model_defaults()[BALANCED], "custom/balanced")
 
 
 class SpeechToTextServiceTests(SimpleTestCase):
@@ -113,7 +137,8 @@ class SpeechToTextServiceTests(SimpleTestCase):
         )
         service._pipeline = pipeline
 
-        transcript = service.transcribe(FakeUpload())
+        with patch.object(service, "_prepare_audio_file", return_value=("voice.wav", [])):
+            transcript = service.transcribe(FakeUpload())
 
         self.assertEqual(transcript, "khách sạn ở Đà Lạt")
         _, kwargs = pipeline.calls[0]
@@ -148,32 +173,89 @@ class SpeechToTextServiceTests(SimpleTestCase):
             },
         )
 
-    def test_transcribe_retries_with_stronger_model_when_result_looks_bad(self):
-        weak_pipeline = FakePipeline({"text": "ờ"})
-        balanced_pipeline = FakePipeline({"text": "khách sạn gần biển"})
+    def test_transcribe_retries_from_balanced_to_strong_when_transcript_is_empty(self):
+        balanced_pipeline = FakePipeline({"text": ""})
+        strong_pipeline = FakePipeline({"text": "khách sạn gần biển"})
         service = SpeechToTextService(
             SpeechToTextConfig(
                 model_name="balanced/model",
-                weak_model_name="weak/model",
+                strong_model_name="strong/model",
                 fallback_model_name=None,
             )
         )
-        service._pipelines[WEAK] = weak_pipeline
         service._pipelines[BALANCED] = balanced_pipeline
+        service._pipelines[STRONG] = strong_pipeline
 
-        result = service.transcribe_with_metadata(
-            FakeUpload(),
-            feature_mode="command",
-            audio_duration=9.0,
-        )
+        with patch.object(service, "_prepare_audio_file", return_value=("voice.wav", [])):
+            result = service.transcribe_with_metadata(
+                FakeUpload(),
+                feature_mode="chat",
+                audio_duration=9.0,
+            )
 
         self.assertEqual(result.transcript, "khách sạn gần biển")
-        self.assertEqual(result.selected_model, WEAK)
-        self.assertEqual(result.final_model, BALANCED)
+        self.assertEqual(result.selected_profile, BALANCED)
+        self.assertEqual(result.final_profile, STRONG)
         self.assertTrue(result.retried)
-        self.assertEqual(result.retry_model, BALANCED)
-        self.assertEqual(len(weak_pipeline.calls), 1)
+        self.assertEqual(result.retry_profile, STRONG)
+        self.assertEqual(result.retry_reason, "empty_transcript")
         self.assertEqual(len(balanced_pipeline.calls), 1)
+        self.assertEqual(len(strong_pipeline.calls), 1)
+
+    def test_hf_api_missing_token_returns_clear_error(self):
+        service = SpeechToTextService(
+            SpeechToTextConfig(backend=HF_API_BACKEND, hf_token="", fallback_model_name=None)
+        )
+
+        with self.assertRaises(SpeechToTextError) as ctx:
+            service._transcribe_path_hf_api("voice.wav", BALANCED)
+
+        self.assertEqual(ctx.exception.code, "hf_token_missing")
+        self.assertIn("HF_TOKEN", str(ctx.exception))
+
+    @patch("voice_api.services.speech_to_text.requests.post")
+    def test_hf_api_transcribe_success(self, mock_post):
+        mock_post.return_value = FakeResponse(
+            payload={"text": "khách sạn Đà Lạt", "confidence": 0.91}
+        )
+        service = SpeechToTextService(
+            SpeechToTextConfig(
+                backend=HF_API_BACKEND,
+                hf_token="test-token",
+                hf_api_model="openai/whisper-large-v3",
+                fallback_model_name=None,
+            )
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+            tmp.write(b"fake-audio")
+            tmp.flush()
+            attempt = service._transcribe_path_hf_api(tmp.name, BALANCED)
+
+        self.assertEqual(attempt.transcript, "khách sạn Đà Lạt")
+        self.assertEqual(attempt.confidence, 0.91)
+        self.assertEqual(attempt.model_name, "openai/whisper-large-v3")
+        mock_post.assert_called_once()
+
+    @patch("voice_api.services.speech_to_text.requests.post")
+    def test_hf_api_503_returns_asr_failed(self, mock_post):
+        mock_post.return_value = FakeResponse(status_code=503, payload={"error": "loading"})
+        service = SpeechToTextService(
+            SpeechToTextConfig(
+                backend=HF_API_BACKEND,
+                hf_token="test-token",
+                hf_api_model="openai/whisper-large-v3",
+                fallback_model_name=None,
+            )
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+            tmp.write(b"fake-audio")
+            tmp.flush()
+            with self.assertRaises(SpeechToTextError) as ctx:
+                service._transcribe_path_hf_api(tmp.name, BALANCED)
+
+        self.assertEqual(ctx.exception.code, "asr_failed")
 
 
 class VoiceParseEndpointTests(SimpleTestCase):
@@ -186,11 +268,13 @@ class VoiceParseEndpointTests(SimpleTestCase):
         mock_transcribe.return_value = SpeechToTextResult(
             transcript="khách sạn Đà Lạt",
             confidence=None,
-            selected_model=WEAK,
-            final_model=WEAK,
-            selected_model_name="weak/model",
-            final_model_name="weak/model",
+            selected_profile=WEAK,
+            final_profile=WEAK,
+            selected_model="weak/model",
+            final_model="weak/model",
+            backend=LOCAL_BACKEND,
             retried=False,
+            latency_ms=12,
         )
         mock_parse.return_value = {"ready_for_recommendation": False, "slots": {"area": "Đà Lạt"}}
 
@@ -207,9 +291,29 @@ class VoiceParseEndpointTests(SimpleTestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertTrue(data["success"])
-        self.assertEqual(data["stt_router"]["selected_model"], WEAK)
+        self.assertEqual(data["stt_router"]["selected_profile"], WEAK)
+        self.assertEqual(data["stt_router"]["selected_model"], "weak/model")
+        self.assertEqual(data["stt_router"]["backend"], LOCAL_BACKEND)
+        self.assertEqual(data["stt_router"]["latency_ms"], 12)
         mock_transcribe.assert_called_once()
         call_kwargs = mock_transcribe.call_args.kwargs
         self.assertEqual(call_kwargs["feature_mode"], "command")
         self.assertEqual(call_kwargs["audio_duration"], 2.4)
         self.assertEqual(call_kwargs["audio_quality"], "normal")
+
+
+class TranscriptCleanupTravelTests(SimpleTestCase):
+    def test_travel_phrases_are_restored_without_overcorrecting(self):
+        cleanup = cleanup_transcript("ks da lac gan bien co ho boi mot trieu ruoi")
+
+        self.assertIn("khách sạn", cleanup.cleaned_text)
+        self.assertIn("Đà Lạt", cleanup.cleaned_text)
+        self.assertIn("gần biển", cleanup.cleaned_text)
+        self.assertIn("hồ bơi", cleanup.cleaned_text)
+        self.assertIn("1500000", cleanup.cleaned_text)
+
+    def test_common_location_noise_is_corrected(self):
+        cleanup = cleanup_transcript("tim khach san ha loi hoac sai gon")
+
+        self.assertIn("Hà Nội", cleanup.cleaned_text)
+        self.assertIn("Sài Gòn", cleanup.cleaned_text)

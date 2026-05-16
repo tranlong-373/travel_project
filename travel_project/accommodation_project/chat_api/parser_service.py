@@ -11,6 +11,12 @@ from .domain_router import classify_message
 from .extractors import (
     find_unsupported_type_candidates,
 )
+from .filter_tree import (
+    build_filter_tree,
+    has_explicit_anywhere,
+    should_ignore_numeric_location_match,
+    soft_filter_summary,
+)
 from .fuzzy_location import resolve_location_fuzzy
 from .gate import evaluate_parse_gate
 from .location_gazetteer import load_supported_locations
@@ -31,6 +37,7 @@ from .response_templates import (
     build_thanks_message,
     build_unknown_message,
     build_unresolved_location_message,
+    build_unresolved_place_message,
     build_unsupported_message,
 )
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
@@ -43,16 +50,34 @@ INCLUDE_PARSE_DIAGNOSTICS = os.getenv("CHAT_API_INCLUDE_DIAGNOSTICS", "0") == "1
 logger = logging.getLogger(__name__)
 
 CONFIRM_CORE_KEYS = ("area", "guest_count", "budget", "trip_days")
-CONFIRM_SKIP_KEYS = {"budget_min", "budget_max", "user_location", "use_current_location"}
+CONFIRM_SKIP_KEYS = {
+    "budget_min",
+    "budget_max",
+    "user_location",
+    "use_current_location",
+    "accommodation_type",
+    "accommodation_types",
+    "location_phrase",
+    "location_mode",
+    "canonical_area",
+    "raw_preferred_type",
+    "unsupported_preferred_type",
+    "search_intent",
+    "type_choice_multiple",
+}
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
     "guest_count",
     "budget",
     "trip_days",
     "preferred_type",
+    "accommodation_type",
+    "accommodation_types",
     "required_amenities",
     "priorities",
     "special_requirements",
+    "room_count",
+    "rating",
 )
 RECOMMENDATION_ALLOWED_LOCATION_STATUSES = {"ok", "unresolved"}
 HCM_DISTRICT_MIN = 1
@@ -77,11 +102,17 @@ CONFIRM_LABELS = {
     "budget_max": "Ngân sách tối đa",
     "trip_days": "Số ngày",
     "preferred_type": "Loại chỗ ở",
+    "accommodation_type": "Loại chỗ ở",
+    "accommodation_types": "Loại chỗ ở",
     "required_amenities": "Tiện nghi yêu cầu",
     "priorities": "Ưu tiên",
     "special_requirements": "Yêu cầu đặc biệt",
     "check_in": "Ngày nhận phòng",
     "check_out": "Ngày trả phòng",
+    "room_count": "Số phòng",
+    "rating": "Đánh giá tối thiểu",
+    "location_phrase": "Địa điểm",
+    "location_mode": "Kiểu vị trí",
     "work_friendly": "Phù hợp làm việc",
     "baby_friendly": "Phù hợp trẻ em",
     "pet_friendly": "Cho phép thú cưng",
@@ -197,12 +228,12 @@ def merge_context(slots_new: dict[str, Any], context_slots: dict[str, Any] | Non
 
     merged = dict(context_slots)
 
-    for k in ["area", "budget", "budget_min", "budget_max", "guest_count", "preferred_type", "trip_days"]:
+    for k in ["area", "budget", "budget_min", "budget_max", "guest_count", "preferred_type", "accommodation_type", "trip_days"]:
         v = slots_new.get(k)
         if v is not None:
             merged[k] = v
 
-    for k in ["required_amenities", "priorities", "special_requirements"]:
+    for k in ["accommodation_types", "required_amenities", "priorities", "special_requirements"]:
         base = merged.get(k) or []
         add = slots_new.get(k) or []
         merged[k] = list(dict.fromkeys(list(base) + list(add)))
@@ -265,7 +296,7 @@ def _confirm_label(key: str) -> str:
 
 def _confirm_value(slots: dict[str, Any], key: str) -> Any:
     if key == "budget":
-        return slots.get("budget") or slots.get("budget_max")
+        return slots.get("budget") or slots.get("budget_max") or slots.get("budget_min")
     return slots.get(key)
 
 
@@ -293,6 +324,90 @@ def has_recommendation_signal(slots: dict[str, Any] | None) -> bool:
     )
 
 
+def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
+    tree = build_filter_tree(
+        text=text,
+        slots=result.get("slots") or {},
+        location_result=result,
+    )
+    tree_dict = tree.to_dict()
+    location = tree_dict["location"]
+    slots = dict(result.get("slots") or {})
+
+    if location.get("mode") == "anywhere":
+        slots["area"] = None
+        result["canonical_area"] = None
+    elif location.get("mode") == "near_anchor":
+        if location.get("canonical_area"):
+            slots["area"] = location["canonical_area"]
+            result["canonical_area"] = location["canonical_area"]
+        elif location.get("anchor_kind") not in {"district", "city"}:
+            slots["area"] = None
+            result["canonical_area"] = None
+    elif location.get("mode") == "area" and location.get("canonical_area"):
+        slots["area"] = location["canonical_area"]
+        result["canonical_area"] = location["canonical_area"]
+
+    unresolved_location = bool(location.get("unresolved_location"))
+    if location.get("mode") == "near_anchor" and (
+        location.get("anchor_lat") is None or location.get("anchor_lon") is None
+    ):
+        unresolved_location = True
+    if unresolved_location:
+        slots["area"] = None
+        result["canonical_area"] = None
+        result["location_status"] = "unresolved"
+    elif (
+        location.get("mode") == "near_anchor"
+        and location.get("anchor_lat") is not None
+        and location.get("anchor_lon") is not None
+        and result.get("location_status") not in {"conflict", "multiple_choice"}
+    ):
+        result["location_status"] = "ok"
+
+    result["slots"] = slots
+    result["filter_tree"] = tree_dict
+    result["soft_filter_summary"] = soft_filter_summary(tree_dict)
+    result["available_slots"] = tree_dict["available_slots"]
+    result["missing_filter_slots"] = tree_dict["missing_slots"]
+    result["partial_intent"] = tree_dict["partial_intent"]
+    result["success"] = result.get("conversation_intent") != "unknown"
+
+    result["location_mode"] = location.get("mode")
+    result["location_phrase"] = location.get("location_phrase")
+    result["explicit_anywhere"] = bool(location.get("explicit_anywhere"))
+    result["anchor_name"] = location.get("anchor_name")
+    result["anchor_kind"] = location.get("anchor_kind")
+    result["anchor_lat"] = location.get("anchor_lat")
+    result["anchor_lon"] = location.get("anchor_lon")
+    result["anchor_radius_km"] = location.get("anchor_radius_km")
+    result["provider"] = location.get("provider")
+    result["resolved_place"] = location.get("resolved_place")
+    result["location_display_label"] = location.get("location_display_label")
+    result["map_area"] = location.get("map_area")
+    result["map_display_name"] = location.get("map_display_name")
+    result["map_address"] = location.get("map_address") or {}
+    result["geocode_query"] = location.get("geocode_query")
+    result["geocoder_queries"] = location.get("geocoder_queries") or []
+    result["unresolved_location"] = unresolved_location
+    if location.get("mode"):
+        slots["location_mode"] = location.get("mode")
+    if location.get("location_phrase"):
+        slots["location_phrase"] = location.get("location_phrase")
+    if slots.get("preferred_type") and not slots.get("accommodation_type"):
+        slots["accommodation_type"] = slots.get("preferred_type")
+    if slots.get("preferred_type") and not slots.get("accommodation_types"):
+        slots["accommodation_types"] = [slots.get("preferred_type")]
+    result["accommodation_type"] = slots.get("accommodation_type") or slots.get("preferred_type")
+    result["accommodation_types"] = slots.get("accommodation_types") or (
+        [result["accommodation_type"]] if result.get("accommodation_type") else []
+    )
+    if location.get("location_source") and location.get("location_source") != "none":
+        result["location_source"] = location.get("location_source")
+    if location.get("confidence"):
+        result["location_confidence"] = location.get("confidence")
+
+
 def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
     table: list[dict[str, Any]] = []
     included: set[str] = set()
@@ -304,9 +419,21 @@ def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
                 "key": key,
                 "label": _confirm_label(key),
                 "value": value,
-                "display_value": _display_confirm_value(value),
+                "display_value": _display_budget_confirm_value(slots) if key == "budget" else _display_confirm_value(value),
             })
             included.add(key)
+
+    accommodation_types = _normalized_confirm_types(slots)
+    if accommodation_types:
+        key = "preferred_type" if len(accommodation_types) == 1 else "accommodation_types"
+        value: Any = accommodation_types[0] if len(accommodation_types) == 1 else accommodation_types
+        table.append({
+            "key": key,
+            "label": _confirm_label(key),
+            "value": value,
+            "display_value": _display_confirm_value(value),
+        })
+        included.update({"preferred_type", "accommodation_type", "accommodation_types"})
 
     for key, value in (slots or {}).items():
         if key in included or key in CONFIRM_SKIP_KEYS:
@@ -323,6 +450,90 @@ def build_confirm_table(slots: dict[str, Any]) -> list[dict[str, Any]]:
     return table
 
 
+def _normalized_confirm_types(slots: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    raw_types = slots.get("accommodation_types") or []
+    if isinstance(raw_types, str):
+        raw_types = [raw_types]
+    if isinstance(raw_types, (list, tuple, set)):
+        values.extend(str(item).strip() for item in raw_types if str(item).strip())
+    for key in ("preferred_type", "accommodation_type"):
+        value = slots.get(key)
+        if value:
+            values.append(str(value).strip())
+    return list(dict.fromkeys(value for value in values if value))
+
+
+def _display_budget_confirm_value(slots: dict[str, Any]) -> str:
+    budget_min = slots.get("budget_min")
+    budget_max = slots.get("budget_max") or slots.get("budget")
+    if budget_min and budget_max:
+        return f"{_format_vnd(budget_min)} - {_format_vnd(budget_max)}/đêm"
+    if budget_min:
+        return f"Từ {_format_vnd(budget_min)}/đêm"
+    if budget_max:
+        return f"Tối đa {_format_vnd(budget_max)}/đêm"
+    return ""
+
+
+def _format_vnd(value: Any) -> str:
+    try:
+        return f"{int(value):,}".replace(",", ".") + "đ"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def _location_confirm_value(result: dict[str, Any]) -> str:
+    location_mode = result.get("location_mode") or (result.get("filter_tree") or {}).get("location", {}).get("mode")
+    slots = result.get("slots") or {}
+
+    if location_mode == "anywhere":
+        return "Không giới hạn khu vực"
+    if location_mode in {"near_anchor", "near_user"}:
+        value = result.get("location_display_label") or result.get("anchor_name") or ""
+        map_area = result.get("map_area") or (result.get("filter_tree") or {}).get("location", {}).get("map_area")
+        if value and map_area and normalize_key(str(map_area)) not in normalize_key(str(value)):
+            return f"{value} ({map_area} theo bản đồ)"
+        return value
+    if location_mode == "area":
+        return result.get("canonical_area") or slots.get("area") or result.get("location_display_label") or ""
+    return ""
+
+
+def _prepend_location_confirm_item(result: dict[str, Any], table: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if any(item.get("key") in {"area", "location"} for item in table):
+        return table
+
+    location_value = _location_confirm_value(result)
+    if not location_value:
+        return table
+
+    return [
+        {
+            "key": "location",
+            "label": "Khu vực",
+            "value": location_value,
+            "display_value": location_value,
+        },
+        *table,
+    ]
+
+
+def _message_slots_with_location(result: dict[str, Any]) -> dict[str, Any]:
+    slots = dict(result.get("slots") or {})
+    if slots.get("area"):
+        return slots
+
+    location_value = _location_confirm_value(result)
+    if not location_value:
+        return slots
+
+    if location_value.startswith("gần "):
+        location_value = f"khu vực {location_value}"
+    slots["area"] = location_value
+    return slots
+
+
 def add_confirmation_payload(
     result: dict[str, Any],
     *,
@@ -337,6 +548,7 @@ def add_confirmation_payload(
     result.pop("confirmation_options", None)
 
     confirm_table = build_confirm_table(result.get("slots") or {})
+    confirm_table = _prepend_location_confirm_item(result, confirm_table)
 
     if confirm_table:
         result["awaiting_confirmation"] = require_confirmation
@@ -373,7 +585,7 @@ def parse_user_text_rule_based(
     raw = normalized["normalized_text"]
     router = classify_message(text, context_slots=context_slots, locale=locale)
 
-    if router["intent"] in TERMINAL_INTENTS:
+    if router["intent"] in TERMINAL_INTENTS and router["intent"] != "unknown":
         response = _terminal_response(router, normalized, context_slots=context_slots)
         return _finalize_convenience_response(response, text, router=router, normalized=normalized)
 
@@ -401,6 +613,8 @@ def parse_user_text_rule_based(
         slots["area"] = None
 
     _apply_general_recommendation_defaults(slots, raw)
+    if router["intent"] == "recommend_accommodation":
+        slots["search_intent"] = "find_accommodation"
 
     missing_slots = core_missing_slots(slots)
     gate = evaluate_parse_gate(raw, slots, locale=locale, location_status=location["location_status"])
@@ -497,6 +711,19 @@ def _resolve_location_pipeline(
     context_slots: dict[str, Any] | None,
     prefer_context: bool = False,
 ) -> dict[str, Any]:
+    if has_explicit_anywhere(text):
+        return {
+            "location_status": "unresolved",
+            "location_candidates": [],
+            "canonical_area": None,
+            "location_confidence": 0.98,
+            "location_source": "explicit_anywhere",
+            "matched_text": None,
+            "debug": {"explicit_anywhere": True},
+            "_from_text": True,
+            "_from_context": False,
+        }
+
     supported_locations = load_supported_locations()
     fuzzy_location = resolve_location_fuzzy(text, supported_locations)
     legacy_location = resolve_location(normalize_text(text or ""), locale=locale)
@@ -509,7 +736,7 @@ def _resolve_location_pipeline(
             context_location["location_confidence"] = 1.0
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return context_location
+            return _sanitize_location_result(text, context_location)
 
     if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
         return _convert_legacy_location(legacy_location, supported_locations)
@@ -521,7 +748,7 @@ def _resolve_location_pipeline(
             fallback_location["location_source"] = "district_fallback"
             fallback_location["_from_text"] = True
             fallback_location["_from_context"] = False
-            return fallback_location
+            return _sanitize_location_result(text, fallback_location)
 
     if (
         context_area
@@ -534,7 +761,7 @@ def _resolve_location_pipeline(
             context_location["location_confidence"] = 1.0
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return context_location
+            return _sanitize_location_result(text, context_location)
 
     if (
         legacy_location.get("location_status") == "ok"
@@ -544,7 +771,7 @@ def _resolve_location_pipeline(
         converted = _convert_legacy_location(legacy_location, supported_locations)
         converted["_from_text"] = True
         converted["_from_context"] = False
-        return converted
+        return _sanitize_location_result(text, converted)
 
     if legacy_location.get("location_status") == "ok" and fuzzy_location.get("location_status") in {
         "unresolved",
@@ -553,12 +780,12 @@ def _resolve_location_pipeline(
         converted = _convert_legacy_location(legacy_location, supported_locations)
         converted["_from_text"] = True
         converted["_from_context"] = False
-        return converted
+        return _sanitize_location_result(text, converted)
 
     if fuzzy_location.get("location_status") != "unresolved":
         fuzzy_location["_from_text"] = True
         fuzzy_location["_from_context"] = False
-        return fuzzy_location
+        return _sanitize_location_result(text, fuzzy_location)
 
     if (
         legacy_location.get("location_status") == "unsupported"
@@ -583,7 +810,7 @@ def _resolve_location_pipeline(
                     ner_location["location_source"] = "ner_fallback"
                     ner_location["_from_text"] = True
                     ner_location["_from_context"] = False
-                    return ner_location
+                    return _sanitize_location_result(text, ner_location)
         except Exception:
             logger.debug("chat_api NER fallback failed", exc_info=True)
 
@@ -594,7 +821,7 @@ def _resolve_location_pipeline(
             context_location["location_confidence"] = 1.0
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return context_location
+            return _sanitize_location_result(text, context_location)
 
     if legacy_location.get("location_status") == "unsupported":
         return _convert_legacy_location(legacy_location, supported_locations)
@@ -602,6 +829,27 @@ def _resolve_location_pipeline(
     fuzzy_location["_from_text"] = False
     fuzzy_location["_from_context"] = False
     return fuzzy_location
+
+
+def _sanitize_location_result(text: str, location: dict[str, Any]) -> dict[str, Any]:
+    if should_ignore_numeric_location_match(text, location.get("canonical_area")):
+        return {
+            "location_status": "unresolved",
+            "location_candidates": [],
+            "canonical_area": None,
+            "location_confidence": 0.0,
+            "location_source": "numeric_guest_guard",
+            "matched_text": location.get("matched_text"),
+            "needs_confirmation": False,
+            "confirmation_type": "none",
+            "debug": {
+                "ignored_location": location.get("canonical_area"),
+                "reason": "number_in_guest_count_context",
+            },
+            "_from_text": False,
+            "_from_context": False,
+        }
+    return location
 
 
 def _convert_legacy_location(legacy_location: dict[str, Any], supported_locations: list[dict]) -> dict[str, Any]:
@@ -660,6 +908,7 @@ def _finalize_convenience_response(
     else:
         result.setdefault("llm_called", False)
 
+    _attach_filter_tree_payload(result, text)
     policy = decide_user_effort_policy(result)
     result.update(policy)
     result["ready_for_recommendation"] = policy["can_show_recommendations"]
@@ -698,8 +947,6 @@ def _build_polite_message(result: dict[str, Any], policy: dict[str, Any]) -> str
 
     if intent == "off_topic":
         return build_off_topic_message()
-    if intent == "unknown":
-        return build_unknown_message()
     if intent == "greeting":
         return build_greeting_message()
     if intent == "thanks":
@@ -712,28 +959,32 @@ def _build_polite_message(result: dict[str, Any], policy: dict[str, Any]) -> str
         return build_multiple_choice_message(result.get("location_candidates") or [])
     if status == "conflict":
         return build_conflict_message(result)
-    if status == "unsupported":
-        return build_unsupported_message()
-    if status == "unresolved":
-        return build_unresolved_location_message()
-    if status == "ambiguous":
-        return build_explicit_confirmation_message(result.get("location_candidates") or [])
     if policy.get("confirmation_type") == "implicit" and policy.get("assumptions"):
         return build_implicit_confirmation_message(policy["assumptions"][0])
     if policy.get("recommendation_level") == "full":
-        return build_full_message(result.get("slots") or {})
+        return build_full_message(_message_slots_with_location(result))
     if policy.get("recommendation_level") == "partial":
         return build_partial_message(
-            result.get("slots") or {},
+            _message_slots_with_location(result),
             assumptions=policy.get("assumptions"),
             next_best_question=policy.get("next_best_question"),
         )
+    if status == "ambiguous":
+        return build_explicit_confirmation_message(result.get("location_candidates") or [])
+    if status == "unsupported":
+        return build_unsupported_message()
+    if result.get("unresolved_location"):
+        return build_unresolved_place_message()
+    if status == "unresolved":
+        return build_unresolved_location_message()
+    if intent == "unknown":
+        return build_unknown_message()
     return build_unknown_message()
 
 
 def _policy_reason(result: dict[str, Any]) -> str:
     if result.get("can_show_recommendations"):
-        return "valid_location"
+        return "usable_filter_tree"
     if result.get("conversation_intent") in TERMINAL_INTENTS:
         return f"terminal_intent:{result.get('conversation_intent')}"
     return f"location_status:{result.get('location_status')}"
@@ -767,14 +1018,23 @@ def _can_answer_fast(result: dict[str, Any]) -> bool:
     slots = result.get("slots") or {}
     useful_slots = [
         slots.get("area"),
-        slots.get("budget_max") or slots.get("budget"),
+        slots.get("budget_min") or slots.get("budget_max") or slots.get("budget"),
         slots.get("guest_count"),
         slots.get("preferred_type"),
+        slots.get("accommodation_type"),
+        slots.get("accommodation_types"),
         slots.get("required_amenities"),
         slots.get("priorities"),
         slots.get("special_requirements"),
+        slots.get("room_count"),
+        slots.get("rating"),
     ]
-    return bool(any(useful_slots) and result.get("follow_up_question"))
+    filter_tree = result.get("filter_tree") or {}
+    return bool(
+        any(useful_slots)
+        or result.get("location_mode") in {"area", "near_anchor", "near_user", "anywhere"}
+        or filter_tree.get("usable_filter_count", 0) > 0
+    )
 
 
 def _finalize_parse_result(

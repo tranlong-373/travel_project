@@ -24,7 +24,7 @@
 
                 <div class="pref-field">
                     <label>Khu vực</label>
-                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." required />
+                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." />
                 </div>
 
                 <div class="pref-field">
@@ -125,7 +125,38 @@ const PREF_MAX_RECORDING_MS = 15000;
 const PREF_MAX_AUDIO_BYTES = 5 * 1024 * 1024;
 const PREF_GREETING = 'Xin chào! Mô tả nhu cầu của bạn và mình sẽ tìm ngay.';
 const PREF_CHAT_STORAGE_KEY = 'travel_pref_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
+const PREF_CHAT_SCROLL_STORAGE_KEY = PREF_CHAT_STORAGE_KEY + '_scroll';
 let prefChatHistory = [{ kind: 'message', text: PREF_GREETING, type: 'bot' }];
+
+function prefChatBody() {
+    return document.getElementById('chatBox');
+}
+
+function shouldAutoScrollPrefChat(box) {
+    if (!box) return false;
+    return box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+}
+
+function savePrefChatScrollState() {
+    const box = prefChatBody();
+    if (!box) return;
+    try {
+        localStorage.setItem(PREF_CHAT_SCROLL_STORAGE_KEY, String(box.scrollTop));
+    } catch (err) {}
+}
+
+function restorePrefChatScrollState() {
+    const box = prefChatBody();
+    if (!box) return;
+    try {
+        const saved = localStorage.getItem(PREF_CHAT_SCROLL_STORAGE_KEY);
+        if (saved !== null) {
+            window.requestAnimationFrame(() => {
+                box.scrollTop = Number(saved) || 0;
+            });
+        }
+    } catch (err) {}
+}
 
 function persistPrefChatState() {
     try {
@@ -137,12 +168,15 @@ function persistPrefChatState() {
 }
 
 function addMsg(text, type, persist = true) {
-    const box = document.getElementById('chatBox');
+    const box = prefChatBody();
+    const shouldScroll = shouldAutoScrollPrefChat(box);
     const div = document.createElement('div');
     div.className = 'ai-msg ' + type;
     div.textContent = text;
     box.appendChild(div);
-    box.scrollTop = box.scrollHeight;
+    if (shouldScroll) {
+        box.scrollTop = box.scrollHeight;
+    }
 
     if (persist) {
         prefChatHistory.push({ kind: 'message', text, type });
@@ -159,7 +193,7 @@ function resetPrefChat() {
         localStorage.removeItem(PREF_CHAT_STORAGE_KEY);
     } catch (err) {}
 
-    const box = document.getElementById('chatBox');
+    const box = prefChatBody();
     box.innerHTML = '';
     addMsg(PREF_GREETING, 'bot', false);
     document.getElementById('userText').value = '';
@@ -195,6 +229,9 @@ function formatPrefConfirmValue(item) {
         return value ? 'Có' : 'Không';
     }
     if (['budget', 'budget_min', 'budget_max'].includes(item.key)) {
+        if (typeof value === 'string' && /-|Từ|Tối đa|đ\/đêm/.test(value)) {
+            return value;
+        }
         return formatPrefMoney(value);
     }
     if (item.key === 'guest_count' && value) {
@@ -210,7 +247,8 @@ function addPrefConfirmationTable(result, persist = true) {
     const confirmItems = visiblePrefConfirmItems(result.confirm_table || []);
     if (!confirmItems.length) return;
 
-    const box = document.getElementById('chatBox');
+    const box = prefChatBody();
+    const shouldScroll = shouldAutoScrollPrefChat(box);
     const card = document.createElement('div');
     card.className = 'ai-msg bot chat-confirm-card';
 
@@ -247,8 +285,10 @@ function addPrefConfirmationTable(result, persist = true) {
         recommendBtn.type = 'button';
         recommendBtn.className = 'primary';
         recommendBtn.textContent = 'Xem đề xuất';
-        recommendBtn.onclick = () => {
-            window.location.href = recommendationUrl;
+        recommendBtn.onclick = (event) => {
+            event.preventDefault();
+            savePrefChatScrollState();
+            window.location.assign(recommendationUrl);
         };
         actions.appendChild(recommendBtn);
     }
@@ -265,7 +305,9 @@ function addPrefConfirmationTable(result, persist = true) {
     actions.appendChild(addMoreBtn);
     card.appendChild(actions);
     box.appendChild(card);
-    box.scrollTop = box.scrollHeight;
+    if (shouldScroll) {
+        box.scrollTop = box.scrollHeight;
+    }
 
     if (persist) {
         prefChatHistory.push({
@@ -292,7 +334,7 @@ function restorePrefChatState() {
 
         prefChatHistory = saved.messages;
         prefContextSlots = saved.contextSlots || {};
-        const box = document.getElementById('chatBox');
+        const box = prefChatBody();
         box.innerHTML = '';
         prefChatHistory.forEach((entry) => {
             if (entry.kind === 'confirmation') {
@@ -301,6 +343,7 @@ function restorePrefChatState() {
                 addMsg(entry.text || '', entry.type || 'bot', false);
             }
         });
+        restorePrefChatScrollState();
     } catch (err) {}
 }
 
@@ -426,6 +469,7 @@ async function submitChat() {
     }
 }
 
+window.addEventListener('beforeunload', savePrefChatScrollState);
 restorePrefChatState();
 
 function getPrefRecorderOptions() {

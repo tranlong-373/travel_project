@@ -40,11 +40,18 @@ _ACCOMMODATION_HINTS = [
     "hotel",
     "homestay",
     "homstay",
+    "honestay",
     "hostel",
+    "nha tro",
+    "phong tro",
+    "o tro",
+    "tro",
+    "motel",
     "phong",
     "cho o",
     "can ho",
     "apartment",
+    "studio",
     "villa",
     "resort",
     "du lich",
@@ -58,6 +65,13 @@ _ACCOMMODATION_HINTS = [
     "nguoi",
     "wifi",
     "wf",
+    "ho boi",
+    "be boi",
+    "pool",
+    "bai do xe",
+    "parking",
+    "an sang",
+    "bep",
     "may lanh",
     "dieu hoa",
     "gan trung tam",
@@ -70,7 +84,8 @@ _SHORT_SLOT_PATTERNS = [
     r"^(?:mot|hai|ba|bon|tu|nam|sau|bay|tam|chin|muoi)\s+nguoi$",
     r"^\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|m|million)$",
     r"^\d+\s*(?:ngay|dem)$",
-    r"^(?:co\s+)?(?:wifi|wf|may lanh|dieu hoa|gan trung tam|yen tinh|view dep)$",
+    r"^(?:co\s+)?(?:wifi|wf|ho boi|be boi|pool|bai do xe|parking|may lanh|dieu hoa|gan trung tam|yen tinh|view dep)$",
+    r"^(?:homestay|homstay|honestay|hostel|nha tro|phong tro|o tro|tro|khach san|hotel|ks|can ho|studio)$",
 ]
 
 
@@ -128,6 +143,13 @@ def _matches_any(norm: str, patterns: list[str]) -> bool:
 def _has_accommodation_signal(norm: str, compact: str) -> bool:
     if any(re.search(rf"(?<!\w){re.escape(hint)}(?!\w)", norm) for hint in _ACCOMMODATION_HINTS):
         return True
+    try:
+        from .filter_tree import NEAR_CUE_PATTERN, resolve_local_location_reference
+
+        if NEAR_CUE_PATTERN.search(norm) and resolve_local_location_reference(norm):
+            return True
+    except Exception:
+        pass
     if re.search(r"\b(?:q|quan|district)\s*\d{1,2}\b", norm):
         return True
     if re.search(r"(?:q|quan)[a-z]*\d{1,3}", compact):

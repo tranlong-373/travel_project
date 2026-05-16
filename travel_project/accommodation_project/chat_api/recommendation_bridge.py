@@ -9,17 +9,22 @@ from preferences.models import UserPreference
 
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
 BLOCKED_INTENTS = {"off_topic", "unknown", "greeting", "thanks", "help", "goodbye"}
-BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice", "unsupported", "unresolved", "ambiguous"}
+BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice"}
 DEFAULT_NEARBY_RADIUS_KM = 10.0
 
 
 def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]:
     user_location = _read_user_location(parse_result)
     has_user_location = bool(user_location)
+    anchor_location = _read_anchor_location(parse_result)
+    has_anchor_location = bool(anchor_location)
+    filter_tree = parse_result.get("filter_tree") or {}
+    location_mode = parse_result.get("location_mode") or (filter_tree.get("location") or {}).get("mode") or "unknown"
+    has_usable_filter = int(filter_tree.get("usable_filter_count") or 0) > 0
 
-    if not parse_result.get("can_show_recommendations", parse_result.get("ready_for_recommendation")):
+    if not parse_result.get("can_show_recommendations", parse_result.get("ready_for_recommendation")) and not has_usable_filter:
         raise ValueError("Parse result is not ready for recommendation.")
-    if parse_result.get("recommendation_level") == "none" and not has_user_location:
+    if parse_result.get("recommendation_level") == "none" and not (has_user_location or has_anchor_location or has_usable_filter):
         raise ValueError("Parse result has no recommendation level.")
     if (
         parse_result.get("conversation_intent") in BLOCKED_INTENTS
@@ -29,15 +34,22 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
 
     if parse_result.get("location_status") in BLOCKED_LOCATION_STATUSES and not has_user_location:
         raise ValueError("Location is not eligible for recommendation.")
+    if parse_result.get("unresolved_location") or (location_mode == "near_anchor" and not has_anchor_location):
+        raise ValueError("Location could not be resolved to coordinates.")
 
     slots = parse_result.get("slots") or {}
     area = slots.get("area") or parse_result.get("canonical_area")
     if has_user_location:
         area = "Vi tri hien tai"
-    if not area:
-        raise ValueError("Parse result has no supported area.")
+    elif location_mode == "anywhere":
+        area = None
+    elif location_mode == "near_anchor":
+        area = parse_result.get("location_display_label") or parse_result.get("anchor_name") or area
 
-    preferred_type = slots.get("preferred_type") or None
+    accommodation_types = slots.get("accommodation_types") or []
+    if isinstance(accommodation_types, str):
+        accommodation_types = [accommodation_types]
+    preferred_type = (accommodation_types[0] if accommodation_types else None) or slots.get("preferred_type") or slots.get("accommodation_type") or None
     if preferred_type not in DOWNSTREAM_TYPES:
         preferred_type = None
 
@@ -64,6 +76,11 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         "guest_count": guest_count,
         "preferred_type": preferred_type,
         "required_amenities": slots.get("required_amenities") or [],
+        "location_mode": location_mode,
+        "location_label": parse_result.get("location_display_label") or area,
+        "anchor_kind": parse_result.get("anchor_kind"),
+        "filter_tree_json": filter_tree,
+        "soft_filter_summary": parse_result.get("soft_filter_summary") or "",
     }
     if has_user_location:
         preference_kwargs.update(
@@ -71,6 +88,14 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
                 "user_latitude": user_location["lat"],
                 "user_longitude": user_location["lon"],
                 "search_radius_km": user_location.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM,
+            }
+        )
+    elif has_anchor_location:
+        preference_kwargs.update(
+            {
+                "user_latitude": anchor_location["lat"],
+                "user_longitude": anchor_location["lon"],
+                "search_radius_km": anchor_location.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM,
             }
         )
 
@@ -103,6 +128,29 @@ def _read_user_location(parse_result: dict[str, Any]) -> dict[str, float] | None
     radius_km = raw_location.get("radius_km") or raw_location.get("radius")
     try:
         radius_km = float(radius_km) if radius_km is not None else DEFAULT_NEARBY_RADIUS_KM
+    except (TypeError, ValueError):
+        radius_km = DEFAULT_NEARBY_RADIUS_KM
+
+    radius_km = min(max(radius_km, 1.0), 50.0)
+    return {"lat": lat, "lon": lon, "radius_km": radius_km}
+
+
+def _read_anchor_location(parse_result: dict[str, Any]) -> dict[str, float] | None:
+    location_mode = parse_result.get("location_mode")
+    if location_mode not in {"near_anchor", "near_user"}:
+        return None
+
+    try:
+        lat = float(parse_result.get("anchor_lat"))
+        lon = float(parse_result.get("anchor_lon"))
+    except (TypeError, ValueError):
+        return None
+
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+
+    try:
+        radius_km = float(parse_result.get("anchor_radius_km") or DEFAULT_NEARBY_RADIUS_KM)
     except (TypeError, ValueError):
         radius_km = DEFAULT_NEARBY_RADIUS_KM
 

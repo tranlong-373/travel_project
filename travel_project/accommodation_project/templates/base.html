@@ -114,7 +114,39 @@
     const CHAT_GREETING = 'Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?';
     const CHAT_STORAGE_KEY = 'travel_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
     const CHAT_OPEN_STORAGE_KEY = CHAT_STORAGE_KEY + '_open';
+    const CHAT_SCROLL_STORAGE_KEY = CHAT_STORAGE_KEY + '_scroll';
     let chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
+
+    function chatBody() {
+        return document.getElementById('chatMessages');
+    }
+
+    function shouldAutoScrollChat(box) {
+        if (!box) return false;
+        return box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    }
+
+    function saveChatScrollState() {
+        const box = chatBody();
+        if (!box) return;
+        try {
+            localStorage.setItem(CHAT_SCROLL_STORAGE_KEY, String(box.scrollTop));
+            localStorage.setItem(CHAT_OPEN_STORAGE_KEY, document.getElementById('chatWidget').classList.contains('open') ? '1' : '0');
+        } catch (err) {}
+    }
+
+    function restoreChatScrollState() {
+        const box = chatBody();
+        if (!box) return;
+        try {
+            const saved = localStorage.getItem(CHAT_SCROLL_STORAGE_KEY);
+            if (saved !== null) {
+                window.requestAnimationFrame(() => {
+                    box.scrollTop = Number(saved) || 0;
+                });
+            }
+        } catch (err) {}
+    }
 
     function toggleChat() {
         const widget = document.getElementById('chatWidget');
@@ -134,12 +166,15 @@
     }
 
     function addMessage(text, type, persist = true) {
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
         const div = document.createElement('div');
         div.className = 'chat-msg ' + type;
         div.textContent = text;
         box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
 
         if (persist) {
             chatHistory.push({ kind: 'message', text, type });
@@ -156,7 +191,7 @@
             localStorage.removeItem(CHAT_STORAGE_KEY);
         } catch (err) {}
 
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
         box.innerHTML = '';
         addMessage(CHAT_GREETING, 'bot', false);
         document.getElementById('chatInput').value = '';
@@ -198,6 +233,9 @@
             return value ? 'Có' : 'Không';
         }
         if (['budget', 'budget_min', 'budget_max'].includes(item.key)) {
+            if (typeof value === 'string' && /-|Từ|Tối đa|đ\/đêm/.test(value)) {
+                return value;
+            }
             return formatMoney(value);
         }
         if (item.key === 'guest_count' && value) {
@@ -213,7 +251,8 @@
         const confirmItems = visibleConfirmItems(result.confirm_table || []);
         if (!confirmItems.length) return;
 
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
         const card = document.createElement('div');
         card.className = 'chat-msg bot chat-confirm-card';
 
@@ -250,8 +289,10 @@
             recommendBtn.type = 'button';
             recommendBtn.className = 'primary';
             recommendBtn.textContent = 'Xem đề xuất';
-            recommendBtn.onclick = () => {
-                window.location.href = recommendationUrl;
+            recommendBtn.onclick = (event) => {
+                event.preventDefault();
+                saveChatScrollState();
+                window.location.assign(recommendationUrl);
             };
             actions.appendChild(recommendBtn);
         }
@@ -268,7 +309,9 @@
         actions.appendChild(addMoreBtn);
         card.appendChild(actions);
         box.appendChild(card);
-        box.scrollTop = box.scrollHeight;
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
 
         if (persist) {
             chatHistory.push({
@@ -292,7 +335,7 @@
             if (saved && Array.isArray(saved.messages) && saved.messages.length > 0) {
                 chatHistory = saved.messages;
                 contextSlots = saved.contextSlots || {};
-                const box = document.getElementById('chatMessages');
+                const box = chatBody();
                 box.innerHTML = '';
                 chatHistory.forEach((entry) => {
                     if (entry.kind === 'confirmation') {
@@ -306,6 +349,7 @@
             if (localStorage.getItem(CHAT_OPEN_STORAGE_KEY) === '1') {
                 document.getElementById('chatWidget').classList.add('open');
             }
+            restoreChatScrollState();
         } catch (err) {}
     }
 
@@ -589,6 +633,7 @@
         }
     }
 
+    window.addEventListener('beforeunload', saveChatScrollState);
     restoreChatState();
 </script>
 </html>

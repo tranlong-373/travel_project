@@ -7,9 +7,8 @@ Tài liệu này mô tả contract hiện tại giữa frontend, `chat_api`, `pr
 ```text
 User nhập text
 -> POST /api/chat/parse/
--> nếu thiếu core slot: dùng follow_up_question để hỏi tiếp
--> nếu đủ dữ liệu: frontend hiển thị confirm_table để user xác nhận
--> user xác nhận: POST /api/chat/submit/ với slots đã xác nhận
+-> nếu có area hợp lệ: có thể hiển thị gợi ý sớm và hỏi thêm slot còn thiếu
+-> nếu user xác nhận/bổ sung xong: POST /api/chat/submit/ với slots đã xác nhận
 -> nhận pref_id + recommendation_url
 -> GET /recommendations/<pref_id>/
 ```
@@ -72,8 +71,10 @@ Response mẫu khi đủ dữ liệu:
   "missing_slots": [],
   "suggested_questions": [],
   "ready_for_recommendation": true,
-  "awaiting_confirmation": true,
-  "confirmation_required": true,
+  "awaiting_confirmation": false,
+  "confirmation_required": false,
+  "can_show_recommendations": true,
+  "recommendation_level": "full",
   "confirm_table": [
     {"key": "area", "label": "Khu vực", "value": "tp hcm"},
     {"key": "guest_count", "label": "Số người", "value": 2},
@@ -82,12 +83,9 @@ Response mẫu khi đủ dữ liệu:
     {"key": "preferred_type", "label": "Loại chỗ ở", "value": "hotel"},
     {"key": "required_amenities", "label": "Tiện nghi yêu cầu", "value": ["wifi"]}
   ],
-  "confirmation_options": [
-    {"id": "confirm", "label": "Xác nhận thông tin"},
-    {"id": "add_more", "label": "Tôi còn yêu cầu thêm"}
-  ],
+  "confirmation_options": [],
   "should_ask_optional": false,
-  "follow_up_question": "Bạn vui lòng kiểm tra lại thông tin bên dưới. Bạn muốn xác nhận hay thêm yêu cầu khác?",
+  "follow_up_question": null,
   "parser_mode": "deterministic_fast",
   "location_status": "ok",
   "location_candidates": [],
@@ -95,7 +93,7 @@ Response mẫu khi đủ dữ liệu:
 }
 ```
 
-Response mẫu khi thiếu dữ liệu:
+Response mẫu khi thiếu dữ liệu nhưng đã có khu vực hợp lệ:
 
 ```json
 {
@@ -112,12 +110,14 @@ Response mẫu khi thiếu dữ liệu:
     "trip_days": null
   },
   "missing_slots": ["budget", "trip_days"],
-  "suggested_questions": ["Ngân sách tối đa của bạn khoảng bao nhiêu VND/đêm?"],
-  "ready_for_recommendation": false,
+  "suggested_questions": ["Nếu muốn lọc sát hơn, bạn cho mình biết thêm khoảng ngân sách/đêm nhé."],
+  "ready_for_recommendation": true,
+  "can_show_recommendations": true,
+  "recommendation_level": "partial",
   "awaiting_confirmation": false,
   "confirmation_required": false,
   "should_ask_optional": false,
-  "follow_up_question": "Ngân sách tối đa của bạn khoảng bao nhiêu VND/đêm?",
+  "follow_up_question": "Nếu muốn lọc sát hơn, bạn cho mình biết thêm khoảng ngân sách/đêm nhé.",
   "parser_mode": "deterministic_fast",
   "location_status": "ok",
   "location_candidates": [],
@@ -198,6 +198,42 @@ Nếu thiếu dữ liệu, response status hiện tại là `200` và không t�
 }
 ```
 
+## Voice Parse
+
+```http
+POST /api/voice/parse/
+Content-Type: multipart/form-data
+```
+
+Request gửi file qua field `audio` hoặc `file`. Endpoint convert audio sang WAV 16kHz mono, transcribe, cleanup tiếng Việt, sau đó gọi cùng parser của `chat_api`.
+
+Response giữ format hiện tại:
+
+```json
+{
+  "success": true,
+  "transcript": "...",
+  "cleaned_transcript": "...",
+  "transcript_cleanup": {},
+  "stt_router": {
+    "backend": "local",
+    "selected_profile": "balanced",
+    "selected_model": "vinai/PhoWhisper-medium",
+    "retried": false,
+    "retry_reason": null,
+    "latency_ms": 1234
+  },
+  "confirmation": {},
+  "created_preference": true,
+  "pref_id": 1,
+  "recommendation_url": "/recommendations/1/",
+  "slots": {},
+  "parsed_result": {}
+}
+```
+
+Nếu dùng `STT_BACKEND=hf_api`, model mặc định là `openai/whisper-large-v3` và bắt buộc có `HF_TOKEN`. Nếu thiếu `ffmpeg`, backend trả lỗi rõ: `Bạn cần cài ffmpeg để xử lý file ghi âm.`
+
 ## Recommendation
 
 ```http
@@ -247,7 +283,7 @@ Lượt 2:
 - `slots.preferred_type`: optional. Có thể là `null`.
 - `slots.required_amenities`: list key canonical.
 - `missing_slots`: core slots còn thiếu.
-- `ready_for_recommendation`: chỉ true khi đủ core slots và location hợp lệ.
+- `ready_for_recommendation`: true khi có thể tạo/gợi ý recommendation. Với flow hiện tại, area hợp lệ có thể bật partial recommendation dù còn thiếu budget/guest/trip_days.
 - `follow_up_question`: câu frontend nên hỏi tiếp user.
 - `location_status`: trạng thái resolve địa điểm.
 - `pref_id`: ID `UserPreference` mới tạo từ `/submit/`.

@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import logging
 import os
+import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any
+
+import requests
 
 from .stt_model_selector import (
     BALANCED,
     STT_MODEL_DEFAULTS,
     STRONG,
     WEAK,
+    get_model_name_for_level,
     get_stronger_model,
     normalize_model_level,
+    retry_reason_for_transcript,
     select_stt_model,
     should_retry_with_stronger_model,
 )
@@ -30,10 +36,19 @@ ASR_MODEL_PROFILES = {
 DEFAULT_ASR_PROFILE = BALANCED
 FAST_ASR_MODEL = ASR_MODEL_PROFILES[WEAK]
 DEFAULT_ASR_MODEL = ASR_MODEL_PROFILES[DEFAULT_ASR_PROFILE]
+LOCAL_BACKEND = "local"
+HF_API_BACKEND = "hf_api"
+DEFAULT_STT_BACKEND = LOCAL_BACKEND
+# PhoWhisper-large is the local accuracy profile. The HF Inference Provider
+# default stays on OpenAI Whisper because PhoWhisper-large is not guaranteed
+# to be deployed by Hugging Face providers.
+DEFAULT_HF_API_MODEL = "openai/whisper-large-v3"
 
 
 class SpeechToTextError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "asr_failed"):
+        super().__init__(message)
+        self.code = code
 
 
 def _env_int(name: str, default: int) -> int:
@@ -50,31 +65,48 @@ def _env_str(name: str, default: str) -> str:
     return value.strip() or default
 
 
+def _normalize_backend(value: str | None) -> str:
+    backend = (value or DEFAULT_STT_BACKEND).strip().lower()
+    if backend not in {LOCAL_BACKEND, HF_API_BACKEND}:
+        return DEFAULT_STT_BACKEND
+    return backend
+
+
 def _default_model_name() -> str:
     explicit_model = os.getenv("VOICE_ASR_MODEL", "").strip()
     if explicit_model:
         return explicit_model
 
     profile = _env_str("VOICE_ASR_PROFILE", DEFAULT_ASR_PROFILE).lower()
-    return ASR_MODEL_PROFILES.get(profile, DEFAULT_ASR_MODEL)
+    return get_model_name_for_level(profile)
 
 
 def _default_balanced_model_name() -> str:
-    explicit_model = os.getenv("VOICE_ASR_BALANCED_MODEL", "").strip()
+    explicit_model = (
+        os.getenv("VOICE_BALANCED_MODEL", "").strip()
+        or os.getenv("VOICE_ASR_BALANCED_MODEL", "").strip()
+    )
     if explicit_model:
         return explicit_model
     return _default_model_name()
 
 
+def _default_weak_model_name() -> str:
+    return get_model_name_for_level(WEAK)
+
+
+def _default_strong_model_name() -> str:
+    return get_model_name_for_level(STRONG)
+
+
 @dataclass(frozen=True)
 class SpeechToTextConfig:
+    backend: str = field(default_factory=lambda: _normalize_backend(os.getenv("STT_BACKEND")))
     model_name: str = field(default_factory=_default_balanced_model_name)
-    weak_model_name: str = field(
-        default_factory=lambda: _env_str("VOICE_ASR_WEAK_MODEL", STT_MODEL_DEFAULTS[WEAK])
-    )
-    strong_model_name: str = field(
-        default_factory=lambda: _env_str("VOICE_ASR_STRONG_MODEL", STT_MODEL_DEFAULTS[STRONG])
-    )
+    weak_model_name: str = field(default_factory=_default_weak_model_name)
+    strong_model_name: str = field(default_factory=_default_strong_model_name)
+    hf_api_model: str = field(default_factory=lambda: _env_str("HF_API_MODEL", DEFAULT_HF_API_MODEL))
+    hf_token: str = field(default_factory=lambda: os.getenv("HF_TOKEN", "").strip())
     fallback_model_name: str | None = field(
         default_factory=lambda: os.getenv("VOICE_ASR_FALLBACK_MODEL", FAST_ASR_MODEL) or None
     )
@@ -85,6 +117,8 @@ class SpeechToTextConfig:
     num_beams: int = field(default_factory=lambda: _env_int("VOICE_NUM_BEAMS", 1))
     chunk_length_s: int = field(default_factory=lambda: _env_int("VOICE_CHUNK_LENGTH_S", 0))
     batch_size: int = field(default_factory=lambda: _env_int("VOICE_ASR_BATCH_SIZE", 1))
+    min_audio_seconds: int = field(default_factory=lambda: _env_int("VOICE_MIN_AUDIO_SECONDS", 1))
+    max_audio_seconds: int = field(default_factory=lambda: _env_int("VOICE_MAX_AUDIO_SECONDS", 30))
 
 
 @dataclass(frozen=True)
@@ -99,25 +133,34 @@ class SpeechToTextAttempt:
 class SpeechToTextResult:
     transcript: str
     confidence: float | None
+    selected_profile: str
+    final_profile: str
     selected_model: str
     final_model: str
-    selected_model_name: str
-    final_model_name: str
+    backend: str
     retried: bool
+    latency_ms: int
+    retry_reason: str | None = None
+    retry_profile: str | None = None
     retry_model: str | None = None
-    retry_model_name: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "transcript": self.transcript,
             "confidence": self.confidence,
+            "backend": self.backend,
+            "selected_profile": self.selected_profile,
+            "final_profile": self.final_profile,
             "selected_model": self.selected_model,
             "final_model": self.final_model,
-            "selected_model_name": self.selected_model_name,
-            "final_model_name": self.final_model_name,
+            "selected_model_name": self.selected_model,
+            "final_model_name": self.final_model,
             "retried": self.retried,
+            "retry_reason": self.retry_reason,
+            "retry_profile": self.retry_profile,
             "retry_model": self.retry_model,
-            "retry_model_name": self.retry_model_name,
+            "retry_model_name": self.retry_model,
+            "latency_ms": self.latency_ms,
         }
 
 
@@ -162,9 +205,12 @@ class SpeechToTextService:
         model_level: str | None = None,
     ) -> SpeechToTextResult:
         if uploaded_file is None:
-            raise SpeechToTextError("Audio file is required.")
+            raise SpeechToTextError("Audio file is required.", code="audio_required")
 
-        tmp_path = self._write_temp_file(uploaded_file)
+        start_time = time.monotonic()
+        self._validate_audio_duration(audio_duration)
+        cleanup_paths: list[str] = []
+        tmp_path, cleanup_paths = self._prepare_audio_file(uploaded_file)
         feature = (feature_mode or "chat").strip() or "chat"
         selected_model = (
             normalize_model_level(model_level)
@@ -181,8 +227,14 @@ class SpeechToTextService:
         try:
             first_attempt = self._transcribe_path(tmp_path, selected_model)
             final_attempt = first_attempt
+            retry_profile = None
             retry_model = None
-            retry_model_name = None
+            retry_reason = retry_reason_for_transcript(
+                first_attempt.transcript,
+                first_attempt.confidence,
+                audio_duration,
+                selected_model,
+            )
             retried = False
 
             if should_retry_with_stronger_model(
@@ -191,11 +243,13 @@ class SpeechToTextService:
                 audio_duration,
                 selected_model,
             ):
-                retry_model = get_stronger_model(selected_model)
-                if retry_model != selected_model:
+                retry_profile = get_stronger_model(selected_model)
+                if retry_profile != selected_model:
                     retried = True
-                    final_attempt = self._transcribe_path(tmp_path, retry_model)
-                    retry_model_name = final_attempt.model_name
+                    final_attempt = self._transcribe_path(tmp_path, retry_profile)
+                    retry_model = final_attempt.model_name
+
+            self._raise_if_final_attempt_failed(final_attempt, audio_duration)
 
             self._log_router_decision(
                 feature=feature,
@@ -203,22 +257,25 @@ class SpeechToTextService:
                 audio_quality=audio_quality,
                 selected_model=selected_model,
                 retried=retried,
-                retry_model=retry_model if retried else None,
+                retry_model=retry_profile if retried else None,
             )
 
             if not final_attempt.transcript:
-                raise SpeechToTextError("Transcript is empty.")
+                raise SpeechToTextError("no_speech_detected", code="no_speech_detected")
 
             return SpeechToTextResult(
                 transcript=final_attempt.transcript,
                 confidence=final_attempt.confidence,
-                selected_model=selected_model,
-                final_model=final_attempt.model_level,
-                selected_model_name=first_attempt.model_name,
-                final_model_name=final_attempt.model_name,
+                selected_profile=selected_model,
+                final_profile=final_attempt.model_level,
+                selected_model=first_attempt.model_name,
+                final_model=final_attempt.model_name,
+                backend=self.config.backend,
                 retried=retried,
-                retry_model=retry_model if retried else None,
-                retry_model_name=retry_model_name,
+                retry_reason=retry_reason,
+                retry_profile=retry_profile if retried else None,
+                retry_model=retry_model,
+                latency_ms=int((time.monotonic() - start_time) * 1000),
             )
         except SpeechToTextError:
             raise
@@ -226,12 +283,18 @@ class SpeechToTextService:
             logger.exception("voice_api speech-to-text failed")
             raise SpeechToTextError("Speech-to-text failed.") from exc
         finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                logger.debug("Could not remove temporary audio file: %s", tmp_path, exc_info=True)
+            for path in cleanup_paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    logger.debug("Could not remove temporary audio file: %s", path, exc_info=True)
 
     def _transcribe_path(self, tmp_path: str, model_level: str) -> SpeechToTextAttempt:
+        if self.config.backend == HF_API_BACKEND:
+            return self._transcribe_path_hf_api(tmp_path, model_level)
+        return self._transcribe_path_local(tmp_path, model_level)
+
+    def _transcribe_path_local(self, tmp_path: str, model_level: str) -> SpeechToTextAttempt:
         normalized_model = normalize_model_level(model_level)
         pipe = self._ensure_pipeline(normalized_model)
         call_kwargs = self._call_kwargs()
@@ -247,6 +310,52 @@ class SpeechToTextService:
                 normalized_model,
                 self._model_name_for_level(normalized_model),
             ),
+        )
+
+    def _transcribe_path_hf_api(self, tmp_path: str, model_level: str) -> SpeechToTextAttempt:
+        if not self.config.hf_token:
+            raise SpeechToTextError(
+                "HF_TOKEN is required when STT_BACKEND=hf_api.",
+                code="hf_token_missing",
+            )
+
+        normalized_model = normalize_model_level(model_level)
+        model_name = self._model_name_for_level(normalized_model)
+        url = f"https://api-inference.huggingface.co/models/{model_name}"
+        headers = {
+            "Authorization": f"Bearer {self.config.hf_token}",
+            "Content-Type": "audio/wav",
+        }
+        with open(tmp_path, "rb") as audio_file:
+            response = requests.post(
+                url,
+                headers=headers,
+                data=audio_file.read(),
+                params={"language": self.config.language, "task": self.config.task},
+                timeout=90,
+            )
+
+        if response.status_code == 503:
+            raise SpeechToTextError(
+                "Hugging Face Inference API unavailable.",
+                code="asr_failed",
+            )
+        if response.status_code >= 400:
+            raise SpeechToTextError(
+                f"Hugging Face Inference API failed with status {response.status_code}.",
+                code="asr_failed",
+            )
+
+        try:
+            result: Any = response.json()
+        except ValueError:
+            result = {"text": response.text}
+
+        return SpeechToTextAttempt(
+            transcript=self._extract_text(result),
+            confidence=self._extract_confidence(result),
+            model_level=normalized_model,
+            model_name=model_name,
         )
 
     def _ensure_pipeline(self, model_level: str = BALANCED):
@@ -286,7 +395,10 @@ class SpeechToTextService:
                     load_errors.append(f"{model_name}: {exc}")
                     logger.warning("voice_api ASR model load failed for %s", model_name, exc_info=True)
 
-            raise SpeechToTextError("; ".join(load_errors) or "No speech-to-text model configured.")
+            raise SpeechToTextError(
+                "; ".join(load_errors) or "No speech-to-text model configured.",
+                code="asr_failed",
+            )
 
     def _pipeline_kwargs(self) -> dict[str, Any]:
         kwargs: dict[str, Any] = {}
@@ -319,6 +431,9 @@ class SpeechToTextService:
         return list(dict.fromkeys(name for name in names if name))
 
     def _model_name_for_level(self, model_level: str) -> str:
+        if self.config.backend == HF_API_BACKEND:
+            return self.config.hf_api_model
+
         normalized_model = normalize_model_level(model_level)
         if normalized_model == WEAK:
             return self.config.weak_model_name
@@ -391,6 +506,84 @@ class SpeechToTextService:
             for chunk in uploaded_file.chunks():
                 tmp.write(chunk)
             return tmp.name
+
+    def _prepare_audio_file(self, uploaded_file) -> tuple[str, list[str]]:
+        original_path = self._write_temp_file(uploaded_file)
+        wav_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        wav_path = wav_file.name
+        wav_file.close()
+        cleanup_paths = [original_path, wav_path]
+
+        try:
+            self._convert_to_wav_16k_mono(original_path, wav_path)
+        except Exception:
+            for path in cleanup_paths:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            raise
+
+        return wav_path, cleanup_paths
+
+    @staticmethod
+    def _convert_to_wav_16k_mono(input_path: str, output_path: str) -> None:
+        command = [
+            "ffmpeg",
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            input_path,
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-vn",
+            output_path,
+        ]
+        try:
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+        except FileNotFoundError as exc:
+            raise SpeechToTextError(
+                "Bạn cần cài ffmpeg để xử lý file ghi âm.",
+                code="ffmpeg_missing",
+            ) from exc
+
+        if result.returncode != 0:
+            logger.warning("ffmpeg audio conversion failed: %s", result.stderr.strip())
+            raise SpeechToTextError(
+                "Không xử lý được file ghi âm.",
+                code="audio_processing_failed",
+            )
+
+    def _validate_audio_duration(self, audio_duration: float | None) -> None:
+        duration = self._to_float(audio_duration)
+        if duration is None:
+            return
+        if duration < self.config.min_audio_seconds:
+            raise SpeechToTextError("no_speech_detected", code="no_speech_detected")
+        if duration > self.config.max_audio_seconds:
+            raise SpeechToTextError("Audio file is too long.", code="audio_too_long")
+
+    def _raise_if_final_attempt_failed(
+        self,
+        attempt: SpeechToTextAttempt,
+        audio_duration: float | None,
+    ) -> None:
+        reason = retry_reason_for_transcript(
+            attempt.transcript,
+            attempt.confidence,
+            audio_duration,
+            WEAK,
+        )
+        if not reason:
+            return
+
+        if reason == "empty_transcript":
+            raise SpeechToTextError("no_speech_detected", code="no_speech_detected")
+        if normalize_model_level(attempt.model_level) == STRONG:
+            raise SpeechToTextError("asr_failed", code="asr_failed")
 
     @staticmethod
     def _log_router_decision(

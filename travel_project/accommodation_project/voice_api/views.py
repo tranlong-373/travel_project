@@ -47,7 +47,10 @@ def parse_voice(request):
         )
         transcript = stt_result.transcript
     except SpeechToTextError as exc:
-        return JsonResponse({"success": False, "error": str(exc)}, status=503)
+        return JsonResponse(
+            {"success": False, "error": str(exc), "error_code": exc.code},
+            status=503,
+        )
     except Exception:
         logger.exception("voice_api unexpected speech-to-text error")
         return JsonResponse({"success": False, "error": "Speech-to-text unavailable"}, status=503)

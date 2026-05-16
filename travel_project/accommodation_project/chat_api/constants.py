@@ -1,14 +1,15 @@
 TYPE_PATTERNS = [
-    (r"(?<!\w)(khách sạn|khach san|hotel|ks)(?!\w)", "hotel"),
-    (r"(?<!\w)(homestay|home stay)(?!\w)", "homestay"),
-    (r"(?<!\w)(hostel|nhà nghỉ|nha nghi|dorm)(?!\w)", "hostel"),
-    (r"(?<!\w)(căn hộ|apartment|chung cư|chung cu)(?!\w)", "apartment"),
+    (r"(?<!\w)(khách sạn|khach san|hotel|ks|nhà nghỉ|nha nghi|motel)(?!\w)", "hotel"),
+    (r"(?<!\w)(homestay|home stay|homstay|honestay|homes tay)(?!\w)", "homestay"),
+    (r"(?<!\w)(hostel|nhà trọ|nha tro|phòng trọ|phong tro|ở trọ|o tro|trọ|tro|dorm)(?!\w)", "hostel"),
+    (r"(?<!\w)(căn hộ|can ho|apartment|studio|chung cư|chung cu|serviced apartment)(?!\w)", "apartment"),
 ]
 # Resort is recognized but intentionally not enabled as preferred_type because
 # chat_api.schema.ALLOWED_TYPES is still synced to downstream recommend types:
 # hotel/homestay/hostel/apartment.
 UNSUPPORTED_TYPE_PATTERNS = [
     (r"(?<!\w)(resort|khu nghỉ dưỡng|khu nghi duong)(?!\w)", "resort"),
+    (r"(?<!\w)(villa|biệt thự|biet thu)(?!\w)", "villa"),
 ]
 
 AMENITY_MAP = {

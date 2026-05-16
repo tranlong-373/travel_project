@@ -30,10 +30,12 @@ from ..schemas.parsed_query_schema import (
 MONEY_UNITS = r"k|nghin|ngan|thousand|tr|trieu|m|cu|million|mil|mio"
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
+    "budget_min",
     "budget",
     "guest_count",
     "trip_days",
     "preferred_type",
+    "accommodation_types",
     "required_amenities",
     "priorities",
     "special_requirements",
@@ -67,16 +69,31 @@ TYPE_ALIASES = {
     "khách sạn": "hotel",
     "hotel": "hotel",
     "ks": "hotel",
+    "nha nghi": "hotel",
+    "nhà nghỉ": "hotel",
+    "motel": "hotel",
     "homestay": "homestay",
     "home stay": "homestay",
+    "homstay": "homestay",
+    "honestay": "homestay",
+    "homes tay": "homestay",
     "hostel": "hostel",
-    "nha nghi": "hostel",
-    "nhà nghỉ": "hostel",
+    "nha tro": "hostel",
+    "nhà trọ": "hostel",
+    "phong tro": "hostel",
+    "phòng trọ": "hostel",
+    "o tro": "hostel",
+    "ở trọ": "hostel",
+    "tro": "hostel",
+    "trọ": "hostel",
     "dorm": "hostel",
     "can ho": "apartment",
     "căn hộ": "apartment",
     "apartment": "apartment",
+    "studio": "apartment",
     "chung cu": "apartment",
+    "chung cư": "apartment",
+    "serviced apartment": "apartment",
     "resort": "resort",
     "khu nghi duong": "resort",
     "khu nghỉ dưỡng": "resort",
@@ -306,6 +323,24 @@ def normalize_preferred_type(*values: Any, raw_text: str = "") -> str | None:
     return None
 
 
+def normalize_preferred_types(*values: Any, raw_text: str = "") -> list[str]:
+    found: list[str] = []
+    for value in values:
+        for item in _as_list(value):
+            key = normalize_key(item)
+            mapped = TYPE_ALIASES.get(key)
+            if mapped in ALLOWED_TYPES:
+                found.append(mapped)
+
+    norm = normalize_key(raw_text)
+    for alias, mapped in sorted(TYPE_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        alias_key = normalize_key(alias)
+        if mapped in ALLOWED_TYPES and re.search(rf"(?<!\w){re.escape(alias_key)}(?!\w)", norm):
+            found.append(mapped)
+
+    return _unique(found)
+
+
 def _mapped_list(values: list[str], aliases: dict[str, str], allowed: set[str]) -> list[str]:
     normalized: list[str] = []
     for value in values:
@@ -438,12 +473,30 @@ def normalize_parsed_result(
         or _as_int(context_slots.get("guest_count"))
     )
 
-    slots["preferred_type"] = normalize_preferred_type(
+    slots["accommodation_types"] = normalize_preferred_types(
+        fallback_slots.get("accommodation_types"),
         fallback_slots.get("preferred_type"),
+        fallback_slots.get("accommodation_type"),
+        model_slots.get("accommodation_types"),
         model_slots.get("preferred_type"),
+        model_slots.get("accommodation_type"),
+        context_slots.get("accommodation_types"),
         context_slots.get("preferred_type"),
+        context_slots.get("accommodation_type"),
         raw_text=raw_text,
     )
+    type_choice_multiple = bool(len(slots["accommodation_types"]) > 1 and has_type_choice_connector(raw_text))
+    slots["preferred_type"] = None if type_choice_multiple else ((slots["accommodation_types"] or [None])[0] or normalize_preferred_type(
+        fallback_slots.get("preferred_type"),
+        fallback_slots.get("accommodation_type"),
+        model_slots.get("preferred_type"),
+        model_slots.get("accommodation_type"),
+        context_slots.get("preferred_type"),
+        context_slots.get("accommodation_type"),
+        raw_text=raw_text,
+    ))
+    slots["accommodation_type"] = slots["preferred_type"]
+    slots["type_choice_multiple"] = type_choice_multiple
 
     model_amenities = _mapped_list(_as_list(model_slots.get("required_amenities")), AMENITY_ALIASES, ALLOWED_AMENITIES)
     fallback_amenities = _mapped_list(_as_list(fallback_slots.get("required_amenities")), AMENITY_ALIASES, ALLOWED_AMENITIES)
@@ -465,6 +518,23 @@ def normalize_parsed_result(
         or extract_trip_days(raw_text)
         or _as_int(model_slots.get("trip_days"))
         or _as_int(context_slots.get("trip_days"))
+    )
+
+    for key in ("room_count", "rating"):
+        slots[key] = (
+            _as_int(fallback_slots.get(key))
+            or _as_int(model_slots.get(key))
+            or _as_int(context_slots.get(key))
+        )
+    for key in ("check_in", "check_out", "location_phrase"):
+        value = fallback_slots.get(key) or model_slots.get(key) or context_slots.get(key)
+        slots[key] = str(value).strip() if value else None
+    slots["location_mode"] = (
+        (fallback_result or {}).get("location_mode")
+        or fallback_slots.get("location_mode")
+        or model_slots.get("location_mode")
+        or context_slots.get("location_mode")
+        or "unknown"
     )
 
     missing_slots = [
