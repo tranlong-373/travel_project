@@ -8,9 +8,83 @@ from preferences.models import UserPreference
 
 
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
-BLOCKED_INTENTS = {"off_topic", "unknown", "greeting", "thanks", "help", "goodbye"}
+BLOCKED_INTENTS = {"off_topic", "greeting", "thanks", "help", "goodbye"}
 BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice"}
 DEFAULT_NEARBY_RADIUS_KM = 10.0
+
+
+def usable_filters_from_parse(parse_result: dict[str, Any]) -> list[str]:
+    slots = parse_result.get("slots") or {}
+    filters: list[str] = []
+    if slots.get("accommodation_types") or slots.get("preferred_type") or slots.get("accommodation_type"):
+        filters.append("accommodation_types")
+    if slots.get("budget_min") or slots.get("budget_max") or slots.get("budget"):
+        filters.append("budget")
+    if slots.get("guest_count"):
+        filters.append("guest_count")
+    if slots.get("required_amenities"):
+        filters.append("amenities")
+    if slots.get("rating"):
+        filters.append("rating")
+    if slots.get("priorities"):
+        filters.append("sort")
+
+    location = (parse_result.get("filter_tree") or {}).get("location") or {}
+    location_mode = parse_result.get("location_mode") or slots.get("location_mode") or location.get("mode")
+    has_anchor_coordinates = (
+        parse_result.get("anchor_lat") is not None
+        and parse_result.get("anchor_lon") is not None
+    ) or (
+        location.get("anchor_lat") is not None
+        and location.get("anchor_lon") is not None
+    )
+    if location_mode == "anywhere":
+        filters.append("location_anywhere")
+    elif location_mode == "area" and (parse_result.get("canonical_area") or slots.get("area") or location.get("canonical_area")):
+        filters.append("location")
+    elif location_mode in {"near_anchor", "near_user", "city_center"} and has_anchor_coordinates:
+        filters.append("location")
+
+    return list(dict.fromkeys(filters))
+
+
+def attach_recommendation_action(
+    parse_result: dict[str, Any],
+    bridge_result: dict[str, Any] | None = None,
+    *,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    usable_filters = usable_filters_from_parse(parse_result)
+    parse_result["usable_filters"] = usable_filters
+    can_show = bool(parse_result.get("can_show_recommendations")) and bool(usable_filters)
+    url = (bridge_result or {}).get("recommendation_url") or parse_result.get("recommendation_url")
+    pref_id = (bridge_result or {}).get("pref_id") or parse_result.get("pref_id")
+
+    if can_show and url:
+        action = {
+            "visible": True,
+            "enabled": True,
+            "eligible": True,
+            "pref_id": pref_id,
+            "url": url,
+            "reason": reason or "has_usable_filters",
+        }
+    else:
+        disabled_reason = reason
+        if disabled_reason is None:
+            disabled_reason = "ambiguous_location" if parse_result.get("ambiguous_location") else "no_usable_filter"
+        action = {
+            "visible": True,
+            "enabled": False,
+            "eligible": False,
+            "pref_id": pref_id,
+            "url": None,
+            "reason": disabled_reason,
+        }
+
+    parse_result["can_show_recommendations"] = can_show
+    parse_result["recommendation_action"] = action
+    return parse_result
 
 
 def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]:
@@ -26,15 +100,15 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         raise ValueError("Parse result is not ready for recommendation.")
     if parse_result.get("recommendation_level") == "none" and not (has_user_location or has_anchor_location or has_usable_filter):
         raise ValueError("Parse result has no recommendation level.")
-    if (
-        parse_result.get("conversation_intent") in BLOCKED_INTENTS
-        or parse_result.get("intent") in BLOCKED_INTENTS
-    ) and not has_user_location:
+    intent = parse_result.get("conversation_intent") or parse_result.get("intent")
+    if intent in BLOCKED_INTENTS and not has_user_location:
+        raise ValueError("Conversation intent is not eligible for recommendation.")
+    if intent == "unknown" and not (has_user_location or has_anchor_location or has_usable_filter):
         raise ValueError("Conversation intent is not eligible for recommendation.")
 
     if parse_result.get("location_status") in BLOCKED_LOCATION_STATUSES and not has_user_location:
         raise ValueError("Location is not eligible for recommendation.")
-    if parse_result.get("unresolved_location") or (location_mode == "near_anchor" and not has_anchor_location):
+    if parse_result.get("unresolved_location") or (location_mode in {"near_anchor", "city_center"} and not has_anchor_location):
         raise ValueError("Location could not be resolved to coordinates.")
 
     slots = parse_result.get("slots") or {}
@@ -45,6 +119,8 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         area = None
     elif location_mode == "near_anchor":
         area = parse_result.get("location_display_label") or parse_result.get("anchor_name") or area
+    elif location_mode == "city_center":
+        area = parse_result.get("canonical_area") or area
 
     accommodation_types = slots.get("accommodation_types") or []
     if isinstance(accommodation_types, str):
@@ -137,7 +213,7 @@ def _read_user_location(parse_result: dict[str, Any]) -> dict[str, float] | None
 
 def _read_anchor_location(parse_result: dict[str, Any]) -> dict[str, float] | None:
     location_mode = parse_result.get("location_mode")
-    if location_mode not in {"near_anchor", "near_user"}:
+    if location_mode not in {"near_anchor", "near_user", "city_center"}:
         return None
 
     try:

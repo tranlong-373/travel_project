@@ -2,11 +2,12 @@ import json
 import logging
 import os
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
 from .filter_tree import build_filter_tree, soft_filter_summary
-from .recommendation_bridge import create_preference_from_parse
+from .recommendation_bridge import attach_recommendation_action, create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
 from .slot_validator import core_missing_slots, validate_slots
@@ -47,11 +48,13 @@ def parse_message(request):
 
     locale = _normalize_locale(body.get("locale"))
     context_slots = _read_context_slots(body)
+    include_debug = _debug_requested(request, body)
     try:
-        result = parse_user_text(text, locale=locale, context_slots=context_slots)
+        result = parse_user_text(text, locale=locale, context_slots=context_slots, include_debug=include_debug)
     except Exception:
         logger.exception("chat_api parse endpoint failed")
         return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
+    attach_recommendation_action(result, reason="parse_only_no_preference")
     return JsonResponse(result, status=200)
 
 
@@ -65,6 +68,7 @@ def submit_message(request):
         return error
 
     locale = _normalize_locale(body.get("locale"))
+    include_debug = _debug_requested(request, body)
     quick_reply_payload = _read_quick_reply_payload(body)
     context_slots = _read_context_slots(body)
     user_location = _read_user_location(body)
@@ -82,7 +86,7 @@ def submit_message(request):
             return JsonResponse({"error": "Field 'text' is required"}, status=400)
 
         try:
-            result = parse_user_text(text, locale=locale, context_slots=context_slots)
+            result = parse_user_text(text, locale=locale, context_slots=context_slots, include_debug=include_debug)
         except Exception:
             logger.exception("chat_api submit endpoint failed")
             return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
@@ -97,6 +101,7 @@ def submit_message(request):
                 "recommendation_url": None,
             }
         )
+        attach_recommendation_action(result)
         return JsonResponse(result, status=200)
 
     try:
@@ -109,9 +114,11 @@ def submit_message(request):
                 "recommendation_url": None,
             }
         )
+        attach_recommendation_action(result, reason="preference_not_created")
         return JsonResponse(result, status=200)
 
     result.update({"created_preference": True, **bridge_result})
+    attach_recommendation_action(result, bridge_result)
     return JsonResponse(result, status=201)
 
 
@@ -214,6 +221,26 @@ def _attach_user_location(result, user_location):
     result["missing_filter_slots"] = tree["missing_slots"]
     result["partial_intent"] = tree["partial_intent"]
     result["soft_filter_summary"] = soft_filter_summary(tree)
+    result["location_meta"] = {
+        "status": result.get("location_status"),
+        "mode": result.get("location_mode"),
+        "source": result.get("location_source"),
+        "phrase": None,
+        "confidence": 1.0,
+        "geocoder_called": False,
+        "geocoder_reason": "browser_geolocation",
+        "canonical_area": result.get("canonical_area"),
+        "display_label": result.get("location_display_label"),
+        "anchor": {
+            "name": result.get("anchor_name"),
+            "kind": result.get("anchor_kind"),
+            "lat": result.get("anchor_lat"),
+            "lon": result.get("anchor_lon"),
+            "radius_km": result.get("anchor_radius_km"),
+        },
+        "map": {"area": None, "display_name": None, "address": {}},
+        "rejected_geocoder_results": [],
+    }
 
 
 def _build_confirmed_result(slots):
@@ -256,3 +283,14 @@ def _normalize_locale(locale):
     if locale not in ["vi", "en"]:
         locale = "vi"
     return locale
+
+
+def _debug_requested(request, body):
+    value = request.GET.get("debug") if request is not None else None
+    if value is None and isinstance(body, dict):
+        value = body.get("debug")
+    if value is None:
+        return bool(getattr(settings, "DEBUG", False))
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}

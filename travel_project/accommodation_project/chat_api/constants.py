@@ -1,8 +1,8 @@
 TYPE_PATTERNS = [
     (r"(?<!\w)(khách sạn|khach san|hotel|ks|nhà nghỉ|nha nghi|motel)(?!\w)", "hotel"),
-    (r"(?<!\w)(homestay|home stay|homstay|honestay|homes tay)(?!\w)", "homestay"),
+    (r"(?<!\w)(homestay|home stay|homstay|hómtay|hom tay|homtay|honestay|homestate|homes tay|hómstay)(?!\w)", "homestay"),
     (r"(?<!\w)(hostel|nhà trọ|nha tro|phòng trọ|phong tro|ở trọ|o tro|trọ|tro|dorm)(?!\w)", "hostel"),
-    (r"(?<!\w)(căn hộ|can ho|apartment|studio|chung cư|chung cu|serviced apartment)(?!\w)", "apartment"),
+    (r"(?<!\w)(căn hộ|can ho|căn ho|can hộ|apartment|studio|chung cư|chung cu|serviced apartment)(?!\w)", "apartment"),
 ]
 # Resort is recognized but intentionally not enabled as preferred_type because
 # chat_api.schema.ALLOWED_TYPES is still synced to downstream recommend types:
@@ -16,20 +16,32 @@ AMENITY_MAP = {
     "wifi": "wifi",
     "wi-fi": "wifi",
     "internet": "wifi",
+    "mạng": "wifi",
+    "mang": "wifi",
 
     "hồ bơi": "pool",
+    "ho boi": "pool",
     "bể bơi": "pool",
+    "be boi": "pool",
+    "swimming pool": "pool",
     "pool": "pool",
 
     "bãi đỗ xe": "parking",
+    "bai do xe": "parking",
     "chỗ đậu xe": "parking",
+    "cho dau xe": "parking",
+    "đỗ xe": "parking",
+    "do xe": "parking",
     "gửi xe": "parking",
+    "gui xe": "parking",
     "đậu ô tô": "parking",
     "đậu xe hơi": "parking",
     "parking": "parking",
 
     "máy lạnh": "air_conditioner",
+    "may lanh": "air_conditioner",
     "điều hòa": "air_conditioner",
+    "dieu hoa": "air_conditioner",
     "air conditioner": "air_conditioner",
     "ac": "air_conditioner",
     "aircon": "air_conditioner",
@@ -47,12 +59,20 @@ AMENITY_MAP = {
     "tub": "bathtub",
 
     "bếp": "kitchen",
+    "bep": "kitchen",
     "nhà bếp": "kitchen",
+    "nha bep": "kitchen",
     "kitchen": "kitchen",
+    "cook": "kitchen",
     "nấu ăn": "kitchen",
+    "nau an": "kitchen",
 
     "máy giặt": "washing_machine",
+    "may giat": "washing_machine",
+    "giặt đồ": "washing_machine",
+    "giat do": "washing_machine",
     "washing machine": "washing_machine",
+    "laundry": "washing_machine",
 }
 # Elevator/lift aliases are intentionally not mapped until downstream recommend
 # exposes a compatible amenity key. Do not coerce them into elderly_friendly.

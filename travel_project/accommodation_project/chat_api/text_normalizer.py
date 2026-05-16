@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from .normalizers import normalize_common_typos
+
 
 _ABBREVIATIONS = {
     "ks": ["khach", "san"],
@@ -57,7 +59,7 @@ def _expand_tokens(tokens: list[str]) -> list[str]:
 
 def normalize_user_text(text: str) -> dict:
     raw_text = "" if text is None else str(text)
-    lowered = raw_text.lower().strip()
+    lowered = normalize_common_typos(raw_text).lower().strip()
     spaced = _clean_spacing(lowered)
     split_text = _split_joined_letters_and_digits(spaced)
     split_text = _clean_spacing(split_text)

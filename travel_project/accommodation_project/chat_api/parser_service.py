@@ -5,8 +5,11 @@ import os
 import re
 from typing import Any
 
+from django.conf import settings
+
 from .convenience_policy import TERMINAL_INTENTS, decide_user_effort_policy
 from .constants import NUMBER_WORDS
+from .clarification_manager import build_clarification_payload
 from .domain_router import classify_message
 from .extractors import (
     find_unsupported_type_candidates,
@@ -22,7 +25,9 @@ from .gate import evaluate_parse_gate
 from .location_gazetteer import load_supported_locations
 from .location_resolver import resolve_location
 from .normalizers import normalize_key, normalize_text
+from .protected_spans import public_protected_spans
 from .questions import build_suggested_questions
+from .response_generator import ResponseGenerator
 from .response_templates import (
     build_conflict_message,
     build_explicit_confirmation_message,
@@ -41,6 +46,7 @@ from .response_templates import (
     build_unsupported_message,
 )
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
+from .slot_pipeline import build_slot_parse_context
 from .slot_validator import core_missing_slots, extract_slots_from_text, merge_slot_context, validate_slots
 from .text_normalizer import normalize_user_text
 from .validators import validate_and_normalize_slots
@@ -280,6 +286,45 @@ def _apply_bare_count_follow_up(
         slots_partial["trip_days"] = value
 
 
+def _include_debug_metadata(include_debug: bool | None) -> bool:
+    if include_debug is not None:
+        return bool(include_debug)
+    return bool(getattr(settings, "DEBUG", False))
+
+
+def _attach_parse_debug_metadata(
+    result: dict[str, Any],
+    *,
+    slot_parse_context: dict[str, Any],
+    location: dict[str, Any] | None = None,
+) -> None:
+    location = location or {}
+    location_intent = slot_parse_context.get("location_intent") or {}
+    result["debug_metadata"] = {
+        "raw_text": slot_parse_context.get("raw_text") or "",
+        "normalized_text": slot_parse_context.get("normalized_text") or "",
+        "protected_spans": slot_parse_context.get("protected_spans") or [],
+        "remaining_text_for_location": slot_parse_context.get("remaining_text_for_location") or "",
+        "location_candidate": slot_parse_context.get("location_candidate"),
+        "location_confidence": slot_parse_context.get("location_candidate_confidence") or 0.0,
+        "location_mode": location.get("location_mode") or location_intent.get("mode_hint") or "unknown",
+        "location_intent": bool(
+            location_intent.get("should_resolve")
+            or location_intent.get("mode_hint") == "city_center"
+            or location_intent.get("ambiguous_location")
+        ),
+        "geocoder_called": bool(location.get("geocoder_called")),
+        "geocoder_reason": location.get("geocoder_reason")
+        or slot_parse_context.get("geocoder_reason")
+        or "no_location_intent",
+        "geocoder_block_reason": location.get("geocoder_reason")
+        or slot_parse_context.get("geocoder_reason")
+        or "no_location_intent",
+        "rejected_geocoder_results": location.get("rejected_geocoder_results") or [],
+        "area_match": bool(location.get("area_match")),
+    }
+
+
 def _has_confirm_value(value: Any) -> bool:
     if value is None:
         return False
@@ -334,6 +379,22 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     location = tree_dict["location"]
     slots = dict(result.get("slots") or {})
 
+    if result.get("debug_metadata"):
+        result["debug_metadata"].update(
+            {
+                "location_candidate": location.get("location_phrase")
+                or result["debug_metadata"].get("location_candidate"),
+                "location_mode": location.get("mode") or result["debug_metadata"].get("location_mode"),
+                "geocoder_called": bool(location.get("geocoder_called")),
+                "geocoder_reason": location.get("geocoder_reason")
+                or result["debug_metadata"].get("geocoder_reason"),
+                "geocoder_block_reason": location.get("geocoder_reason")
+                or result["debug_metadata"].get("geocoder_block_reason"),
+                "rejected_geocoder_results": location.get("rejected_geocoder_results") or [],
+                "area_match": bool(location.get("area_match")),
+            }
+        )
+
     if location.get("mode") == "anywhere":
         slots["area"] = None
         result["canonical_area"] = None
@@ -347,18 +408,21 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     elif location.get("mode") == "area" and location.get("canonical_area"):
         slots["area"] = location["canonical_area"]
         result["canonical_area"] = location["canonical_area"]
+    elif location.get("mode") == "city_center" and location.get("canonical_area"):
+        slots["area"] = location["canonical_area"]
+        result["canonical_area"] = location["canonical_area"]
 
     unresolved_location = bool(location.get("unresolved_location"))
-    if location.get("mode") == "near_anchor" and (
+    if location.get("mode") in {"near_anchor", "city_center"} and (
         location.get("anchor_lat") is None or location.get("anchor_lon") is None
     ):
         unresolved_location = True
     if unresolved_location:
         slots["area"] = None
         result["canonical_area"] = None
-        result["location_status"] = "unresolved"
+        result["location_status"] = "ambiguous" if location.get("needs_city_clarification") else "unresolved"
     elif (
-        location.get("mode") == "near_anchor"
+        location.get("mode") in {"near_anchor", "city_center"}
         and location.get("anchor_lat") is not None
         and location.get("anchor_lon") is not None
         and result.get("location_status") not in {"conflict", "multiple_choice"}
@@ -389,6 +453,13 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["map_address"] = location.get("map_address") or {}
     result["geocode_query"] = location.get("geocode_query")
     result["geocoder_queries"] = location.get("geocoder_queries") or []
+    result["geocoder_called"] = bool(location.get("geocoder_called"))
+    result["geocoder_reason"] = location.get("geocoder_reason")
+    result["rejected_geocoder_results"] = location.get("rejected_geocoder_results") or []
+    result["needs_city_clarification"] = bool(location.get("needs_city_clarification"))
+    result["ambiguous_location"] = bool(location.get("ambiguous_location"))
+    result["ambiguous_location_question"] = location.get("ambiguous_location_question")
+    result["area_match"] = bool(location.get("area_match"))
     result["unresolved_location"] = unresolved_location
     if location.get("mode"):
         slots["location_mode"] = location.get("mode")
@@ -489,6 +560,8 @@ def _location_confirm_value(result: dict[str, Any]) -> str:
 
     if location_mode == "anywhere":
         return "Không giới hạn khu vực"
+    if location_mode == "city_center":
+        return result.get("location_display_label") or result.get("anchor_name") or "trung tâm thành phố"
     if location_mode in {"near_anchor", "near_user"}:
         value = result.get("location_display_label") or result.get("anchor_name") or ""
         map_area = result.get("map_area") or (result.get("filter_tree") or {}).get("location", {}).get("map_area")
@@ -580,13 +653,23 @@ def parse_user_text_rule_based(
     *,
     locale: str = "vi",
     context_slots: dict[str, Any] | None = None,
+    include_debug: bool | None = None,
 ) -> dict[str, Any]:
     normalized = normalize_user_text(text)
     raw = normalized["normalized_text"]
+    slot_parse_context = build_slot_parse_context(text)
     router = classify_message(text, context_slots=context_slots, locale=locale)
+    if (
+        router.get("intent") == "unknown"
+        and any(span.get("type") == "generic_lodging_phrase" for span in slot_parse_context.get("protected_spans") or [])
+    ):
+        router = {**router, "intent": "recommend_accommodation", "reason": "generic_lodging_phrase"}
 
     if router["intent"] in TERMINAL_INTENTS and router["intent"] != "unknown":
         response = _terminal_response(router, normalized, context_slots=context_slots)
+        response["protected_spans"] = public_protected_spans(slot_parse_context)
+        if _include_debug_metadata(include_debug):
+            _attach_parse_debug_metadata(response, slot_parse_context=slot_parse_context)
         return _finalize_convenience_response(response, text, router=router, normalized=normalized)
 
     location = _resolve_location_pipeline(
@@ -594,8 +677,13 @@ def parse_user_text_rule_based(
         locale=locale,
         context_slots=context_slots,
         prefer_context=router["intent"] == "clarify_slot",
+        slot_parse_context=slot_parse_context,
     )
-    slots_partial = extract_slots_from_text(text, canonical_area=location.get("canonical_area"))
+    slots_partial = extract_slots_from_text(
+        text,
+        canonical_area=location.get("canonical_area"),
+        slot_parse_context=slot_parse_context,
+    )
     _apply_bare_count_follow_up(slots_partial, raw, context_slots)
 
     replace_area = bool(location.get("_from_text") and location.get("location_status") == "ok")
@@ -655,7 +743,27 @@ def parse_user_text_rule_based(
         "used_default_slots": {},
         "llm_called": False,
         "router": router,
+        "protected_spans": public_protected_spans(slot_parse_context),
     }
+    for key in (
+        "location_mode",
+        "location_phrase",
+        "location_display_label",
+        "anchor_name",
+        "anchor_kind",
+        "anchor_lat",
+        "anchor_lon",
+        "anchor_radius_km",
+        "provider",
+        "geocoder_called",
+        "geocoder_reason",
+        "rejected_geocoder_results",
+        "needs_city_clarification",
+        "ambiguous_location",
+        "ambiguous_location_question",
+    ):
+        if key in location:
+            response[key] = location.get(key)
 
     if INCLUDE_PARSE_DIAGNOSTICS:
         response["diagnostics"] = {
@@ -668,6 +776,9 @@ def parse_user_text_rule_based(
         unsupported_type_candidates = find_unsupported_type_candidates(raw)
         if unsupported_type_candidates:
             response["diagnostics"]["unsupported_type_candidates"] = unsupported_type_candidates
+
+    if _include_debug_metadata(include_debug):
+        _attach_parse_debug_metadata(response, slot_parse_context=slot_parse_context, location=location)
 
     return _finalize_convenience_response(response, text, router=router, normalized=normalized)
 
@@ -710,7 +821,15 @@ def _resolve_location_pipeline(
     locale: str,
     context_slots: dict[str, Any] | None,
     prefer_context: bool = False,
+    slot_parse_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    original_text = text
+    slot_parse_context = slot_parse_context or build_slot_parse_context(text)
+    location_intent = slot_parse_context.get("location_intent") or {}
+    location_text = location_intent.get("resolve_text") or slot_parse_context.get("remaining_text_for_location") or ""
+    supported_locations = load_supported_locations()
+    context_area = (context_slots or {}).get("area") or (context_slots or {}).get("canonical_area")
+
     if has_explicit_anywhere(text):
         return {
             "location_status": "unresolved",
@@ -720,35 +839,174 @@ def _resolve_location_pipeline(
             "location_source": "explicit_anywhere",
             "matched_text": None,
             "debug": {"explicit_anywhere": True},
+            "geocoder_called": False,
+            "geocoder_reason": "explicit_anywhere",
+            "area_match": False,
             "_from_text": True,
             "_from_context": False,
         }
 
-    supported_locations = load_supported_locations()
-    fuzzy_location = resolve_location_fuzzy(text, supported_locations)
-    legacy_location = resolve_location(normalize_text(text or ""), locale=locale)
-    context_area = (context_slots or {}).get("area") or (context_slots or {}).get("canonical_area")
+    if location_intent.get("mode_hint") == "city_center":
+        center = location_intent.get("city_center")
+        if center:
+            return {
+                "location_status": "ok",
+                "location_candidates": [],
+                "canonical_area": center.get("canonical_area"),
+                "location_confidence": center.get("confidence") or location_intent.get("confidence") or 0.93,
+                "location_source": "semantic_city_center",
+                "matched_text": location_intent.get("candidate") or "trung tâm thành phố",
+                "needs_confirmation": False,
+                "confirmation_type": "none",
+                "debug": {"location_intent": location_intent},
+                "location_mode": "city_center",
+                "location_phrase": "trung tâm thành phố",
+                "location_display_label": center.get("location_display_label"),
+                "anchor_name": center.get("anchor_name"),
+                "anchor_kind": "city_center",
+                "anchor_lat": center.get("anchor_lat"),
+                "anchor_lon": center.get("anchor_lon"),
+                "anchor_radius_km": center.get("anchor_radius_km"),
+                "provider": "semantic",
+                "geocoder_called": False,
+                "geocoder_reason": "abstract_city_center_location",
+                "area_match": False,
+                "rejected_geocoder_results": [],
+                "_from_text": True,
+                "_from_context": False,
+            }
+
+        return {
+            "location_status": "ambiguous",
+            "location_candidates": [],
+            "canonical_area": None,
+            "location_confidence": location_intent.get("confidence") or 0.72,
+            "location_source": "semantic_city_center",
+            "matched_text": location_intent.get("candidate") or "trung tâm thành phố",
+            "needs_confirmation": True,
+            "confirmation_type": "explicit",
+            "debug": {"location_intent": location_intent},
+            "location_mode": "city_center",
+            "location_phrase": "trung tâm thành phố",
+            "needs_city_clarification": True,
+            "ambiguous_location": True,
+            "ambiguous_location_question": "Bạn muốn trung tâm thành phố nào?",
+            "geocoder_called": False,
+            "geocoder_reason": "needs_city_for_city_center",
+            "area_match": False,
+            "rejected_geocoder_results": [],
+            "_from_text": True,
+            "_from_context": False,
+        }
 
     if prefer_context and context_area:
         context_location = resolve_location_fuzzy(str(context_area), supported_locations)
         if context_location.get("location_status") == "ok":
             context_location["location_source"] = "context"
             context_location["location_confidence"] = 1.0
+            context_location["geocoder_called"] = False
+            context_location["geocoder_reason"] = "context_location"
+            context_location["area_match"] = True
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return _sanitize_location_result(text, context_location)
+            return _sanitize_location_result(original_text, context_location)
+
+    if location_intent.get("should_resolve") and location_intent.get("mode_hint") == "near_anchor":
+        candidate = location_intent.get("candidate") or location_text
+        return {
+            "location_status": "unresolved",
+            "location_candidates": [],
+            "canonical_area": None,
+            "location_confidence": location_intent.get("confidence") or 0.0,
+            "location_source": "location_intent_gate",
+            "matched_text": candidate,
+            "needs_confirmation": False,
+            "confirmation_type": "none",
+            "debug": {
+                "location_intent": location_intent,
+                "remaining_text_for_location": slot_parse_context.get("remaining_text_for_location"),
+            },
+            "location_mode": "near_anchor",
+            "location_phrase": candidate,
+            "geocoder_called": False,
+            "geocoder_reason": location_intent.get("reason") or "strong_near_anchor_or_place_phrase",
+            "area_match": False,
+            "_from_text": True,
+            "_from_context": False,
+        }
+
+    if not location_intent.get("should_resolve"):
+        if location_intent.get("ambiguous_location"):
+            return {
+                "location_status": "ambiguous",
+                "location_candidates": location_intent.get("suggested_places") or [],
+                "canonical_area": None,
+                "location_confidence": location_intent.get("confidence") or 0.45,
+                "location_source": "ambiguous_location_guard",
+                "matched_text": location_intent.get("candidate"),
+                "needs_confirmation": True,
+                "confirmation_type": "explicit",
+                "debug": {
+                    "location_intent": location_intent,
+                    "remaining_text_for_location": slot_parse_context.get("remaining_text_for_location"),
+                },
+                "ambiguous_location": True,
+                "ambiguous_location_question": location_intent.get("ambiguous_location_question"),
+                "geocoder_called": False,
+                "geocoder_reason": "ambiguous_location",
+                "area_match": False,
+                "rejected_geocoder_results": [],
+                "_from_text": True,
+                "_from_context": False,
+            }
+        if context_area:
+            context_location = resolve_location_fuzzy(str(context_area), supported_locations)
+            if context_location.get("location_status") == "ok":
+                context_location["location_source"] = "context"
+                context_location["location_confidence"] = 1.0
+                context_location["geocoder_called"] = False
+                context_location["geocoder_reason"] = "context_location"
+                context_location["area_match"] = True
+                context_location["_from_text"] = False
+                context_location["_from_context"] = True
+                return _sanitize_location_result(original_text, context_location)
+
+        return {
+            "location_status": "unresolved",
+            "location_candidates": [],
+            "canonical_area": None,
+            "location_confidence": 0.0,
+            "location_source": "none",
+            "matched_text": None,
+            "needs_confirmation": False,
+            "confirmation_type": "none",
+            "debug": {
+                "location_intent": location_intent,
+                "remaining_text_for_location": slot_parse_context.get("remaining_text_for_location"),
+            },
+            "geocoder_called": False,
+            "geocoder_reason": location_intent.get("reason") or "no_location_intent",
+            "area_match": False,
+            "_from_text": False,
+            "_from_context": False,
+        }
+
+    fuzzy_location = resolve_location_fuzzy(str(location_text), supported_locations)
+    legacy_location = resolve_location(normalize_text(str(location_text or "")), locale=locale)
 
     if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
-        return _convert_legacy_location(legacy_location, supported_locations)
+        converted = _convert_legacy_location(legacy_location, supported_locations)
+        converted["geocoder_reason"] = location_intent.get("reason") or "clear_area_match"
+        return converted
 
-    area_fallback = _extract_area_fallback(normalize_text(text or ""))
+    area_fallback = _extract_area_fallback(normalize_text(str(location_text or "")))
     if area_fallback:
         fallback_location = resolve_location_fuzzy(area_fallback, supported_locations)
         if fallback_location.get("location_status") == "ok":
             fallback_location["location_source"] = "district_fallback"
             fallback_location["_from_text"] = True
             fallback_location["_from_context"] = False
-            return _sanitize_location_result(text, fallback_location)
+            return _sanitize_location_result(original_text, fallback_location)
 
     if (
         context_area
@@ -761,7 +1019,7 @@ def _resolve_location_pipeline(
             context_location["location_confidence"] = 1.0
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return _sanitize_location_result(text, context_location)
+            return _sanitize_location_result(original_text, context_location)
 
     if (
         legacy_location.get("location_status") == "ok"
@@ -771,7 +1029,7 @@ def _resolve_location_pipeline(
         converted = _convert_legacy_location(legacy_location, supported_locations)
         converted["_from_text"] = True
         converted["_from_context"] = False
-        return _sanitize_location_result(text, converted)
+        return _sanitize_location_result(original_text, converted)
 
     if legacy_location.get("location_status") == "ok" and fuzzy_location.get("location_status") in {
         "unresolved",
@@ -780,12 +1038,12 @@ def _resolve_location_pipeline(
         converted = _convert_legacy_location(legacy_location, supported_locations)
         converted["_from_text"] = True
         converted["_from_context"] = False
-        return _sanitize_location_result(text, converted)
+        return _sanitize_location_result(original_text, converted)
 
     if fuzzy_location.get("location_status") != "unresolved":
         fuzzy_location["_from_text"] = True
         fuzzy_location["_from_context"] = False
-        return _sanitize_location_result(text, fuzzy_location)
+        return _sanitize_location_result(original_text, fuzzy_location)
 
     if (
         legacy_location.get("location_status") == "unsupported"
@@ -810,7 +1068,7 @@ def _resolve_location_pipeline(
                     ner_location["location_source"] = "ner_fallback"
                     ner_location["_from_text"] = True
                     ner_location["_from_context"] = False
-                    return _sanitize_location_result(text, ner_location)
+                    return _sanitize_location_result(original_text, ner_location)
         except Exception:
             logger.debug("chat_api NER fallback failed", exc_info=True)
 
@@ -821,7 +1079,7 @@ def _resolve_location_pipeline(
             context_location["location_confidence"] = 1.0
             context_location["_from_text"] = False
             context_location["_from_context"] = True
-            return _sanitize_location_result(text, context_location)
+            return _sanitize_location_result(original_text, context_location)
 
     if legacy_location.get("location_status") == "unsupported":
         return _convert_legacy_location(legacy_location, supported_locations)
@@ -918,6 +1176,7 @@ def _finalize_convenience_response(
     result["suggested_questions"] = [policy["next_best_question"]] if policy["next_best_question"] else []
     result["polite_bot_message"] = _build_polite_message(result, policy)
     result["bot_message"] = result["polite_bot_message"]
+    _attach_api_contract_metadata(result, policy)
     if result.get("can_show_recommendations"):
         add_confirmation_payload(result, require_confirmation=False)
 
@@ -942,44 +1201,57 @@ def _finalize_convenience_response(
 
 
 def _build_polite_message(result: dict[str, Any], policy: dict[str, Any]) -> str:
-    intent = result.get("conversation_intent") or result.get("intent")
-    status = result.get("location_status")
+    return ResponseGenerator(
+        terminal_intents=TERMINAL_INTENTS,
+        message_slots_with_location=_message_slots_with_location,
+        format_vnd=_format_vnd,
+    ).generate(result, policy)
 
-    if intent == "off_topic":
-        return build_off_topic_message()
-    if intent == "greeting":
-        return build_greeting_message()
-    if intent == "thanks":
-        return build_thanks_message()
-    if intent == "goodbye":
-        return build_goodbye_message()
-    if intent == "help":
-        return build_help_message()
-    if status == "multiple_choice":
-        return build_multiple_choice_message(result.get("location_candidates") or [])
-    if status == "conflict":
-        return build_conflict_message(result)
-    if policy.get("confirmation_type") == "implicit" and policy.get("assumptions"):
-        return build_implicit_confirmation_message(policy["assumptions"][0])
-    if policy.get("recommendation_level") == "full":
-        return build_full_message(_message_slots_with_location(result))
-    if policy.get("recommendation_level") == "partial":
-        return build_partial_message(
-            _message_slots_with_location(result),
-            assumptions=policy.get("assumptions"),
-            next_best_question=policy.get("next_best_question"),
-        )
-    if status == "ambiguous":
-        return build_explicit_confirmation_message(result.get("location_candidates") or [])
-    if status == "unsupported":
-        return build_unsupported_message()
-    if result.get("unresolved_location"):
-        return build_unresolved_place_message()
-    if status == "unresolved":
-        return build_unresolved_location_message()
-    if intent == "unknown":
-        return build_unknown_message()
-    return build_unknown_message()
+
+def _attach_api_contract_metadata(result: dict[str, Any], policy: dict[str, Any]) -> None:
+    debug_metadata = result.get("debug_metadata") or {}
+    result.setdefault("protected_spans", debug_metadata.get("protected_spans") or [])
+    result["location_meta"] = {
+        "status": result.get("location_status"),
+        "mode": result.get("location_mode"),
+        "source": result.get("location_source"),
+        "phrase": result.get("location_phrase") or result.get("matched_text"),
+        "confidence": result.get("location_confidence") or 0.0,
+        "geocoder_called": bool(result.get("geocoder_called")),
+        "geocoder_reason": result.get("geocoder_reason"),
+        "canonical_area": result.get("canonical_area"),
+        "display_label": result.get("location_display_label"),
+        "anchor": {
+            "name": result.get("anchor_name"),
+            "kind": result.get("anchor_kind"),
+            "lat": result.get("anchor_lat"),
+            "lon": result.get("anchor_lon"),
+            "radius_km": result.get("anchor_radius_km"),
+        },
+        "map": {
+            "area": result.get("map_area"),
+            "display_name": result.get("map_display_name"),
+            "address": result.get("map_address") or {},
+        },
+        "rejected_geocoder_results": result.get("rejected_geocoder_results") or [],
+    }
+    result["clarification"] = build_clarification_payload(result, policy)
+
+
+def _build_city_center_message(result: dict[str, Any], policy: dict[str, Any]) -> str:
+    slots = result.get("slots") or {}
+    label = result.get("location_display_label") or result.get("anchor_name") or "trung tâm thành phố"
+    parts = [f"Được nhé, mình sẽ tìm các chỗ ở gần {label}"]
+    guest_count = slots.get("guest_count")
+    budget_max = slots.get("budget_max") or slots.get("budget")
+    if guest_count:
+        parts.append(f"cho {guest_count} người")
+    if budget_max:
+        parts.append(f"ngân sách dưới {_format_vnd(budget_max)}/đêm")
+    message = ", ".join(parts) + "."
+    if policy.get("recommendation_level") == "partial" and policy.get("next_best_question"):
+        message = f"{message} {policy['next_best_question']}"
+    return message
 
 
 def _policy_reason(result: dict[str, Any]) -> str:
@@ -1043,15 +1315,23 @@ def _finalize_parse_result(
     *,
     locale: str,
     context_slots: dict[str, Any] | None,
+    include_debug: bool | None = None,
 ) -> dict[str, Any]:
     router = classify_message(text, context_slots=context_slots, locale=locale)
     normalized = normalize_user_text(text)
+    slot_parse_context = build_slot_parse_context(text)
     slots = validate_slots(merge_slot_context(result.get("slots") or {}, context_slots))
     result["slots"] = slots
     result["missing_slots"] = core_missing_slots(slots)
+    result["protected_spans"] = public_protected_spans(slot_parse_context)
 
     if not result.get("location_confidence"):
-        location = _resolve_location_pipeline(text, locale=locale, context_slots=context_slots)
+        location = _resolve_location_pipeline(
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            slot_parse_context=slot_parse_context,
+        )
         if location.get("location_status") == "ok":
             result["location_status"] = "ok"
             result["canonical_area"] = location.get("canonical_area")
@@ -1063,15 +1343,30 @@ def _finalize_parse_result(
         result["location_confidence"] = location.get("location_confidence", 0.0)
         result["location_source"] = location.get("location_source", "none")
         result["matched_text"] = location.get("matched_text")
+        if _include_debug_metadata(include_debug):
+            _attach_parse_debug_metadata(result, slot_parse_context=slot_parse_context, location=location)
+    elif _include_debug_metadata(include_debug) and not result.get("debug_metadata"):
+        _attach_parse_debug_metadata(result, slot_parse_context=slot_parse_context)
 
     result["conversation_intent"] = router["intent"]
     return _finalize_convenience_response(result, text, router=router, normalized=normalized, llm_called=result.get("llm_called"))
 
 
-def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, Any] | None = None) -> dict[str, Any]:
+def parse_user_text(
+    text: str,
+    *,
+    locale: str = "vi",
+    context_slots: dict[str, Any] | None = None,
+    include_debug: bool | None = None,
+) -> dict[str, Any]:
     """Public parser entrypoint kept backward-compatible for existing callers."""
 
-    fallback_result = parse_user_text_rule_based(text, locale=locale, context_slots=context_slots)
+    fallback_result = parse_user_text_rule_based(
+        text,
+        locale=locale,
+        context_slots=context_slots,
+        include_debug=include_debug,
+    )
     fast_result = fallback_result
 
     strategy = _llm_strategy()
@@ -1090,7 +1385,13 @@ def parse_user_text(text: str, *, locale: str = "vi", context_slots: dict[str, A
             fallback_result=fallback_result,
         )
         result["llm_called"] = True
-        return _finalize_parse_result(result, text, locale=locale, context_slots=context_slots)
+        return _finalize_parse_result(
+            result,
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            include_debug=include_debug,
+        )
     except Exception:
         logger.exception("chat_api hf parser failed before fallback")
 
