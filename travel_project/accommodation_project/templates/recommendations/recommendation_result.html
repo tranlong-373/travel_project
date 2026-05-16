@@ -16,9 +16,11 @@
             {% endif %}
             &nbsp;|&nbsp;
             {{ total_results }} kết quả
-            {% if preference.user_latitude and preference.user_longitude and preference.location_mode == "near_anchor" %}
-                <br><strong>Đang gợi ý quanh {{ preference.location_label|default:"địa điểm bạn chọn" }} trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
-            {% elif preference.user_latitude and preference.user_longitude and preference.location_mode == "near_user" %}
+            {% if search_origin.type == "anchor" %}
+                <br><strong>Đang gợi ý quanh {{ search_origin.label|default:"địa điểm bạn chọn" }} trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
+            {% elif search_origin.type == "semantic_center" %}
+                <br><strong>Đang gợi ý quanh {{ search_origin.label|default:"trung tâm thành phố" }} trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
+            {% elif search_origin.type == "user_location" %}
                 <br><strong>Đang gợi ý theo vị trí hiện tại trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
             {% endif %}
         </p>
@@ -142,10 +144,10 @@
                                 <p class="acc-type">{{ item.accommodation_type }}</p>
                                 <p class="acc-name">{{ item.name }}</p>
                                 <p class="acc-address"><i class="fa-solid fa-location-dot"></i> {{ item.address }}, {{ item.area }}</p>
-                                {% if preference.user_latitude and item.distance_km != None %}
+                                {% if search_origin.type != "none" and item.distance_km != None %}
                                 <p class="acc-address">
                                     <i class="fa-solid fa-route"></i>
-                                    Cách {{ preference.location_label|default:"điểm tìm kiếm" }} khoảng {{ item.distance_km|floatformat:1 }} km
+                                    Cách {{ search_origin.label|default:"điểm tìm kiếm" }} khoảng {{ item.distance_km|floatformat:1 }} km
                                 </p>
                                 {% endif %}
                             </div>

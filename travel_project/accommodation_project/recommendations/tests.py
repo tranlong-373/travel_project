@@ -9,7 +9,13 @@ from accommodations.models import Accommodation
 from chat_api.recommendation_bridge import create_preference_from_parse
 from chat_api.services import parse_user_text
 from preferences.models import UserPreference
-from .services import calculate_matching_score, get_candidate_accommodations
+from .services import (
+    calculate_matching_score,
+    get_candidate_accommodations,
+    preference_has_coordinate_origin,
+    preference_has_user_location,
+    preference_search_origin,
+)
 
 
 class SoftFilterRecommendationTests(TestCase):
@@ -92,10 +98,28 @@ class SoftFilterRecommendationTests(TestCase):
         candidates = get_candidate_accommodations(preference)
 
         self.assertEqual(preference.location_mode, "near_anchor")
+        self.assertFalse(preference_has_user_location(preference))
+        self.assertTrue(preference_has_coordinate_origin(preference))
+        self.assertEqual(preference_search_origin(preference)["type"], "anchor")
         self.assertIn(near, candidates)
         self.assertNotIn(far, candidates)
         matched_near = next(item for item in candidates if item.pk == near.pk)
         self.assertLess(matched_near.distance_km, 1)
+
+    def test_near_anchor_uses_bbox_prefilter_before_haversine(self):
+        near = self._accommodation("BBox near", price=900_000, lat=10.7799, lon=106.6992)
+        far = self._accommodation("BBox far", price=900_000, lat=11.0500, lon=106.9900)
+
+        _, pref_id = self._preference_from_text("gần nhà thờ Đức Bà")
+        preference = UserPreference.objects.get(pk=pref_id)
+
+        with patch("recommendations.services.haversine_distance_km", return_value=0.4) as mock_distance:
+            candidates = get_candidate_accommodations(preference)
+
+        self.assertIn(near, candidates)
+        self.assertNotIn(far, candidates)
+        self.assertEqual(mock_distance.call_count, 1)
+        self.assertIn("min_lat", preference.last_bbox_prefilter)
 
     def test_unseeded_tourist_anchor_recommendation_uses_distance(self):
         near = self._accommodation("Cu Chi nearby stay", price=900_000, lat=11.1450, lon=106.4640)

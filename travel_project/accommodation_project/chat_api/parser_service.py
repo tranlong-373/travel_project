@@ -46,6 +46,7 @@ from .response_templates import (
     build_unsupported_message,
 )
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
+from .search_origin import build_search_origin
 from .slot_pipeline import build_slot_parse_context
 from .slot_validator import core_missing_slots, extract_slots_from_text, merge_slot_context, validate_slots
 from .text_normalizer import normalize_user_text
@@ -1156,6 +1157,7 @@ def _finalize_convenience_response(
         normalized = normalize_user_text(text)
 
     result["conversation_intent"] = result.get("conversation_intent") or router.get("intent") or result.get("intent")
+    result.setdefault("raw_text", normalized["raw_text"])
     result.setdefault("location_confidence", 0.0)
     result.setdefault("location_source", "none")
     result.setdefault("matched_text", None)
@@ -1211,9 +1213,14 @@ def _build_polite_message(result: dict[str, Any], policy: dict[str, Any]) -> str
 def _attach_api_contract_metadata(result: dict[str, Any], policy: dict[str, Any]) -> None:
     debug_metadata = result.get("debug_metadata") or {}
     result.setdefault("protected_spans", debug_metadata.get("protected_spans") or [])
+    search_origin = build_search_origin(result)
+    result["search_origin"] = search_origin
+    result["slot_confidence"] = _slot_confidence_payload(result)
     result["location_meta"] = {
         "status": result.get("location_status"),
         "mode": result.get("location_mode"),
+        "origin_type": search_origin["type"],
+        "search_origin": search_origin,
         "source": result.get("location_source"),
         "phrase": result.get("location_phrase") or result.get("matched_text"),
         "confidence": result.get("location_confidence") or 0.0,
@@ -1236,6 +1243,47 @@ def _attach_api_contract_metadata(result: dict[str, Any], policy: dict[str, Any]
         "rejected_geocoder_results": result.get("rejected_geocoder_results") or [],
     }
     result["clarification"] = build_clarification_payload(result, policy)
+
+
+def _slot_confidence_payload(result: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    slots = result.get("slots") or {}
+    protected_spans = result.get("protected_spans") or []
+    payload: dict[str, dict[str, Any]] = {}
+
+    def add(name: str, value: Any, confidence: float, source: str) -> None:
+        if value in (None, "", [], {}):
+            return
+        payload[name] = {
+            "value": value,
+            "confidence": round(float(confidence), 3),
+            "source": source,
+            "status": _confidence_status(confidence),
+        }
+
+    span_types = {span.get("type") for span in protected_spans if isinstance(span, dict)}
+    type_source = "deterministic_fuzzy" if "accommodation_type" in span_types else "deterministic"
+    amenity_source = "deterministic" if "amenity" in span_types else "deterministic"
+
+    add("accommodation_types", slots.get("accommodation_types"), 0.95, type_source)
+    add("amenities", slots.get("required_amenities"), 0.92, amenity_source)
+    add("budget_min", slots.get("budget_min"), 0.95, "deterministic")
+    add("budget_max", slots.get("budget_max") or slots.get("budget"), 0.95, "deterministic")
+    add("guest_count", slots.get("guest_count"), 0.95, "deterministic")
+    add("sort", slots.get("priorities"), 0.8, "deterministic")
+
+    location_value = result.get("location_phrase") or result.get("canonical_area") or result.get("location_display_label")
+    if location_value:
+        confidence = float(result.get("location_confidence") or 0.0)
+        add("location", location_value, confidence, result.get("location_source") or "deterministic")
+    return payload
+
+
+def _confidence_status(confidence: float) -> str:
+    if confidence >= 0.80:
+        return "accepted"
+    if confidence >= 0.55:
+        return "needs_confirmation"
+    return "ignored"
 
 
 def _build_city_center_message(result: dict[str, Any], policy: dict[str, Any]) -> str:

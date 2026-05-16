@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 from .filter_tree import build_filter_tree, soft_filter_summary
 from .recommendation_bridge import attach_recommendation_action, create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
+from .search_origin import build_search_origin
 from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
 from .slot_validator import core_missing_slots, validate_slots
 from .text_normalizer import normalize_user_text
@@ -221,9 +222,12 @@ def _attach_user_location(result, user_location):
     result["missing_filter_slots"] = tree["missing_slots"]
     result["partial_intent"] = tree["partial_intent"]
     result["soft_filter_summary"] = soft_filter_summary(tree)
+    result["search_origin"] = build_search_origin(result)
     result["location_meta"] = {
         "status": result.get("location_status"),
         "mode": result.get("location_mode"),
+        "origin_type": result["search_origin"]["type"],
+        "search_origin": result["search_origin"],
         "source": result.get("location_source"),
         "phrase": None,
         "confidence": 1.0,

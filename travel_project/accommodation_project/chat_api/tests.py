@@ -729,6 +729,8 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertNotEqual(result.get("canonical_area"), "Nhà Bè")
         self.assertFalse(result["geocoder_called"])
         self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["search_origin"]["type"], "semantic_center")
+        self.assertEqual(result["location_meta"]["origin_type"], "semantic_center")
         mock_resolve.assert_not_called()
 
     def test_city_center_short_phrases_do_not_geocode_raw_center(self):
@@ -1145,6 +1147,10 @@ class ParseEndpointTests(SimpleTestCase):
         self.assertIn("location_meta", data)
         self.assertIn("clarification", data)
         self.assertIn("eligible", data["recommendation_action"])
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertTrue(data["recommendation_action"]["requires_submit"])
+        self.assertIsNone(data["recommendation_action"]["url"])
+        self.assertIn("slot_confidence", data)
 
     def test_api_contract_for_type_only_soft_filter(self):
         response = self.client.post(
@@ -1159,7 +1165,25 @@ class ParseEndpointTests(SimpleTestCase):
         self.assertTrue(data["can_show_recommendations"])
         self.assertFalse(data["geocoder_called"])
         self.assertEqual(data["location_meta"]["geocoder_called"], False)
-        self.assertFalse(data["recommendation_action"]["eligible"])
+        self.assertEqual(data["location_meta"]["origin_type"], "none")
+        self.assertEqual(data["search_origin"]["type"], "none")
+        self.assertEqual(data["slot_confidence"]["accommodation_types"]["status"], "accepted")
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertTrue(data["recommendation_action"]["requires_submit"])
+        self.assertIsNone(data["recommendation_action"]["url"])
+
+    def test_standalone_generic_locations_do_not_auto_geocode(self):
+        for text in ["Đại học", "Sân bay", "Trung tâm"]:
+            with self.subTest(text=text):
+                response = self.client.post(
+                    "/api/chat/parse/",
+                    data=json.dumps({"text": text}),
+                    content_type="application/json",
+                )
+                self.assertEqual(response.status_code, 200)
+                data = response.json()
+                self.assertFalse(data["geocoder_called"])
+                self.assertEqual(data["location_meta"]["geocoder_called"], False)
 
     def test_api_chat_parse_requires_text(self):
         response = self.client.post(
@@ -1323,6 +1347,7 @@ class SubmitMessagePreferenceTests(TestCase):
         self.assertTrue(data["recommendation_action"]["eligible"])
         self.assertEqual(data["recommendation_action"]["pref_id"], 123)
         self.assertEqual(data["recommendation_action"]["url"], "/recommendations/result/123/")
+        self.assertFalse(data["recommendation_action"]["requires_submit"])
         self.assertIn(
             {"key": "area", "label": "Khu vực", "value": "Quận 5", "display_value": "Quận 5"},
             data["confirm_table"],
@@ -1381,7 +1406,8 @@ class SubmitMessagePreferenceTests(TestCase):
         self.assertTrue(data["recommendation_action"]["enabled"])
         self.assertTrue(data["recommendation_action"]["eligible"])
         self.assertEqual(data["recommendation_action"]["pref_id"], 789)
-        self.assertEqual(data["recommendation_action"]["reason"], "has_usable_filters")
+        self.assertFalse(data["recommendation_action"]["requires_submit"])
+        self.assertEqual(data["recommendation_action"]["reason"], "preference_created")
         self.assertFalse(data["geocoder_called"])
         mock_bridge.assert_called_once()
 
@@ -1399,7 +1425,31 @@ class SubmitMessagePreferenceTests(TestCase):
         self.assertEqual(data["anchor_name"], "Tân Sơn Nhất")
         self.assertEqual(data["usable_filters"], ["location"])
         self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertFalse(data["recommendation_action"]["requires_submit"])
         self.assertTrue(data["recommendation_action"]["url"])
+        self.assertEqual(data["search_origin"]["type"], "anchor")
+        self.assertEqual(data["location_meta"]["origin_type"], "anchor")
+        preference = UserPreference.objects.get(pk=data["pref_id"])
+        self.assertEqual(preference.filter_tree_json["search_origin"]["type"], "anchor")
+
+    def test_browser_geolocation_is_user_location_origin(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps(
+                {
+                    "text": "gần tôi",
+                    "user_location": {"lat": 10.78, "lon": 106.70, "accuracy": 20},
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertEqual(data["search_origin"]["type"], "user_location")
+        self.assertEqual(data["location_meta"]["origin_type"], "user_location")
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertFalse(data["recommendation_action"]["requires_submit"])
 
     def test_submit_ambiguous_location_without_filters_disables_action(self):
         response = self.client.post(

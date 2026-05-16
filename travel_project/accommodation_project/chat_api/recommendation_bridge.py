@@ -6,6 +6,8 @@ from django.urls import reverse
 
 from preferences.models import UserPreference
 
+from .search_origin import COORDINATE_ORIGIN_TYPES, build_search_origin
+
 
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
 BLOCKED_INTENTS = {"off_topic", "greeting", "thanks", "help", "goodbye"}
@@ -59,15 +61,27 @@ def attach_recommendation_action(
     can_show = bool(parse_result.get("can_show_recommendations")) and bool(usable_filters)
     url = (bridge_result or {}).get("recommendation_url") or parse_result.get("recommendation_url")
     pref_id = (bridge_result or {}).get("pref_id") or parse_result.get("pref_id")
+    failed_submit = reason == "preference_not_created"
 
-    if can_show and url:
+    if can_show and url and not failed_submit:
         action = {
             "visible": True,
             "enabled": True,
             "eligible": True,
+            "requires_submit": False,
             "pref_id": pref_id,
             "url": url,
-            "reason": reason or "has_usable_filters",
+            "reason": reason or "preference_created",
+        }
+    elif can_show and not failed_submit:
+        action = {
+            "visible": True,
+            "enabled": True,
+            "eligible": True,
+            "requires_submit": True,
+            "pref_id": None,
+            "url": None,
+            "reason": "has_usable_filters",
         }
     else:
         disabled_reason = reason
@@ -77,6 +91,7 @@ def attach_recommendation_action(
             "visible": True,
             "enabled": False,
             "eligible": False,
+            "requires_submit": False,
             "pref_id": pref_id,
             "url": None,
             "reason": disabled_reason,
@@ -89,9 +104,11 @@ def attach_recommendation_action(
 
 def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]:
     user_location = _read_user_location(parse_result)
-    has_user_location = bool(user_location)
+    search_origin = build_search_origin(parse_result)
+    has_user_location = search_origin.get("type") == "user_location" and bool(user_location)
     anchor_location = _read_anchor_location(parse_result)
-    has_anchor_location = bool(anchor_location)
+    origin_location = _read_search_origin_location(search_origin)
+    has_anchor_location = bool(anchor_location or origin_location)
     filter_tree = parse_result.get("filter_tree") or {}
     location_mode = parse_result.get("location_mode") or (filter_tree.get("location") or {}).get("mode") or "unknown"
     has_usable_filter = int(filter_tree.get("usable_filter_count") or 0) > 0
@@ -114,7 +131,7 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
     slots = parse_result.get("slots") or {}
     area = slots.get("area") or parse_result.get("canonical_area")
     if has_user_location:
-        area = "Vi tri hien tai"
+        area = None
     elif location_mode == "anywhere":
         area = None
     elif location_mode == "near_anchor":
@@ -146,6 +163,9 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
             "reason": "user_missing_guest_count_safe_minimum",
         }
 
+    filter_tree_json = dict(filter_tree)
+    filter_tree_json["search_origin"] = search_origin
+
     preference_kwargs = {
         "area": area,
         "budget": budget,
@@ -153,12 +173,12 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         "preferred_type": preferred_type,
         "required_amenities": slots.get("required_amenities") or [],
         "location_mode": location_mode,
-        "location_label": parse_result.get("location_display_label") or area,
+        "location_label": search_origin.get("label") or parse_result.get("location_display_label") or area,
         "anchor_kind": parse_result.get("anchor_kind"),
-        "filter_tree_json": filter_tree,
+        "filter_tree_json": filter_tree_json,
         "soft_filter_summary": parse_result.get("soft_filter_summary") or "",
     }
-    if has_user_location:
+    if has_user_location and user_location:
         preference_kwargs.update(
             {
                 "user_latitude": user_location["lat"],
@@ -166,12 +186,13 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
                 "search_radius_km": user_location.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM,
             }
         )
-    elif has_anchor_location:
+    elif origin_location or anchor_location:
+        location = origin_location or anchor_location
         preference_kwargs.update(
             {
-                "user_latitude": anchor_location["lat"],
-                "user_longitude": anchor_location["lon"],
-                "search_radius_km": anchor_location.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM,
+                "user_latitude": location["lat"],
+                "user_longitude": location["lon"],
+                "search_radius_km": location.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM,
             }
         )
 
@@ -182,6 +203,7 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         "recommendation_url": reverse("recommendation_result", kwargs={"pref_id": preference.id}),
         "used_default_slots": used_default_slots,
         "user_location_used": has_user_location,
+        "search_origin": search_origin,
     }
 
 
@@ -230,5 +252,23 @@ def _read_anchor_location(parse_result: dict[str, Any]) -> dict[str, float] | No
     except (TypeError, ValueError):
         radius_km = DEFAULT_NEARBY_RADIUS_KM
 
+    radius_km = min(max(radius_km, 1.0), 50.0)
+    return {"lat": lat, "lon": lon, "radius_km": radius_km}
+
+
+def _read_search_origin_location(search_origin: dict[str, Any]) -> dict[str, float] | None:
+    if search_origin.get("type") not in COORDINATE_ORIGIN_TYPES:
+        return None
+    try:
+        lat = float(search_origin.get("latitude"))
+        lon = float(search_origin.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+    if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+        return None
+    try:
+        radius_km = float(search_origin.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM)
+    except (TypeError, ValueError):
+        radius_km = DEFAULT_NEARBY_RADIUS_KM
     radius_km = min(max(radius_km, 1.0), 50.0)
     return {"lat": lat, "lon": lon, "radius_km": radius_km}
