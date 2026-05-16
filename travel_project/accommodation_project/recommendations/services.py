@@ -11,6 +11,7 @@ BUDGET_RELAXATION_MULTIPLIER = 1.15
 RADIUS_RELAXATION_MULTIPLIER = 2.0
 NEARBY_RADIUS_STEPS_KM = (2.5, 5.0, 8.0, 10.0, 15.0, 20.0)
 NEARBY_LOCATION_MODES = {"near_anchor", "near_user", "city_center"}
+COORDINATE_ORIGIN_TYPES = {"anchor", "semantic_center", "user_location"}
 
 AMENITY_ALIASES = {
     # Từ khóa Wifi
@@ -149,9 +150,52 @@ def calculate_area_score(accommodation_area: str, requested_area: str) -> float:
 
 
 def preference_has_user_location(req) -> bool:
+    origin = preference_search_origin(req)
     return (
-        getattr(req, "user_latitude", None) is not None
-        and getattr(req, "user_longitude", None) is not None
+        origin["type"] == "user_location"
+        and origin["latitude"] is not None
+        and origin["longitude"] is not None
+    )
+
+
+def preference_has_coordinate_origin(req) -> bool:
+    origin = preference_search_origin(req)
+    return (
+        origin["type"] in COORDINATE_ORIGIN_TYPES
+        and origin["latitude"] is not None
+        and origin["longitude"] is not None
+    )
+
+
+def preference_search_origin(req) -> dict[str, Any]:
+    tree = preference_filter_tree(req)
+    origin = tree.get("search_origin")
+    if isinstance(origin, dict):
+        return _normalize_search_origin(origin, req)
+
+    location = tree.get("location") or {}
+    mode = preference_location_mode(req)
+    origin_type = {
+        "area": "area",
+        "city_center": "semantic_center",
+        "near_anchor": "anchor",
+        "near_user": "user_location",
+    }.get(mode, "none")
+    label = (
+        getattr(req, "location_label", None)
+        or location.get("location_display_label")
+        or location.get("canonical_area")
+        or getattr(req, "area", None)
+    )
+    return _normalize_search_origin(
+        {
+            "type": origin_type,
+            "label": label,
+            "latitude": getattr(req, "user_latitude", None),
+            "longitude": getattr(req, "user_longitude", None),
+            "radius_km": getattr(req, "search_radius_km", None),
+        },
+        req,
     )
 
 
@@ -232,15 +276,16 @@ def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) ->
 
 
 def accommodation_distance_km(accom: Accommodation, req) -> float | None:
-    if not preference_has_user_location(req):
+    origin = preference_search_origin(req)
+    if origin["type"] not in COORDINATE_ORIGIN_TYPES:
         return None
     lat = accom.latitude
     lon = accom.longitude
-    if lat is None or lon is None:
+    if lat is None or lon is None or origin["latitude"] is None or origin["longitude"] is None:
         return None
     return haversine_distance_km(
-        float(req.user_latitude),
-        float(req.user_longitude),
+        float(origin["latitude"]),
+        float(origin["longitude"]),
         float(lat),
         float(lon),
     )
@@ -361,7 +406,7 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 
     # 3. Điểm vị trí (Location Score) [0.0 - 1.0]
     location_mode = preference_location_mode(req)
-    if preference_has_user_location(req) and location_mode in NEARBY_LOCATION_MODES:
+    if preference_has_coordinate_origin(req) and location_mode in NEARBY_LOCATION_MODES:
         distance_km = getattr(accom, "distance_km", None)
         if distance_km is None:
             distance_km = accommodation_distance_km(accom, req)
@@ -403,9 +448,8 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 
 
 def get_candidate_accommodations(preference) -> list[Accommodation]:
-    all_candidates = _unique_accommodations(Accommodation.objects.all())
     location_mode = preference_location_mode(preference)
-    if location_mode in NEARBY_LOCATION_MODES and not preference_has_user_location(preference):
+    if location_mode in NEARBY_LOCATION_MODES and not preference_has_coordinate_origin(preference):
         _attach_relaxation_metadata(preference, [])
         return []
 
@@ -426,8 +470,16 @@ def get_candidate_accommodations(preference) -> list[Accommodation]:
         attempts = _nearby_attempts(preference)
 
     for relaxed, radius_multiplier, budget_multiplier, relaxed_filters in attempts:
+        pool = _unique_accommodations(
+            _candidate_queryset(
+                preference,
+                relaxed=relaxed,
+                radius_multiplier=radius_multiplier,
+                budget_multiplier=budget_multiplier,
+            )
+        )
         candidates = _apply_candidate_filters(
-            all_candidates,
+            pool,
             preference,
             relaxed=relaxed,
             radius_multiplier=radius_multiplier,
@@ -441,6 +493,53 @@ def get_candidate_accommodations(preference) -> list[Accommodation]:
 
     _attach_relaxation_metadata(preference, [], used_radius_km=getattr(preference, "search_radius_km", None))
     return []
+
+
+def _candidate_queryset(preference, *, relaxed: set[str], radius_multiplier: float, budget_multiplier: float):
+    queryset = Accommodation.objects.all()
+
+    if has_filter_node(preference, "guest_count"):
+        queryset = queryset.filter(capacity__gte=preference.guest_count)
+
+    if has_filter_node(preference, "budget_max"):
+        budget = getattr(preference, "budget", 0) or 0
+        multiplier = budget_multiplier if "budget" in relaxed else 1.0
+        if budget > 0:
+            queryset = queryset.filter(price_per_night__lte=int(budget * multiplier))
+
+    if has_filter_node(preference, "budget_min"):
+        min_budget = _int_or_none(node_value(preference, "budget_min"))
+        if min_budget:
+            queryset = queryset.filter(price_per_night__gte=min_budget)
+
+    requested_types = preference_accommodation_types(preference)
+    if "type" not in relaxed and requested_types:
+        queryset = queryset.filter(accommodation_type__in=requested_types)
+
+    location_mode = preference_location_mode(preference)
+    if location_mode in NEARBY_LOCATION_MODES and preference_has_coordinate_origin(preference):
+        origin = preference_search_origin(preference)
+        radius_km = (origin.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM) * radius_multiplier
+        bbox = origin_bounding_box(origin, radius_km)
+        if bbox:
+            min_lat, max_lat, min_lon, max_lon = bbox
+            preference.last_bbox_prefilter = {
+                "min_lat": min_lat,
+                "max_lat": max_lat,
+                "min_lon": min_lon,
+                "max_lon": max_lon,
+                "radius_km": radius_km,
+            }
+            queryset = queryset.filter(
+                latitude__isnull=False,
+                longitude__isnull=False,
+                latitude__gte=min_lat,
+                latitude__lte=max_lat,
+                longitude__gte=min_lon,
+                longitude__lte=max_lon,
+            )
+
+    return queryset
 
 
 def _nearby_attempts(preference) -> list[tuple[set[str], float, float, list[str]]]:
@@ -495,7 +594,8 @@ def _apply_candidate_filters(
 ) -> list[Accommodation]:
     output: list[Accommodation] = []
     location_mode = preference_location_mode(preference)
-    radius_km = (getattr(preference, "search_radius_km", None) or DEFAULT_NEARBY_RADIUS_KM) * radius_multiplier
+    origin = preference_search_origin(preference)
+    radius_km = (origin.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM) * radius_multiplier
     requested_amenities = normalize_amenities(getattr(preference, "required_amenities", None))
     requested_types = preference_accommodation_types(preference)
     high_rating_requested = "high_rating" in (node_value(preference, "priorities", []) or [])
@@ -526,7 +626,7 @@ def _apply_candidate_filters(
             if min_rating is not None and (item.rating or 0) < float(min_rating):
                 continue
 
-        if location_mode in NEARBY_LOCATION_MODES and preference_has_user_location(preference):
+        if location_mode in NEARBY_LOCATION_MODES and preference_has_coordinate_origin(preference):
             distance_km = accommodation_distance_km(item, preference)
             if distance_km is None:
                 continue
@@ -542,7 +642,7 @@ def _apply_candidate_filters(
 
 
 def _sort_candidate_retrieval(candidates: list[Accommodation], preference) -> list[Accommodation]:
-    if preference_location_mode(preference) in NEARBY_LOCATION_MODES:
+    if preference_location_mode(preference) in NEARBY_LOCATION_MODES and preference_has_coordinate_origin(preference):
         return sorted(candidates, key=lambda item: getattr(item, "distance_km", float("inf")))
     return candidates
 
@@ -567,7 +667,7 @@ def _applied_relaxations(
         if filter_name == "radius" and not (
             radius_multiplier > 1.0
             and preference_location_mode(preference) in NEARBY_LOCATION_MODES
-            and preference_has_user_location(preference)
+            and preference_has_coordinate_origin(preference)
         ):
             continue
         if filter_name == "budget" and not (budget_multiplier > 1.0 and has_filter_node(preference, "budget_max")):
@@ -578,9 +678,10 @@ def _applied_relaxations(
 
 
 def _used_radius_km(preference, radius_multiplier: float) -> float | None:
-    if not preference_has_user_location(preference):
+    if not preference_has_coordinate_origin(preference):
         return None
-    base_radius = getattr(preference, "search_radius_km", None) or DEFAULT_NEARBY_RADIUS_KM
+    origin = preference_search_origin(preference)
+    base_radius = origin.get("radius_km") or DEFAULT_NEARBY_RADIUS_KM
     return round(float(base_radius) * float(radius_multiplier), 2)
 
 
@@ -594,7 +695,7 @@ def _int_or_none(value: Any) -> int | None:
 def _attach_relaxation_metadata(preference, relaxed_filters: list[str], *, used_radius_km: float | None = None) -> None:
     if used_radius_km is not None:
         preference.used_radius_km = used_radius_km
-        if preference_has_user_location(preference):
+        if preference_has_coordinate_origin(preference):
             preference.search_radius_km = used_radius_km
     preference.relaxed = bool(relaxed_filters)
     preference.relaxed_filters = relaxed_filters
@@ -607,3 +708,50 @@ def _attach_relaxation_metadata(preference, relaxed_filters: list[str], *, used_
         preference.relaxation_message = "Mình cho phép ngân sách vượt nhẹ để không bỏ sót lựa chọn gần với nhu cầu của bạn."
     else:
         preference.relaxation_message = "Mình nới một vài tiêu chí mềm để có thêm lựa chọn phù hợp."
+
+
+def origin_bounding_box(origin: dict[str, Any], radius_km: float) -> tuple[float, float, float, float] | None:
+    try:
+        lat = float(origin.get("latitude"))
+        lon = float(origin.get("longitude"))
+        radius = float(radius_km)
+    except (TypeError, ValueError):
+        return None
+    if radius <= 0:
+        return None
+
+    lat_delta = radius / 110.574
+    cos_lat = max(cos(radians(lat)), 0.01)
+    lon_delta = radius / (111.320 * cos_lat)
+    return (lat - lat_delta, lat + lat_delta, lon - lon_delta, lon + lon_delta)
+
+
+def _normalize_search_origin(origin: dict[str, Any], req) -> dict[str, Any]:
+    origin_type = origin.get("type") or "none"
+    if origin_type not in {"none", "area", "semantic_center", "anchor", "user_location"}:
+        origin_type = "none"
+    latitude = _float_or_none(origin.get("latitude"))
+    longitude = _float_or_none(origin.get("longitude"))
+    radius_km = _float_or_none(origin.get("radius_km"))
+    if origin_type not in COORDINATE_ORIGIN_TYPES:
+        latitude = None
+        longitude = None
+        radius_km = None
+    elif radius_km is None:
+        radius_km = _float_or_none(getattr(req, "search_radius_km", None)) or DEFAULT_NEARBY_RADIUS_KM
+    return {
+        "type": origin_type,
+        "label": origin.get("label") or getattr(req, "location_label", None) or getattr(req, "area", None),
+        "latitude": latitude,
+        "longitude": longitude,
+        "radius_km": radius_km,
+    }
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        if value is not None:
+            return float(value)
+    except (TypeError, ValueError):
+        return None
+    return None

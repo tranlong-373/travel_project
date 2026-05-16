@@ -8,11 +8,12 @@ from .services import (
     get_candidate_accommodations,
     node_value,
     preference_accommodation_types,
-    preference_has_user_location,
+    preference_has_coordinate_origin,
+    preference_search_origin,
 )
 
 SORT_OPTIONS = (
-    ("distance_asc", "Gần bạn nhất"),
+    ("distance_asc", "Gần điểm tìm kiếm nhất"),
     ("recommended", "Phù hợp nhất"),
     ("price_asc", "Giá thấp nhất"),
     ("price_desc", "Giá cao nhất"),
@@ -87,7 +88,8 @@ def sort_scored_results(scored_results, sort_key):
 def recommendation_result(request, pref_id):
     preference = get_object_or_404(UserPreference, id=pref_id)
     active_preference = build_active_preference(preference, request.GET)
-    default_sort = "distance_asc" if preference_has_user_location(active_preference) else "recommended"
+    search_origin = preference_search_origin(active_preference)
+    default_sort = "distance_asc" if preference_has_coordinate_origin(active_preference) else "recommended"
     selected_sort = normalize_sort_key(request.GET.get("sort", default_sort))
 
     accommodations = get_candidate_accommodations(active_preference)
@@ -130,6 +132,7 @@ def recommendation_result(request, pref_id):
             'current_price': request.GET.get("price", ""),
             'current_destination': request.GET.get("destination", ""),
             'current_guests': "" if not node_value(active_preference, "guest_count") else active_preference.guest_count,
+            'search_origin': search_origin,
             'relaxed': getattr(active_preference, 'relaxed', False),
             'relaxed_filters': getattr(active_preference, 'relaxed_filters', []),
             'relaxation_message': getattr(active_preference, 'relaxation_message', ''),

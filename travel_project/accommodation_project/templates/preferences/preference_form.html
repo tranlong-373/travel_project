@@ -281,8 +281,7 @@ function addPrefConfirmationTable(result, persist = true) {
 
     const recommendationAction = result.recommendation_action || {};
     const recommendationEligible = recommendationAction.eligible !== undefined ? recommendationAction.eligible : recommendationAction.enabled;
-    const recommendationUrl = recommendationEligible ? recommendationAction.url : null;
-    if (recommendationAction.visible && recommendationUrl) {
+    if (recommendationAction.visible && recommendationEligible) {
         const recommendBtn = document.createElement('button');
         recommendBtn.type = 'button';
         recommendBtn.className = 'primary';
@@ -290,7 +289,7 @@ function addPrefConfirmationTable(result, persist = true) {
         recommendBtn.onclick = (event) => {
             event.preventDefault();
             savePrefChatScrollState();
-            window.location.assign(recommendationUrl);
+            openPrefRecommendationFromAction(result);
         };
         actions.appendChild(recommendBtn);
     }
@@ -325,6 +324,44 @@ function addPrefConfirmationTable(result, persist = true) {
             }
         });
         persistPrefChatState();
+    }
+}
+
+async function openPrefRecommendationFromAction(result) {
+    const action = result.recommendation_action || {};
+    if (action.url && !action.requires_submit) {
+        window.location.assign(action.url);
+        return;
+    }
+    if (!action.requires_submit) {
+        return;
+    }
+
+    const payload = {
+        locale: 'vi',
+        context_slots: result.slots || prefContextSlots || {}
+    };
+    if (result.raw_text) {
+        payload.text = result.raw_text;
+    } else if (result.slots) {
+        payload.confirmed_slots = result.slots;
+    }
+
+    try {
+        const res = await fetch('/chat_api/submit/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        const nextAction = data.recommendation_action || {};
+        if (nextAction.eligible && nextAction.url) {
+            window.location.assign(nextAction.url);
+            return;
+        }
+        handlePrefChatResult(data);
+    } catch (err) {
+        addMsg('Mình chưa mở được trang đề xuất, bạn thử lại giúp mình nhé.', 'bot');
     }
 }
 
