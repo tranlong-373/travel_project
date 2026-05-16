@@ -218,6 +218,7 @@ div.breadcrumbs a {
 #content {
     padding: 28px;
     color: #111827;
+    width: 95% !important;
 }
 
 #content h1 {
@@ -337,6 +338,12 @@ select:focus {
     font-weight: 800;
 }
 
+#result_list thead th a{
+    background: #eef4ff;
+    color: #0f172a;
+    font-weight: 800;
+}
+
 #result_list tbody tr,
 #result_list tbody tr:nth-child(odd),
 #result_list tbody tr:nth-child(even) {
@@ -356,8 +363,9 @@ select:focus {
 #changelist .paginator {
     background: #fff;
     border-top: 1px solid #dbe3ef;
-    color: #334155;
+    color: #334155 !important;
 }
+
 
 #changelist-filter {
     background: #fff;
@@ -394,13 +402,23 @@ select:focus {
 }
 
 #changelist-filter a {
-    color: #334155;
+    color: #334155 !important;
+    opacity: 0.8;
     font-weight: 650;
+}
+
+#change-history .paginator{
+    color: #334155 !important;
+}
+
+thead th{
+    color: #334155 !important;
+
 }
 
 #changelist-filter li.selected a,
 #changelist-filter a:hover {
-    color: #1565c0;
+    color: #1565c0 !important;
 }
 
 .object-tools a,

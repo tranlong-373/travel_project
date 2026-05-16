@@ -175,17 +175,17 @@
 
           <div class="room-meta">
             <span
-              ><i class="fa-solid fa-door-open"></i> Mã phòng: {{
-              room.room_code|default:"---" }}</span
-            >
+              ><i class="fa-solid fa-door-open"></i> 
+              Mã phòng: {{ room.room_code|default:"---" }}
+            </span>
             <span
-              ><i class="fa-solid fa-layer-group"></i> Tổng: {{ room.total_rooms
-              }}</span
-            >
+              ><i class="fa-solid fa-layer-group"></i> 
+              Tổng: {{ room.total_rooms }}
+            </span>
             <span
-              ><i class="fa-solid fa-bed"></i> Còn trống: {{
-              room.available_rooms }}</span
-            >
+              ><i class="fa-solid fa-bed"></i> 
+              Còn trống: {{ room.available_rooms }}
+            </span>
           </div>
 
           {% if room.description %}
@@ -221,7 +221,13 @@
   </div>
 
   <!-- REVIEWS -->
-  <div class="section-card">
+<!-- ═══════════════════════════════════════════════════════════════════════
+     REVIEWS + MAP — 2 cột đứng cạnh nhau
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="reviews-map-grid">
+
+  <!-- REVIEWS (cột trái) -->
+  <div class="section-card reviews-col">
     <h2 class="section-title">Đánh giá chỗ ở</h2>
 
     {% if user.is_authenticated %}
@@ -259,7 +265,7 @@
     </div>
     {% endif %}
 
-    <div class="review-list">
+    <div class="review-list scroll-inner">
       {% for review in reviews %}
       <div class="review-card">
         <div class="review-header">
@@ -287,148 +293,95 @@
       {% endfor %}
     </div>
   </div>
-</div>
 
-<!-- ═══════════════════════════════════════════════════════════════════════
-     OSM MAP BLOCK — added by OpenStreetMap_API integration
-     This block is fully independent. Existing layout above is unchanged.
-═══════════════════════════════════════════════════════════════════════ -->
-<div class="osm-map-section" id="osm-map-section">
-  <!-- Section header -->
-  <div class="osm-header">
-    <div class="osm-header-left">
-      <span class="osm-icon-pin">📍</span>
-      <div>
-        <h2 class="osm-title">Bản đồ &amp; Điểm lân cận</h2>
-        <p class="osm-subtitle">Khám phá các tiện ích xung quanh chỗ ở</p>
+  <!-- OSM MAP (cột phải) -->
+  <div class="osm-map-section" id="osm-map-section">
+    <div class="osm-header">
+      <div class="osm-header-left">
+        <div>
+          <h2 class="osm-title">Bản đồ &amp; Điểm lân cận</h2>
+          <p class="osm-subtitle">Khám phá tiện ích xung quanh</p>
+        </div>
       </div>
+      <button
+        class="osm-collapse-btn"
+        id="osm-toggle-btn"
+        onclick="osmToggleSection()"
+      >
+        <span id="osm-toggle-icon">▼</span> Thu gọn
+      </button>
     </div>
-    <button
-      class="osm-collapse-btn"
-      id="osm-toggle-btn"
-      onclick="osmToggleSection()"
-    >
-      <span id="osm-toggle-icon">▼</span> Thu gọn
-    </button>
-  </div>
 
-  <div id="osm-body">
-    <!-- Controls bar -->
-    <div class="osm-controls">
-      <!-- Radius selector -->
-      <div class="osm-control-group">
-        <label class="osm-control-label">
-          <span>🔍</span> Bán kính tìm kiếm
-        </label>
-        <div class="osm-radius-pills" id="osm-radius-pills">
-          <button
-            class="osm-pill active"
-            data-radius="1000"
-            onclick="osmSetRadius(1000, this)"
-          >
-            1 km
+    <div id="osm-body">
+      <!-- Controls bar -->
+      <div class="osm-controls">
+        <div class="osm-control-group">
+          <label class="osm-control-label">
+            <span>🔍</span> Bán kính
+          </label>
+          <div class="osm-radius-pills" id="osm-radius-pills">
+            <button class="osm-pill active" data-radius="1000" onclick="osmSetRadius(1000, this)">1 km</button>
+            <button class="osm-pill" data-radius="2000" onclick="osmSetRadius(2000, this)">2 km</button>
+            <button class="osm-pill" data-radius="3000" onclick="osmSetRadius(3000, this)">3 km</button>
+            <button class="osm-pill" data-radius="5000" onclick="osmSetRadius(5000, this)">5 km</button>
+          </div>
+        </div>
+
+        <div class="osm-control-group">
+          <label class="osm-control-label"><span>🏷️</span> Loại địa điểm</label>
+          <div class="osm-poi-filters" id="osm-poi-filters"></div>
+        </div>
+
+        <div class="osm-actions">
+          <button class="osm-btn-primary" id="osm-search-btn" onclick="osmSearchPOIs()">
+            <span class="osm-btn-icon">🔍</span>
+            <span id="osm-search-label">Tìm lân cận</span>
           </button>
-          <button
-            class="osm-pill"
-            data-radius="2000"
-            onclick="osmSetRadius(2000, this)"
-          >
-            2 km
-          </button>
-          <button
-            class="osm-pill"
-            data-radius="3000"
-            onclick="osmSetRadius(3000, this)"
-          >
-            3 km
-          </button>
-          <button
-            class="osm-pill"
-            data-radius="4000"
-            onclick="osmSetRadius(4000, this)"
-          >
-            4 km
-          </button>
-          <button
-            class="osm-pill"
-            data-radius="5000"
-            onclick="osmSetRadius(5000, this)"
-          >
-            5 km
+          <button class="osm-btn-secondary" onclick="osmClearPOIs()">
+            <span class="osm-btn-icon">&#x2715;</span> Xóa
           </button>
         </div>
       </div>
 
-      <!-- POI type filter -->
-      <div class="osm-control-group">
-        <label class="osm-control-label"> <span>🏷️</span> Loại địa điểm </label>
-        <div class="osm-poi-filters" id="osm-poi-filters">
-          <!-- Populated by JS -->
+      <!-- Map container -->
+      <div class="osm-map-wrap">
+        <div id="osm-leaflet-map"></div>
+
+        <div class="osm-loading" id="osm-loading" style="display: none">
+          <div class="osm-spinner"></div>
+          <p>Đang tải dữ liệu...</p>
+        </div>
+
+        <div class="osm-status-bar" id="osm-status-bar" style="display: none">
+          <span id="osm-status-text"></span>
+        </div>
+
+        <div class="osm-map-results" id="osm-map-results" style="display: none">
+          <div class="osm-map-results-head">
+            <span id="osm-map-results-title">Địa điểm tìm thấy</span>
+            <button type="button" onclick="document.getElementById('osm-map-results').style.display='none'">
+              &#x2715;
+            </button>
+          </div>
+          <div class="osm-map-results-list" id="osm-map-results-list"></div>
         </div>
       </div>
 
-      <!-- Actions -->
-      <div class="osm-actions">
-        <button
-          class="osm-btn-primary"
-          id="osm-search-btn"
-          onclick="osmSearchPOIs()"
-        >
-          <span class="osm-btn-icon">🔍</span>
-          <span id="osm-search-label">Tìm địa điểm lân cận</span>
-        </button>
-        <button class="osm-btn-secondary" onclick="osmClearPOIs()">
-          <span class="osm-btn-icon">&#x2715;</span> Xóa kết quả
-        </button>
-      </div>
-    </div>
-
-    <!-- Map container -->
-    <div class="osm-map-wrap">
-      <div id="osm-leaflet-map"></div>
-
-      <!-- Loading overlay -->
-      <div class="osm-loading" id="osm-loading" style="display: none">
-        <div class="osm-spinner"></div>
-        <p>Đang tải dữ liệu...</p>
-      </div>
-
-      <!-- Status bar -->
-      <div class="osm-status-bar" id="osm-status-bar" style="display: none">
-        <span id="osm-status-text"></span>
-      </div>
-
-      <!-- Floating map results -->
-      <div class="osm-map-results" id="osm-map-results" style="display: none">
-        <div class="osm-map-results-head">
-          <span id="osm-map-results-title">Địa điểm tìm thấy</span>
-          <button type="button" onclick="document.getElementById('osm-map-results').style.display='none'">
+      <!-- POI legend / list -->
+      <div class="osm-poi-panel" id="osm-poi-panel" style="display: none">
+        <div class="osm-poi-panel-header">
+          <h3 id="osm-poi-count-title">Kết quả tìm kiếm</h3>
+          <button class="osm-close-panel"
+            onclick="document.getElementById('osm-poi-panel').style.display = 'none'">
             &#x2715;
           </button>
         </div>
-        <div class="osm-map-results-list" id="osm-map-results-list"></div>
-      </div>
-    </div>
-
-    <!-- POI legend / list -->
-    <div class="osm-poi-panel" id="osm-poi-panel" style="display: none">
-      <div class="osm-poi-panel-header">
-        <h3 id="osm-poi-count-title">Kết quả tìm kiếm</h3>
-        <button
-          class="osm-close-panel"
-          onclick="
-            document.getElementById('osm-poi-panel').style.display = 'none'
-          "
-        >
-          &#x2715;
-        </button>
-      </div>
-      <div class="osm-poi-list" id="osm-poi-list">
-        <!-- Populated by JS -->
+        <div class="osm-poi-list" id="osm-poi-list"></div>
       </div>
     </div>
   </div>
 </div>
+<!-- ════════════════════════════════════════ end Reviews + Map -->
 <!-- ════════════════════════════════════════ end OSM block -->
 
 <style>
@@ -437,6 +390,143 @@
     margin: 0 auto;
     padding: 24px;
   }
+
+  /* ===== REVIEWS + MAP GRID 2 CỘT ===== */
+.reviews-map-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  max-width: 1400px;
+  margin: 0 auto 28px;
+  align-items: start;
+}
+
+.reviews-map-grid .section-card,
+.reviews-map-grid .osm-map-section {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+}
+
+.reviews-map-grid .reviews-col {
+  padding: 24px;
+  max-height: 760px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.reviews-map-grid .reviews-col .section-title {
+  font-size: 22px;
+  margin-bottom: 16px;
+}
+
+.reviews-map-grid .review-form-box {
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.reviews-map-grid .review-form-box h3 {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+.reviews-map-grid .scroll-inner {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.reviews-map-grid .review-card {
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+/* Map cột phải - thu nhỏ */
+.reviews-map-grid .osm-map-section {
+  padding: 0;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+  background: #fff;
+}
+
+.reviews-map-grid .osm-header {
+  border-radius: 0;
+  padding: 16px 20px;
+}
+
+.reviews-map-grid .osm-title {
+  font-size: 18px;
+}
+
+.reviews-map-grid .osm-subtitle {
+  font-size: 12px;
+}
+
+.reviews-map-grid .osm-controls {
+  padding: 14px 18px;
+  gap: 12px;
+}
+
+.reviews-map-grid .osm-control-group {
+  min-width: 100%;
+  flex: 1 1 100%;
+}
+
+.reviews-map-grid .osm-pill {
+  padding: 5px 12px;
+  font-size: 12px;
+}
+
+.reviews-map-grid .osm-poi-chip {
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.reviews-map-grid .osm-btn-primary,
+.reviews-map-grid .osm-btn-secondary {
+  padding: 9px 14px;
+  font-size: 13px;
+}
+
+.reviews-map-grid #osm-leaflet-map {
+  height: 420px;
+}
+
+.reviews-map-grid .osm-map-results {
+  width: min(280px, calc(100% - 24px));
+  max-height: 340px;
+}
+
+.reviews-map-grid .osm-poi-panel {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-top: 1px solid #e2e8f0;
+}
+
+.reviews-map-grid .osm-poi-list {
+  max-height: 220px;
+}
+
+/* Responsive: stack lại trên màn hình nhỏ */
+@media (max-width: 1100px) {
+  .reviews-map-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .reviews-map-grid .reviews-col {
+    max-height: none;
+  }
+
+  .reviews-map-grid #osm-leaflet-map {
+    height: 380px;
+  }
+}
 
   .top-card,
   .section-card {

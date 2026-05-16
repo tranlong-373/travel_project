@@ -2167,7 +2167,7 @@
     grid-template-columns: repeat(3, 1fr);
     gap: 28px;
     width: 100%;
-    margin-top: 48px;
+    margin: 48px 0;
 }
 
 .review-card {
@@ -2233,11 +2233,12 @@
 
 /* No reviews state */
 .no-reviews {
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 60px 20px;
-    color: #94a3b8;
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
 }
 
 .no-reviews-icon {
