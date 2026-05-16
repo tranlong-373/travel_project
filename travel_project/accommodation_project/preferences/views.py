@@ -7,11 +7,13 @@ def preference_form_view(request):
         form = PreferenceForm(request.POST)
         if form.is_valid():
             preference = UserPreference.objects.create(
-                area=form.cleaned_data['area'],
+                area=form.cleaned_data['area'] or None,
                 budget=form.cleaned_data['budget'],
                 guest_count=form.cleaned_data['guest_count'],
                 preferred_type=form.cleaned_data.get('preferred_type') or None,
                 required_amenities=form.cleaned_data['required_amenities'],
+                location_mode='area' if form.cleaned_data['area'] else 'unknown',
+                location_label=form.cleaned_data['area'] or None,
             )
             return redirect('recommendation_result', pref_id=preference.id)
     else:

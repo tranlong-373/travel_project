@@ -18,7 +18,7 @@ AMENITY_CHOICES = [
 ]
 
 class PreferenceForm(forms.Form):
-    area = forms.CharField(max_length=100)
+    area = forms.CharField(max_length=100, required=False)
     budget = forms.IntegerField()
     guest_count = forms.IntegerField()
     preferred_type = forms.ChoiceField(choices=TYPE_CHOICES, required=False)

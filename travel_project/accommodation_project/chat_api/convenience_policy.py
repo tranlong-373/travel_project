@@ -11,6 +11,13 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
     location_status = parse_result.get("location_status") or "unresolved"
     canonical_area = parse_result.get("canonical_area") or slots.get("area")
     confidence = float(parse_result.get("location_confidence") or 0.0)
+    location_mode = parse_result.get("location_mode") or (parse_result.get("filter_tree") or {}).get("location", {}).get("mode")
+    usable_filter_count = int((parse_result.get("filter_tree") or {}).get("usable_filter_count") or 0)
+    has_usable_filters = usable_filter_count > 0 or _has_usable_slot(slots)
+    has_resolved_location_filter = usable_filter_count > 0 and (
+        location_mode in {"area", "near_anchor", "near_user", "anywhere"} or bool(canonical_area)
+    )
+    has_non_location_filter = _has_non_location_filter(parse_result, slots)
 
     base = {
         "recommendation_level": "none",
@@ -23,7 +30,7 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
         "assumptions": list(parse_result.get("assumptions") or []),
     }
 
-    if intent in TERMINAL_INTENTS:
+    if intent in TERMINAL_INTENTS and not (intent == "unknown" and has_usable_filters):
         base["next_best_question"] = None
         return base
 
@@ -51,7 +58,50 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
         base["quick_replies"] = _location_quick_replies(parse_result.get("location_candidates") or [])
         return base
 
-    if location_status == "ambiguous" or 0.60 <= confidence < 0.75:
+    if location_mode == "multiple_choice":
+        base.update(
+            {
+                "needs_user_action": True,
+                "needs_confirmation": True,
+                "confirmation_type": "explicit",
+                "next_best_question": "Bạn muốn chọn khu vực nào?",
+            }
+        )
+        base["quick_replies"] = _location_quick_replies(parse_result.get("location_candidates") or [])
+        return base
+
+    if location_mode == "conflict":
+        base.update(
+            {
+                "needs_user_action": True,
+                "needs_confirmation": True,
+                "confirmation_type": "explicit",
+                "next_best_question": "Bạn xác nhận lại khu vực muốn tìm giúp mình nhé?",
+            }
+        )
+        base["quick_replies"] = _location_quick_replies(parse_result.get("location_candidates") or [])
+        return base
+
+    if location_status == "unsupported" or location_mode == "unsupported":
+        base.update(
+            {
+                "needs_user_action": True,
+                "next_best_question": "Khu vực này hiện mình chưa chắc có dữ liệu. Bạn cho mình thêm ngân sách, số người hoặc chọn khu vực khác nhé?",
+            }
+        )
+        base["quick_replies"] = _popular_location_replies()
+        return base
+
+    if parse_result.get("unresolved_location"):
+        base.update(
+            {
+                "needs_user_action": True,
+                "next_best_question": "Mình chưa xác định được địa điểm này, bạn có thể nói rõ quận/thành phố không?",
+            }
+        )
+        return base
+
+    if (location_status == "ambiguous" or 0.60 <= confidence < 0.75) and not has_non_location_filter:
         base.update(
             {
                 "needs_user_action": True,
@@ -63,50 +113,46 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
         base["quick_replies"] = _location_quick_replies(parse_result.get("location_candidates") or [])
         return base
 
-    if location_status in {"unsupported", "unresolved"} or not canonical_area:
+    if not has_usable_filters:
         base.update(
             {
                 "needs_user_action": True,
-                "next_best_question": "Bạn muốn tìm chỗ ở khu vực nào?",
+                "next_best_question": _no_signal_question(parse_result),
             }
         )
-        base["quick_replies"] = _popular_location_replies()
+        base["quick_replies"] = _popular_location_replies() if not parse_result.get("explicit_anywhere") else _quick_replies_for_missing(slots)
         return base
 
-    if location_status == "ok" and canonical_area:
-        has_budget = bool(slots.get("budget") or slots.get("budget_max"))
-        has_guest_count = bool(slots.get("guest_count"))
-        full = bool(has_budget and has_guest_count)
-        base["recommendation_level"] = "full" if full else "partial"
-        base["can_show_recommendations"] = True
-        base["needs_user_action"] = False
-        if confidence >= 0.90:
-            base["needs_confirmation"] = False
-            base["confirmation_type"] = "none"
-        elif 0.75 <= confidence < 0.90:
-            base["needs_confirmation"] = False
-            base["confirmation_type"] = "implicit"
-            base["assumptions"].append(
-                {
-                    "slot": "area",
-                    "value": canonical_area,
-                    "confidence": confidence,
-                    "reason": "fuzzy_location_implicit_match",
-                }
-            )
-        else:
-            base["needs_confirmation"] = False
-            base["confirmation_type"] = "none"
+    has_budget = bool(slots.get("budget") or slots.get("budget_max") or slots.get("budget_min"))
+    has_guest_count = bool(slots.get("guest_count"))
+    has_location = location_mode in {"area", "near_anchor", "near_user", "anywhere"} or bool(canonical_area)
+    full = bool(has_budget and has_guest_count)
+    base["recommendation_level"] = "full" if full else "partial"
+    base["can_show_recommendations"] = True
+    base["needs_user_action"] = False
 
-        base["next_best_question"] = _next_best_question(slots)
-        base["quick_replies"] = _quick_replies_for_missing(slots)
-        return base
+    if location_status == "ok" and canonical_area and 0.75 <= confidence < 0.90:
+        base["confirmation_type"] = "implicit"
+        base["assumptions"].append(
+            {
+                "slot": "area",
+                "value": canonical_area,
+                "confidence": confidence,
+                "reason": "fuzzy_location_implicit_match",
+            }
+        )
 
+    base["next_best_question"] = _next_best_question(slots, has_location=has_location)
+    base["quick_replies"] = _quick_replies_for_missing(slots, has_location=has_location)
     return base
 
 
-def _next_best_question(slots: dict[str, Any]) -> str | None:
-    if not (slots.get("budget") or slots.get("budget_max")):
+def _next_best_question(slots: dict[str, Any], *, has_location: bool = False) -> str | None:
+    if not has_location and not slots.get("guest_count"):
+        return "Bạn muốn ở khu vực nào hoặc đi mấy người để mình lọc kỹ hơn không?"
+    if not has_location and not (slots.get("budget") or slots.get("budget_max")):
+        return "Bạn muốn ở khu vực nào hoặc khoảng ngân sách bao nhiêu để mình lọc kỹ hơn không?"
+    if not (slots.get("budget") or slots.get("budget_max") or slots.get("budget_min")):
         return "Nếu muốn lọc sát hơn, bạn cho mình biết thêm khoảng ngân sách/đêm nhé."
     if not slots.get("guest_count"):
         return "Bạn đi mấy người để mình lọc phòng phù hợp hơn nhé?"
@@ -115,9 +161,11 @@ def _next_best_question(slots: dict[str, Any]) -> str | None:
     return None
 
 
-def _quick_replies_for_missing(slots: dict[str, Any]) -> list[dict]:
+def _quick_replies_for_missing(slots: dict[str, Any], *, has_location: bool = False) -> list[dict]:
     replies: list[dict] = []
-    if not (slots.get("budget") or slots.get("budget_max")):
+    if not has_location:
+        replies.extend(_popular_location_replies())
+    if not (slots.get("budget") or slots.get("budget_max") or slots.get("budget_min")):
         replies.extend(
             [
                 {"label": "500k - 800k", "payload": {"budget_min": 500000, "budget_max": 800000}},
@@ -142,6 +190,56 @@ def _quick_replies_for_missing(slots: dict[str, Any]) -> list[dict]:
             ]
         )
     return replies[:5]
+
+
+def _has_usable_slot(slots: dict[str, Any]) -> bool:
+    return any(
+        bool(slots.get(key))
+        for key in (
+            "area",
+            "budget",
+            "budget_min",
+            "budget_max",
+            "guest_count",
+            "preferred_type",
+            "accommodation_type",
+            "accommodation_types",
+            "required_amenities",
+            "priorities",
+            "special_requirements",
+            "room_count",
+            "rating",
+        )
+    )
+
+
+def _has_non_location_filter(parse_result: dict, slots: dict[str, Any]) -> bool:
+    filters = (parse_result.get("filter_tree") or {}).get("filters") or []
+    if any(node.get("key") != "location" for node in filters if isinstance(node, dict)):
+        return True
+    return any(
+        bool(slots.get(key))
+        for key in (
+            "budget",
+            "budget_min",
+            "budget_max",
+            "guest_count",
+            "preferred_type",
+            "accommodation_type",
+            "accommodation_types",
+            "required_amenities",
+            "priorities",
+            "special_requirements",
+            "room_count",
+            "rating",
+        )
+    )
+
+
+def _no_signal_question(parse_result: dict) -> str:
+    if parse_result.get("explicit_anywhere"):
+        return "Được, vậy bạn cho mình thêm ngân sách, số người hoặc tiện nghi mong muốn nhé?"
+    return "Bạn muốn tìm chỗ ở theo khu vực, ngân sách, số người hoặc tiện nghi nào?"
 
 
 def _location_quick_replies(candidates: list[dict]) -> list[dict]:

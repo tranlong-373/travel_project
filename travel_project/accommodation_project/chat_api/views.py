@@ -5,6 +5,7 @@ import os
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from .filter_tree import build_filter_tree, soft_filter_summary
 from .recommendation_bridge import create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
@@ -21,7 +22,8 @@ def health(request):
             "service": "chat_api",
             "parser_mode": "hybrid_hf_transformers",
             "light_model": os.getenv("CHAT_API_LIGHT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct"),
-            "model": os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
+            "model": os.getenv("CHAT_LLM_MODEL") or os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
+            "fallback_model": os.getenv("CHAT_LLM_FALLBACK_MODEL") or os.getenv("CHAT_API_FALLBACK_MODEL") or os.getenv("CHAT_API_LIGHT_MODEL", "Qwen/Qwen2.5-0.5B-Instruct"),
             "strong_model": os.getenv("CHAT_API_STRONG_MODEL", ""),
             "llm_strategy": os.getenv("CHAT_API_LLM_STRATEGY", "auto"),
             "prompt_example_count": os.getenv("CHAT_API_PROMPT_EXAMPLE_COUNT", "5"),
@@ -198,6 +200,20 @@ def _attach_user_location(result, user_location):
     result["location_source"] = "browser_geolocation"
     result["ready_for_recommendation"] = True
     result["can_show_recommendations"] = True
+    result["location_mode"] = "near_user"
+    result["anchor_name"] = "Vị trí hiện tại"
+    result["anchor_kind"] = "user_location"
+    result["anchor_lat"] = user_location["lat"]
+    result["anchor_lon"] = user_location["lon"]
+    result["anchor_radius_km"] = 10.0
+    result["location_display_label"] = "Gần vị trí hiện tại"
+
+    tree = build_filter_tree(text="", slots=slots, location_result=result).to_dict()
+    result["filter_tree"] = tree
+    result["available_slots"] = tree["available_slots"]
+    result["missing_filter_slots"] = tree["missing_slots"]
+    result["partial_intent"] = tree["partial_intent"]
+    result["soft_filter_summary"] = soft_filter_summary(tree)
 
 
 def _build_confirmed_result(slots):

@@ -53,7 +53,7 @@ def geocode_address(address: str, country_codes: str = "vn") -> dict | None:
     """
     Forward-geocode an address string.
 
-    Returns {'lat': float, 'lon': float, 'display_name': str} or None.
+    Returns {'lat': float, 'lon': float, 'display_name': str, ...} or None.
     """
     data = _safe_get(
         NOMINATIM_SEARCH_URL,
@@ -71,6 +71,13 @@ def geocode_address(address: str, country_codes: str = "vn") -> dict | None:
             "lat": float(item["lat"]),
             "lon": float(item["lon"]),
             "display_name": item.get("display_name", address),
+            "address": item.get("address", {}),
+            "place_id": item.get("place_id"),
+            "osm_id": item.get("osm_id"),
+            "osm_type": item.get("osm_type"),
+            "class": item.get("class"),
+            "type": item.get("type"),
+            "importance": item.get("importance"),
         }
     return None
 
@@ -99,16 +106,9 @@ def get_accommodation_coordinates(accommodation) -> dict:
 
     Tries stored lat/lon first, then falls back to geocoding the address.
     """
-    lat = accommodation.latitude
-    lon = accommodation.longitude
-
-    if lat is None or lon is None:
-        # Try geocoding from address
-        query = f"{accommodation.address}, {accommodation.area}, Vietnam"
-        geo = geocode_address(query)
-        if geo:
-            lat = geo["lat"]
-            lon = geo["lon"]
+    geo = geocode_accommodation_address(accommodation)
+    lat = geo.get("lat") if geo else None
+    lon = geo.get("lon") if geo else None
 
     if lat is None or lon is None:
         return {"success": False, "error": "Không thể xác định tọa độ cho chỗ ở này."}
@@ -124,6 +124,61 @@ def get_accommodation_coordinates(accommodation) -> dict:
         "rating": accommodation.rating,
         "price_per_night": accommodation.price_per_night,
         "accommodation_type": accommodation.accommodation_type,
+    }
+
+
+def build_accommodation_geocode_query(accommodation) -> str:
+    parts = [
+        getattr(accommodation, "address", None),
+        getattr(accommodation, "area", None),
+        "Hồ Chí Minh",
+        "Việt Nam",
+    ]
+    return ", ".join(str(part).strip() for part in parts if str(part or "").strip())
+
+
+def geocode_accommodation_address(accommodation, *, save: bool = True) -> dict | None:
+    """
+    Resolve and cache an Accommodation coordinate pair.
+
+    Stored latitude/longitude are always preferred; Nominatim is called only when
+    either coordinate is missing.
+    """
+    lat = getattr(accommodation, "latitude", None)
+    lon = getattr(accommodation, "longitude", None)
+    if lat is not None and lon is not None:
+        return {"lat": float(lat), "lon": float(lon), "source": "accommodation_cache"}
+
+    query = build_accommodation_geocode_query(accommodation)
+    if not query:
+        return None
+
+    try:
+        from chat_api.services.geocoder import geocode_place
+
+        geo_result = geocode_place(query)
+    except Exception:
+        geo_result = None
+
+    if not geo_result or not geo_result.success:
+        return None
+
+    lat = geo_result.latitude
+    lon = geo_result.longitude
+    if lat is None or lon is None:
+        return None
+
+    if save:
+        accommodation.latitude = float(lat)
+        accommodation.longitude = float(lon)
+        accommodation.save(update_fields=["latitude", "longitude"])
+
+    return {
+        "lat": float(lat),
+        "lon": float(lon),
+        "source": geo_result.source or "osm",
+        "query": query,
+        "display_name": geo_result.display_name,
     }
 
 

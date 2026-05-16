@@ -4,12 +4,16 @@ from unittest.mock import patch
 
 os.environ.setdefault("CHAT_API_ENABLE_HF_AGENT", "0")
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from .agent.llm_parser import _extract_json_object
 from .agent.schema_normalizer import extract_budget_bounds, normalize_parsed_result
 from .fuzzy_location import resolve_location_fuzzy
+from .filter_tree import geocode_anchor
 from .location_gazetteer import generate_location_aliases, load_supported_locations
+from .models import PlaceReference
+from .place_geocoder import resolve_place_reference
+from .services.geocoder import build_geocode_queries
 from .services import parse_user_text
 from .text_normalizer import normalize_user_text
 
@@ -72,9 +76,10 @@ class DeterministicParserTests(SimpleTestCase):
         result = parse_user_text("Chỗ ở ở Sài Gòn gần Landmark 81 cho 2 người, 2 ngày, budget 1tr5")
 
         self.assertTrue(result["ready_for_recommendation"])
-        self.assertEqual(result["location_status"], "ok")
-        self.assertEqual(result["canonical_area"], "TP HCM")
-        self.assertEqual(result["slots"]["area"], "TP HCM")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Landmark 81")
+        self.assertEqual(result["anchor_kind"], "landmark")
+        self.assertIsNone(result["canonical_area"])
 
     def test_supported_new_fallback_location_can_recommend_partially(self):
         result = parse_user_text("Tôi cần khách sạn ở Đà Nẵng")
@@ -115,9 +120,10 @@ class DeterministicParserTests(SimpleTestCase):
     def test_cho_ray_resolves_to_supported_tp_hcm(self):
         result = parse_user_text("Hotel near Cho Ray for 1 person, 2 ngày, 700k, safe area")
 
-        self.assertEqual(result["location_status"], "ok")
-        self.assertEqual(result["canonical_area"], "TP HCM")
-        self.assertEqual(result["slots"]["area"], "TP HCM")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Chợ Rẫy")
+        self.assertEqual(result["anchor_kind"], "landmark")
+        self.assertIsNone(result["canonical_area"])
         self.assertTrue(result["ready_for_recommendation"])
 
     def test_additional_conflict_and_multiple_choice_cases(self):
@@ -553,8 +559,355 @@ class ConveniencePipelineTests(SimpleTestCase):
         result = parse_user_text("đi đâu cũng được")
 
         self.assertIsNone(result["canonical_area"])
+        self.assertEqual(result["location_mode"], "anywhere")
+        self.assertTrue(result["explicit_anywhere"])
         self.assertFalse(result["can_show_recommendations"])
-        self.assertIn("khu vực", result["polite_bot_message"])
+        self.assertIn("ngân sách", result["follow_up_question"])
+
+    def test_soft_filter_anywhere_budget_people_does_not_guess_district(self):
+        result = parse_user_text("ở đâu cũng được dưới 1 triệu cho 2 người")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "anywhere")
+        self.assertTrue(result["explicit_anywhere"])
+        self.assertIsNone(result["canonical_area"])
+        self.assertIsNone(result["slots"]["area"])
+        self.assertEqual(result["slots"]["budget_max"], 1_000_000)
+        self.assertEqual(result["slots"]["guest_count"], 2)
+        self.assertIn("budget_max", result["available_slots"])
+        self.assertIn("guest_count", result["available_slots"])
+
+    def test_soft_filter_only_budget_can_recommend(self):
+        result = parse_user_text("dưới 1 triệu")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertTrue(result["partial_intent"])
+        self.assertEqual(result["slots"]["budget_max"], 1_000_000)
+        self.assertEqual(result["filter_tree"]["filters"][0]["key"], "budget_max")
+        self.assertIn("location", result["missing_filter_slots"])
+        self.assertIn("guest_count", result["missing_filter_slots"])
+        self.assertIn("khu vực nào hoặc đi mấy người", result["follow_up_question"])
+
+    def test_soft_filter_only_guest_count_does_not_guess_district(self):
+        result = parse_user_text("cho 2 người")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["slots"]["guest_count"], 2)
+        self.assertNotEqual(result.get("canonical_area"), "Quận 2")
+        self.assertIsNone(result["slots"]["area"])
+        self.assertEqual(result["location_mode"], "unknown")
+        self.assertIn("guest_count", result["available_slots"])
+
+    def test_soft_filter_only_amenity_can_recommend(self):
+        result = parse_user_text("có hồ bơi")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertIn("pool", result["slots"]["required_amenities"])
+        amenity_nodes = [node for node in result["filter_tree"]["filters"] if node["key"] == "amenities"]
+        self.assertEqual(amenity_nodes[0]["value"], ["pool"])
+
+    def test_soft_filter_area_mode_keeps_budget_and_people(self):
+        result = parse_user_text("ở quận 3 dưới 1 triệu cho 2 người")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "area")
+        self.assertEqual(result["location_phrase"], "Quận 3")
+        self.assertEqual(result["canonical_area"], "Quận 3")
+        self.assertEqual(result["slots"]["budget_max"], 1_000_000)
+        self.assertEqual(result["slots"]["guest_count"], 2)
+
+    def test_soft_filter_near_district_uses_anchor(self):
+        result = parse_user_text("gần Thủ Đức dưới 1 triệu")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Thủ Đức")
+        self.assertEqual(result["anchor_kind"], "district")
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertGreater(result["anchor_radius_km"], 0)
+
+    def test_soft_filter_near_landmark_does_not_collapse_to_city(self):
+        result = parse_user_text("gần nhà thờ Đức Bà")
+
+        self.assertTrue(result["success"])
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_kind"], "landmark")
+        self.assertEqual(result["anchor_name"], "Nhà thờ Đức Bà")
+        self.assertIsNone(result["canonical_area"])
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+
+    def test_soft_filter_near_suoi_tien_uses_local_reference(self):
+        result = parse_user_text("gần Suối Tiên")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Suối Tiên")
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertIn("Suối Tiên", result["polite_bot_message"])
+        self.assertEqual(result["confirm_table"][0]["label"], "Khu vực")
+        self.assertEqual(result["confirm_table"][0]["display_value"], "gần Suối Tiên")
+
+    def test_soft_filter_unknown_landmark_uses_osm_geocoder(self):
+        geocode_anchor.cache_clear()
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "Phố đi bộ Nguyễn Huệ",
+                "lat": 10.7731,
+                "lon": 106.7031,
+                "display_name": "Phố đi bộ Nguyễn Huệ, Quận 1, Thành phố Hồ Chí Minh",
+                "kind": "pedestrian",
+                "default_radius_km": 5.0,
+                "source": "osm_geocoder",
+                "provider": "osm",
+                "confidence": 0.88,
+                "map_area": "Quận 1",
+                "address": {"city_district": "Quận 1"},
+                "query": "pho di bo nguyen hue, Hồ Chí Minh, Việt Nam",
+                "geocoder_queries": ["Phố đi bộ Nguyễn Huệ, Việt Nam"],
+            },
+        ) as mock_resolve:
+            result = parse_user_text("gần Phố đi bộ Nguyễn Huệ")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["location_source"], "osm_geocoder")
+        self.assertEqual(result["anchor_name"], "Phố đi bộ Nguyễn Huệ")
+        self.assertEqual(result["location_phrase"], "Phố đi bộ Nguyễn Huệ")
+        self.assertEqual(result["provider"], "osm")
+        self.assertEqual(result["resolved_place"]["canonical_name"], "Phố đi bộ Nguyễn Huệ")
+        self.assertEqual(result["map_area"], "Quận 1")
+        self.assertIsNone(result["canonical_area"])
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertIn("Quận 1 theo bản đồ", result["confirm_table"][0]["display_value"])
+        mock_resolve.assert_called_once()
+        geocode_anchor.cache_clear()
+
+    def test_required_near_landmark_geocoder_flow_for_dinh_doc_lap(self):
+        geocode_anchor.cache_clear()
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "Dinh Độc Lập",
+                "lat": 10.7770,
+                "lon": 106.6954,
+                "display_name": "Dinh Độc Lập, Quận 1, Thành phố Hồ Chí Minh",
+                "kind": "attraction",
+                "default_radius_km": 2.5,
+                "source": "osm",
+                "provider": "osm",
+                "confidence": 0.9,
+                "map_area": "Quận 1",
+                "address": {"city_district": "Quận 1"},
+                "query": "Dinh Độc Lập, Việt Nam",
+                "geocoder_queries": ["Dinh Độc Lập, Việt Nam", "Reunification Palace, Ho Chi Minh City, Vietnam"],
+            },
+        ) as mock_resolve:
+            result = parse_user_text("khách sạn gần Dinh Độc Lập")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["slots"]["preferred_type"], "hotel")
+        self.assertEqual(result["accommodation_type"], "hotel")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["location_phrase"], "Dinh Độc Lập")
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertFalse(result["unresolved_location"])
+        mock_resolve.assert_called_once()
+        geocode_anchor.cache_clear()
+
+    def test_required_near_unseeded_cu_chi_geocoder_flow(self):
+        geocode_anchor.cache_clear()
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "Địa đạo Củ Chi",
+                "lat": 11.1419,
+                "lon": 106.4625,
+                "display_name": "Địa đạo Củ Chi, Củ Chi, Thành phố Hồ Chí Minh",
+                "kind": "attraction",
+                "default_radius_km": 8.0,
+                "source": "osm",
+                "provider": "osm",
+                "confidence": 0.87,
+                "map_area": None,
+                "address": {"district": "Củ Chi"},
+                "query": "khu di tích địa đạo Củ Chi, Củ Chi, Hồ Chí Minh, Việt Nam",
+                "geocoder_queries": ["Cu Chi Tunnels, Ho Chi Minh City, Vietnam"],
+            },
+        ) as mock_resolve:
+            result = parse_user_text("gần khu di tích địa đạo Củ Chi")
+
+        self.assertTrue(result["can_show_recommendations"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["location_phrase"], "khu di tích địa đạo Củ Chi")
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertGreaterEqual(result["anchor_radius_km"], 5.0)
+        mock_resolve.assert_called_once()
+        geocode_anchor.cache_clear()
+
+    def test_nguyen_hue_typo_query_expansion(self):
+        queries = build_geocode_queries("phố đii bộ Nguyễn Huệ")
+
+        self.assertTrue(any("Nguyen Hue Walking Street" in query for query in queries))
+
+    def test_multi_turn_adds_near_anchor_to_existing_type(self):
+        geocode_anchor.cache_clear()
+        first = parse_user_text("Tôi muốn ở khách sạn")
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "Dinh Độc Lập",
+                "lat": 10.7770,
+                "lon": 106.6954,
+                "display_name": "Dinh Độc Lập, Quận 1, Thành phố Hồ Chí Minh",
+                "kind": "attraction",
+                "default_radius_km": 2.5,
+                "source": "osm",
+                "provider": "osm",
+                "confidence": 0.9,
+                "map_area": "Quận 1",
+                "address": {"city_district": "Quận 1"},
+                "query": "Dinh Độc Lập, Việt Nam",
+            },
+        ):
+            follow_up = parse_user_text("gần Dinh Độc Lập", context_slots=first["slots"])
+
+        self.assertEqual(follow_up["slots"]["preferred_type"], "hotel")
+        self.assertEqual(follow_up["location_mode"], "near_anchor")
+        self.assertEqual(follow_up["location_phrase"], "Dinh Độc Lập")
+        self.assertIsNotNone(follow_up["anchor_lat"])
+        self.assertTrue(follow_up["can_show_recommendations"])
+        geocode_anchor.cache_clear()
+
+    def test_location_only_context_understands_airport_anchor(self):
+        first = parse_user_text("Tôi muốn tìm chỗ ở")
+        follow_up = parse_user_text("Sân bay tân sơn nhất", context_slots=first["slots"])
+
+        self.assertFalse(first["can_show_recommendations"])
+        self.assertEqual(follow_up["location_mode"], "near_anchor")
+        self.assertEqual(follow_up["location_phrase"], "Sân bay Tân Sơn Nhất")
+        self.assertEqual(follow_up["anchor_name"], "Tân Sơn Nhất")
+        self.assertTrue(follow_up["can_show_recommendations"])
+        self.assertNotIn("Bạn muốn tìm chỗ ở khu vực nào", follow_up.get("polite_bot_message", ""))
+
+    def test_airport_location_typos_and_full_sentence_use_anchor(self):
+        typo = parse_user_text("Sân bay tấn sơn nhất")
+        full_sentence = parse_user_text("Tôi muốn tìm chỗ ở ở sân bay tân sơn nhất")
+
+        self.assertEqual(typo["location_mode"], "near_anchor")
+        self.assertEqual(typo["location_phrase"], "Sân bay Tân Sơn Nhất")
+        self.assertEqual(full_sentence["location_mode"], "near_anchor")
+        self.assertEqual(full_sentence["location_phrase"], "Sân bay Tân Sơn Nhất")
+        self.assertIsNone(full_sentence["canonical_area"])
+
+    def test_accommodation_type_aliases_and_multi_type_or_slots(self):
+        hostel = parse_user_text("ở trọ")
+        homstay = parse_user_text("Ở homstay")
+        honestay = parse_user_text("honestay")
+        multi = parse_user_text("Homestay, trọ")
+
+        self.assertIn("hostel", hostel["slots"]["accommodation_types"])
+        self.assertIn("homestay", homstay["slots"]["accommodation_types"])
+        self.assertIn("homestay", honestay["slots"]["accommodation_types"])
+        self.assertEqual(multi["slots"]["accommodation_types"], ["homestay", "hostel"])
+        self.assertIn("accommodation_types", multi["available_slots"])
+
+    def test_budget_range_summary_keeps_min_and_max(self):
+        result = parse_user_text("ở đâu cũng được giá tầm 2 đến 5 triệu")
+
+        self.assertEqual(result["location_mode"], "anywhere")
+        self.assertEqual(result["slots"]["budget_min"], 2_000_000)
+        self.assertEqual(result["slots"]["budget_max"], 5_000_000)
+        self.assertIn("2.000.000đ - 5.000.000đ/đêm", result["confirm_table"][1]["display_value"])
+        self.assertIn("2.000.000đ - 5.000.000đ/đêm", result["soft_filter_summary"])
+
+    def test_confirm_table_hides_internal_location_and_duplicate_type_keys(self):
+        result = parse_user_text("khách sạn gần Tân Sơn Nhất")
+
+        keys = [item["key"] for item in result["confirm_table"]]
+        labels = [item["label"] for item in result["confirm_table"]]
+
+        self.assertEqual(keys.count("preferred_type"), 1)
+        self.assertNotIn("accommodation_type", keys)
+        self.assertNotIn("location_phrase", keys)
+        self.assertNotIn("location_mode", keys)
+        self.assertNotIn("Địa điểm", labels)
+        self.assertNotIn("Kiểu vị trí", labels)
+        self.assertEqual(labels.count("Loại chỗ ở"), 1)
+
+    def test_bare_place_follow_up_uses_current_search_context(self):
+        geocode_anchor.cache_clear()
+        first = parse_user_text("Tôi muốn ở khách sạn")
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "Dinh Độc Lập",
+                "lat": 10.7770,
+                "lon": 106.6954,
+                "display_name": "Dinh Độc Lập, Quận 1, Thành phố Hồ Chí Minh",
+                "kind": "attraction",
+                "default_radius_km": 2.5,
+                "source": "osm",
+                "provider": "osm",
+                "confidence": 0.9,
+                "map_area": "Quận 1",
+                "address": {"city_district": "Quận 1"},
+                "query": "Dinh Độc Lập, Việt Nam",
+            },
+        ) as mock_resolve:
+            follow_up = parse_user_text("Dinh Độc Lập", context_slots=first["slots"])
+
+        self.assertEqual(follow_up["slots"]["preferred_type"], "hotel")
+        self.assertEqual(follow_up["location_mode"], "near_anchor")
+        self.assertEqual(follow_up["location_phrase"], "Dinh Độc Lập")
+        self.assertIsNotNone(follow_up["anchor_lat"])
+        mock_resolve.assert_called_once()
+        geocode_anchor.cache_clear()
+
+    def test_unresolved_near_landmark_blocks_recommendation(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference", return_value=None):
+            result = parse_user_text("gần abcxyz không có thật")
+
+        self.assertFalse(result["can_show_recommendations"])
+        self.assertTrue(result["unresolved_location"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["location_status"], "unresolved")
+        self.assertIsNone(result["anchor_lat"])
+        self.assertIsNone(result["anchor_lon"])
+        self.assertIn("Mình chưa xác định được địa điểm này", result["polite_bot_message"])
+        geocode_anchor.cache_clear()
+
+    def test_pending_unresolved_anchor_is_not_dropped_when_user_adds_type(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference", return_value=None):
+            first = parse_user_text("gần abcxyz không có thật")
+            follow_up = parse_user_text("Tôi muốn ở khách sạn", context_slots=first["slots"])
+
+        self.assertEqual(follow_up["slots"]["preferred_type"], "hotel")
+        self.assertEqual(follow_up["location_mode"], "near_anchor")
+        self.assertEqual(follow_up["location_phrase"], "abcxyz không có thật")
+        self.assertTrue(follow_up["unresolved_location"])
+        self.assertFalse(follow_up["can_show_recommendations"])
+        geocode_anchor.cache_clear()
+
+    def test_multiple_location_choice_is_not_anywhere(self):
+        result = parse_user_text("Hà Nội hoặc TP HCM đều được")
+
+        self.assertFalse(result["can_show_recommendations"])
+        self.assertFalse(result["explicit_anywhere"])
+        self.assertEqual(result["location_mode"], "multiple_choice")
 
 
 class ParseEndpointTests(SimpleTestCase):
@@ -618,6 +971,36 @@ class ParseEndpointTests(SimpleTestCase):
         self.assertFalse(data["ready_for_recommendation"])
         self.assertFalse(data["created_preference"])
         self.assertIsNone(data["recommendation_url"])
+
+
+class PlaceReferenceCacheTests(TestCase):
+    @patch("chat_api.services.geocoder._fetch_osm")
+    def test_resolve_place_reference_caches_osm_result(self, mock_fetch_osm):
+        mock_fetch_osm.return_value = [
+            {
+                "lat": 10.7731,
+                "lon": 106.7031,
+                "display_name": "Phố đi bộ Nguyễn Huệ, Quận 1, Thành phố Hồ Chí Minh",
+                "address": {"city_district": "Quận 1", "city": "Thành phố Hồ Chí Minh"},
+                "place_id": 123,
+                "type": "pedestrian",
+                "class": "highway",
+                "importance": 0.7,
+            }
+        ]
+
+        result = resolve_place_reference("Phố đi bộ Nguyễn Huệ")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result["lat"], 10.7731)
+        self.assertEqual(result["map_area"], "Quận 1")
+        self.assertEqual(PlaceReference.objects.count(), 1)
+
+        mock_fetch_osm.reset_mock()
+        cached = resolve_place_reference("Phố đi bộ Nguyễn Huệ")
+
+        self.assertEqual(cached["source"], "cache")
+        mock_fetch_osm.assert_not_called()
 
 
 class SubmitMessagePreferenceTests(SimpleTestCase):
@@ -709,7 +1092,7 @@ class ParserPerformanceStrategyTests(SimpleTestCase):
                 result = parse_user_text("có chỗ nào gần trung tâm, yên tĩnh, có wifi mạnh để làm việc không")
 
         mock_get_parser.assert_not_called()
-        self.assertFalse(result["ready_for_recommendation"])
+        self.assertTrue(result["ready_for_recommendation"])
         self.assertFalse(result["confirmation_required"])
         self.assertIn("area", result["missing_slots"])
         self.assertEqual(result["parser_mode"], "deterministic_fuzzy_fast")

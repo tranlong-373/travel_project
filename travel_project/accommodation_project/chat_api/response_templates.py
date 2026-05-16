@@ -5,9 +5,12 @@ from typing import Any
 
 def build_partial_message(slots, assumptions=None, next_best_question=None) -> str:
     area = _area(slots)
-    intro = f"Được nhé, mình sẽ gợi ý trước một vài chỗ ở phù hợp tại {area}."
+    if area:
+        intro = f"Được nhé, mình sẽ gợi ý trước một vài chỗ ở phù hợp tại {area}."
+    else:
+        intro = "Được nhé, mình sẽ gợi ý trước một vài chỗ ở phù hợp với điều kiện bạn vừa nói."
     if assumptions:
-        intro = f"Mình đoán bạn muốn tìm ở {area}. Mình gợi ý trước vài lựa chọn phù hợp nhé."
+        intro = f"Mình đoán bạn muốn tìm ở {area or 'khu vực này'}. Mình gợi ý trước vài lựa chọn phù hợp nhé."
     missing_hint = _missing_essential_hint(slots)
     if missing_hint:
         return f"{intro} Nếu muốn lọc sát hơn, bạn cho mình biết thêm {missing_hint} nhé."
@@ -15,7 +18,9 @@ def build_partial_message(slots, assumptions=None, next_best_question=None) -> s
 
 
 def build_full_message(slots) -> str:
-    return "Mình đã có đủ thông tin cơ bản rồi. Mình sẽ tìm các chỗ ở phù hợp nhất với khu vực, ngân sách và số người của bạn nhé."
+    if slots.get("area") or slots.get("canonical_area"):
+        return "Mình đã có đủ thông tin cơ bản rồi. Mình sẽ tìm các chỗ ở phù hợp nhất với khu vực, ngân sách và số người của bạn nhé."
+    return "Mình đã có ngân sách và số người rồi. Mình sẽ gợi ý các chỗ ở phù hợp trước, bạn có thể bổ sung khu vực sau nhé."
 
 
 def build_implicit_confirmation_message(assumption) -> str:
@@ -78,13 +83,17 @@ def build_unresolved_location_message() -> str:
     return "Bạn muốn tìm chỗ ở khu vực nào? Chỉ cần nhắn tên quận hoặc thành phố là được nhé."
 
 
+def build_unresolved_place_message() -> str:
+    return "Mình chưa xác định được địa điểm này, bạn có thể nói rõ quận/thành phố không?"
+
+
 def _area(slots: dict[str, Any]) -> str:
-    return slots.get("area") or slots.get("canonical_area") or "khu vực bạn chọn"
+    return slots.get("area") or slots.get("canonical_area") or ""
 
 
 def _missing_essential_hint(slots: dict[str, Any]) -> str:
     missing = []
-    if not (slots.get("budget") or slots.get("budget_max")):
+    if not (slots.get("budget") or slots.get("budget_max") or slots.get("budget_min")):
         missing.append("khoảng ngân sách/đêm")
     if not slots.get("guest_count"):
         missing.append("số khách")
