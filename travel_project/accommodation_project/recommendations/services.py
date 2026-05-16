@@ -10,6 +10,7 @@ DEFAULT_NEARBY_RADIUS_KM = 10.0
 BUDGET_RELAXATION_MULTIPLIER = 1.15
 RADIUS_RELAXATION_MULTIPLIER = 2.0
 NEARBY_RADIUS_STEPS_KM = (2.5, 5.0, 8.0, 10.0, 15.0, 20.0)
+NEARBY_LOCATION_MODES = {"near_anchor", "near_user", "city_center"}
 
 AMENITY_ALIASES = {
     # Từ khóa Wifi
@@ -360,7 +361,7 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 
     # 3. Điểm vị trí (Location Score) [0.0 - 1.0]
     location_mode = preference_location_mode(req)
-    if preference_has_user_location(req) and location_mode in {"near_anchor", "near_user"}:
+    if preference_has_user_location(req) and location_mode in NEARBY_LOCATION_MODES:
         distance_km = getattr(accom, "distance_km", None)
         if distance_km is None:
             distance_km = accommodation_distance_km(accom, req)
@@ -404,7 +405,7 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
 def get_candidate_accommodations(preference) -> list[Accommodation]:
     all_candidates = _unique_accommodations(Accommodation.objects.all())
     location_mode = preference_location_mode(preference)
-    if location_mode in {"near_anchor", "near_user"} and not preference_has_user_location(preference):
+    if location_mode in NEARBY_LOCATION_MODES and not preference_has_user_location(preference):
         _attach_relaxation_metadata(preference, [])
         return []
 
@@ -421,7 +422,7 @@ def get_candidate_accommodations(preference) -> list[Accommodation]:
             ["amenities", "accommodation_type", "rating", "radius", "budget"],
         ),
     ]
-    if location_mode in {"near_anchor", "near_user"}:
+    if location_mode in NEARBY_LOCATION_MODES:
         attempts = _nearby_attempts(preference)
 
     for relaxed, radius_multiplier, budget_multiplier, relaxed_filters in attempts:
@@ -525,7 +526,7 @@ def _apply_candidate_filters(
             if min_rating is not None and (item.rating or 0) < float(min_rating):
                 continue
 
-        if location_mode in {"near_anchor", "near_user"} and preference_has_user_location(preference):
+        if location_mode in NEARBY_LOCATION_MODES and preference_has_user_location(preference):
             distance_km = accommodation_distance_km(item, preference)
             if distance_km is None:
                 continue
@@ -541,7 +542,7 @@ def _apply_candidate_filters(
 
 
 def _sort_candidate_retrieval(candidates: list[Accommodation], preference) -> list[Accommodation]:
-    if preference_location_mode(preference) in {"near_anchor", "near_user"}:
+    if preference_location_mode(preference) in NEARBY_LOCATION_MODES:
         return sorted(candidates, key=lambda item: getattr(item, "distance_km", float("inf")))
     return candidates
 
@@ -565,7 +566,7 @@ def _applied_relaxations(
             continue
         if filter_name == "radius" and not (
             radius_multiplier > 1.0
-            and preference_location_mode(preference) in {"near_anchor", "near_user"}
+            and preference_location_mode(preference) in NEARBY_LOCATION_MODES
             and preference_has_user_location(preference)
         ):
             continue

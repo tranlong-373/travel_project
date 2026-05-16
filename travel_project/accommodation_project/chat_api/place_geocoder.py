@@ -3,8 +3,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .geocoder.validator import (
+    rejected_geocoder_payload as validator_rejected_geocoder_payload,
+    validate_geocode_candidate,
+)
 from .location_gazetteer import generate_location_aliases, load_supported_locations
-from .normalizers import normalize_key
+from .normalizers import normalize_common_typos, normalize_key
+from .slot_pipeline import is_ambiguous_location_phrase, is_blocked_location_phrase
 
 DEFAULT_PLACE_RADIUS_KM = 5.0
 DEFAULT_PLACE_CONTEXT = "Hồ Chí Minh, Việt Nam"
@@ -38,6 +43,19 @@ _GENERIC_NEAR_ANCHORS = {
     "safe area",
     "khu an toan",
 }
+_REJECTED_POI_TYPES = {
+    "cafe",
+    "restaurant",
+    "shop",
+    "bar",
+    "pub",
+    "fast_food",
+    "temple",
+    "place_of_worship",
+    "company",
+    "business",
+}
+_CITY_CENTER_REJECT_TYPES = _REJECTED_POI_TYPES | {"tourism", "attraction", "monument", "museum"}
 _PLACE_STOPWORDS = {
     "gan",
     "quanh",
@@ -64,14 +82,29 @@ _PLACE_STOPWORDS = {
     "pho",
     "viet",
     "nam",
+    "toi",
+    "minh",
+    "tui",
+    "em",
+    "anh",
+    "chi",
+    "muon",
+    "can",
+    "tim",
+    "kiem",
+    "tin",
 }
 
 
 def should_geocode_place_phrase(place_name: str | None) -> bool:
-    norm = normalize_key(place_name or "")
+    norm = normalize_key(normalize_common_typos(place_name or ""))
     norm = re.sub(r"[^\w\s]", " ", norm, flags=re.UNICODE)
     norm = re.sub(r"\s+", " ", norm).strip()
     if not norm:
+        return False
+    if is_blocked_location_phrase(norm):
+        return False
+    if is_ambiguous_location_phrase(norm):
         return False
     if any(norm == generic or norm.startswith(f"{generic} ") for generic in _GENERIC_NEAR_ANCHORS):
         return False
@@ -125,6 +158,30 @@ def save_place_reference(payload: dict[str, Any]) -> None:
     except Exception:
         return
     save(payload)
+
+
+def validate_geocoded_place(geocoded: dict[str, Any] | None, *, intent: str = "landmark") -> bool:
+    if not geocoded:
+        return False
+    validation = validate_geocode_candidate(geocoded)
+    if not validation.accepted:
+        return False
+    kind = normalize_key(str(geocoded.get("kind") or geocoded.get("place_type") or ""))
+    confidence = _float_or_none(geocoded.get("confidence"))
+    if confidence is not None and confidence < 0.75:
+        return False
+    if intent == "city_center":
+        return kind not in _CITY_CENTER_REJECT_TYPES
+    if intent == "airport":
+        return any(token in kind for token in ("airport", "aerodrome")) or "san bay" in normalize_key(str(geocoded.get("name") or ""))
+    if intent == "university":
+        return any(token in kind for token in ("university", "school", "college")) or "dai hoc" in normalize_key(str(geocoded.get("name") or ""))
+    return kind not in _REJECTED_POI_TYPES
+
+
+def rejected_geocoder_payload(geocoded: dict[str, Any] | None, *, reason: str) -> dict[str, Any]:
+    validation = validate_geocode_candidate(geocoded or {})
+    return validator_rejected_geocoder_payload(geocoded, reason=reason or validation.reason, validation=validation)
 
 
 def _reference_to_payload(reference) -> dict[str, Any]:

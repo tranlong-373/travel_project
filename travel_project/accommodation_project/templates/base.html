@@ -283,8 +283,10 @@
         const actions = document.createElement('div');
         actions.className = 'chat-confirm-actions';
 
-        const recommendationUrl = result.recommendation_url;
-        if (recommendationUrl) {
+        const recommendationAction = result.recommendation_action || {};
+        const recommendationEligible = recommendationAction.eligible !== undefined ? recommendationAction.eligible : recommendationAction.enabled;
+        const recommendationUrl = recommendationEligible ? recommendationAction.url : null;
+        if (recommendationAction.visible && recommendationUrl) {
             const recommendBtn = document.createElement('button');
             recommendBtn.type = 'button';
             recommendBtn.className = 'primary';
@@ -321,6 +323,7 @@
                     confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
                     primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
                     confirm_table: confirmItems,
+                    recommendation_action: result.recommendation_action || null,
                     recommendation_url: result.recommendation_url || null,
                     recommendation_level: result.recommendation_level || null
                 }
@@ -488,8 +491,15 @@
         }
 
         const primaryMessage = result.polite_bot_message || result.bot_message;
-        const recommendationUrl = data.recommendation_url || result.recommendation_url;
-        result.recommendation_url = recommendationUrl || null;
+        result.recommendation_action = data.recommendation_action || result.recommendation_action || {
+            visible: true,
+            enabled: false,
+            eligible: false,
+            url: null,
+            reason: 'no_usable_filter'
+        };
+        const recommendationEligible = result.recommendation_action.eligible !== undefined ? result.recommendation_action.eligible : result.recommendation_action.enabled;
+        result.recommendation_url = recommendationEligible ? result.recommendation_action.url : null;
         result.primary_message = primaryMessage || null;
 
         const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;

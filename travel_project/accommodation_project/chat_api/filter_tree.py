@@ -7,7 +7,13 @@ from functools import lru_cache
 from typing import Any
 
 from .normalizers import normalize_key
-from .place_geocoder import resolve_place_reference, should_geocode_place_phrase
+from .place_geocoder import (
+    rejected_geocoder_payload,
+    resolve_place_reference,
+    should_geocode_place_phrase,
+    validate_geocoded_place,
+)
+from .slot_pipeline import is_ambiguous_location_phrase, is_blocked_location_phrase
 
 
 class FilterStrength(str, Enum):
@@ -80,7 +86,7 @@ class FilterTree:
     def usable_filter_count(self) -> int:
         mode = self.location.get("mode")
         has_coordinates = self.location.get("anchor_lat") is not None and self.location.get("anchor_lon") is not None
-        location_count = 1 if mode == "area" or (mode in {"near_anchor", "near_user"} and has_coordinates) else 0
+        location_count = 1 if mode == "area" or (mode in {"near_anchor", "near_user", "city_center"} and has_coordinates) else 0
         return len(self.filters) + location_count
 
 
@@ -165,9 +171,6 @@ LOCAL_LOCATION_REFERENCES: tuple[LocationReference, ...] = (
             "sân bay tân sơn nhất",
             "san bay tan son nhat",
             "tan son nhat airport",
-            "sân bay",
-            "san bay",
-            "airport",
         ),
         "airport",
         10.8188,
@@ -295,10 +298,14 @@ def build_location_branch(
 ) -> dict[str, Any]:
     slots = slots or {}
     location_result = location_result or {}
-    norm = normalize_key(text or "")
+    debug_metadata = location_result.get("debug_metadata") or {}
+    location_text = debug_metadata.get("remaining_text_for_location") or text or ""
+    norm = normalize_key(location_text)
     user_location = slots.get("user_location") or location_result.get("user_location")
 
     branch = _empty_location_branch()
+    if debug_metadata.get("geocoder_reason"):
+        branch["geocoder_reason"] = debug_metadata["geocoder_reason"]
     if has_explicit_anywhere(text):
         branch.update(
             {
@@ -308,6 +315,49 @@ def build_location_branch(
                 "location_display_label": "Ở đâu cũng được",
                 "location_source": "deterministic_anywhere",
                 "confidence": 0.98,
+                "geocoder_called": False,
+                "geocoder_reason": "explicit_anywhere",
+                "area_match": False,
+            }
+        )
+        return branch
+
+    if slots.get("location_mode") == "anywhere" or location_result.get("location_mode") == "anywhere":
+        branch.update(
+            {
+                "mode": "anywhere",
+                "explicit_anywhere": True,
+                "strength": FilterStrength.NONE.value,
+                "location_display_label": "Ở đâu cũng được",
+                "location_source": location_result.get("location_source") or "context_anywhere",
+                "confidence": float(location_result.get("location_confidence") or 0.98),
+                "geocoder_reason": "explicit_anywhere",
+            }
+        )
+        return branch
+
+    if slots.get("location_mode") == "city_center" or location_result.get("location_mode") == "city_center":
+        branch.update(
+            {
+                "mode": "city_center",
+                "location_phrase": location_result.get("location_phrase") or slots.get("location_phrase") or "trung tâm thành phố",
+                "canonical_area": location_result.get("canonical_area") or slots.get("area"),
+                "anchor_name": location_result.get("anchor_name") or location_result.get("location_display_label") or "trung tâm thành phố",
+                "anchor_kind": "city_center",
+                "anchor_lat": _float_or_none(location_result.get("anchor_lat")),
+                "anchor_lon": _float_or_none(location_result.get("anchor_lon")),
+                "anchor_radius_km": _float_or_none(location_result.get("anchor_radius_km")) or 4.0,
+                "location_display_label": location_result.get("location_display_label") or "trung tâm thành phố",
+                "location_source": location_result.get("location_source") or "semantic_city_center",
+                "provider": location_result.get("provider") or "semantic",
+                "confidence": float(location_result.get("location_confidence") or 0.93),
+                "geocoder_called": False,
+                "geocoder_reason": location_result.get("geocoder_reason") or "abstract_city_center_location",
+                "unresolved_location": bool(location_result.get("needs_city_clarification")),
+                "needs_city_clarification": bool(location_result.get("needs_city_clarification")),
+                "ambiguous_location": bool(location_result.get("ambiguous_location")),
+                "ambiguous_location_question": location_result.get("ambiguous_location_question"),
+                "rejected_geocoder_results": location_result.get("rejected_geocoder_results") or [],
             }
         )
         return branch
@@ -342,16 +392,37 @@ def build_location_branch(
         )
         return branch
 
+    if location_result.get("location_status") == "ambiguous" or location_result.get("ambiguous_location"):
+        branch.update(
+            {
+                "mode": "unknown",
+                "location_source": location_result.get("location_source", "deterministic"),
+                "location_phrase": location_result.get("matched_text"),
+                "ambiguous_location": bool(location_result.get("ambiguous_location", True)),
+                "ambiguous_location_question": location_result.get("ambiguous_location_question"),
+                "geocoder_called": False,
+                "geocoder_reason": location_result.get("geocoder_reason") or "ambiguous_location",
+            }
+        )
+        return branch
+
     has_near_cue = bool(NEAR_CUE_PATTERN.search(norm))
-    anchor_phrase = _extract_near_anchor_phrase(text or "") if has_near_cue else None
-    local_reference = resolve_local_location_reference(anchor_phrase or text)
+    anchor_phrase = _extract_near_anchor_phrase(location_text or "") if has_near_cue else None
+    local_reference = resolve_local_location_reference(anchor_phrase or location_text)
     if has_near_cue and local_reference:
-        return _branch_from_reference(local_reference, near=True, location_phrase=anchor_phrase)
+        branch = _branch_from_reference(local_reference, near=True, location_phrase=anchor_phrase)
+        return branch
 
     if has_near_cue:
         unresolved_anchor = anchor_phrase
-        should_try_geocoder = should_geocode_place_phrase(unresolved_anchor)
+        should_try_geocoder = (
+            bool(unresolved_anchor)
+            and not is_blocked_location_phrase(unresolved_anchor)
+            and not is_ambiguous_location_phrase(unresolved_anchor)
+            and should_geocode_place_phrase(unresolved_anchor)
+        )
         geocoded = geocode_anchor(unresolved_anchor) if unresolved_anchor and should_try_geocoder else None
+        geocoded = _validated_geocoded_anchor(branch, geocoded, unresolved_anchor)
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or unresolved_anchor
             branch.update(
@@ -374,6 +445,8 @@ def build_location_branch(
                     "resolved_place": _resolved_place_payload(geocoded, anchor_name),
                     "unresolved_location": False,
                     "confidence": geocoded.get("confidence") or 0.85,
+                    "geocoder_called": _external_geocoder_called(geocoded),
+                    "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
             )
             return branch
@@ -389,29 +462,39 @@ def build_location_branch(
                     "location_source": "unresolved_near_anchor",
                     "unresolved_location": True,
                     "confidence": 0.35,
+                    "geocoder_called": True,
+                    "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
             )
             return branch
 
-    text_reference = resolve_local_location_reference(text)
+    text_reference = resolve_local_location_reference(location_text)
     if (
         text_reference
         and text_reference.kind not in {"district", "city"}
-        and _should_treat_reference_as_anchor(text, slots, location_result, text_reference)
+        and _should_treat_reference_as_anchor(location_text, slots, location_result, text_reference)
     ):
-        return _branch_from_reference(
+        branch = _branch_from_reference(
             text_reference,
             near=True,
-            location_phrase=_location_phrase_for_reference(text, text_reference),
+            location_phrase=_location_phrase_for_reference(location_text, text_reference),
         )
+        return branch
 
-    if _looks_like_place_follow_up(text, slots, location_result):
-        follow_up_phrase = _extract_standalone_place_phrase(text)
+    if _looks_like_place_follow_up(location_text, slots, location_result):
+        follow_up_phrase = _extract_standalone_place_phrase(location_text)
         local_reference = resolve_local_location_reference(follow_up_phrase)
         if local_reference and local_reference.kind not in {"district", "city"}:
-            return _branch_from_reference(local_reference, near=True, location_phrase=follow_up_phrase)
-        if follow_up_phrase and should_geocode_place_phrase(follow_up_phrase):
+            branch = _branch_from_reference(local_reference, near=True, location_phrase=follow_up_phrase)
+            return branch
+        if (
+            follow_up_phrase
+            and not is_blocked_location_phrase(follow_up_phrase)
+            and not is_ambiguous_location_phrase(follow_up_phrase)
+            and should_geocode_place_phrase(follow_up_phrase)
+        ):
             geocoded = geocode_anchor(follow_up_phrase)
+            geocoded = _validated_geocoded_anchor(branch, geocoded, follow_up_phrase)
             if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
                 anchor_name = geocoded.get("name") or geocoded.get("display_name") or follow_up_phrase
                 branch.update(
@@ -434,6 +517,8 @@ def build_location_branch(
                         "resolved_place": _resolved_place_payload(geocoded, anchor_name),
                         "unresolved_location": False,
                         "confidence": geocoded.get("confidence") or 0.8,
+                        "geocoder_called": _external_geocoder_called(geocoded),
+                        "geocoder_reason": "strong_near_anchor_or_place_phrase",
                     }
                 )
                 return branch
@@ -448,6 +533,8 @@ def build_location_branch(
                     "location_source": "unresolved_near_anchor",
                     "unresolved_location": True,
                     "confidence": 0.35,
+                    "geocoder_called": True,
+                    "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
             )
             return branch
@@ -456,7 +543,12 @@ def build_location_branch(
     canonical_area = location_result.get("canonical_area") or slots.get("area")
     pending_phrase = slots.get("location_phrase")
     if slots.get("location_mode") == "near_anchor" and pending_phrase and not canonical_area:
-        geocoded = geocode_anchor(str(pending_phrase)) if should_geocode_place_phrase(str(pending_phrase)) else None
+        geocoded = (
+            geocode_anchor(str(pending_phrase))
+            if not is_ambiguous_location_phrase(str(pending_phrase)) and should_geocode_place_phrase(str(pending_phrase))
+            else None
+        )
+        geocoded = _validated_geocoded_anchor(branch, geocoded, str(pending_phrase))
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or pending_phrase
             branch.update(
@@ -479,6 +571,8 @@ def build_location_branch(
                     "resolved_place": _resolved_place_payload(geocoded, anchor_name),
                     "unresolved_location": False,
                     "confidence": geocoded.get("confidence") or 0.8,
+                    "geocoder_called": _external_geocoder_called(geocoded),
+                    "geocoder_reason": "context_pending_near_anchor",
                 }
             )
             return branch
@@ -493,6 +587,8 @@ def build_location_branch(
                 "location_source": "unresolved_near_anchor",
                 "unresolved_location": True,
                 "confidence": 0.35,
+                "geocoder_called": bool(should_geocode_place_phrase(str(pending_phrase))),
+                "geocoder_reason": "context_pending_near_anchor",
             }
         )
         return branch
@@ -507,7 +603,17 @@ def build_location_branch(
         branch.update({"mode": "unsupported", "location_source": location_result.get("location_source", "deterministic")})
         return branch
     if location_status == "ambiguous":
-        branch.update({"mode": "unknown", "location_source": location_result.get("location_source", "deterministic")})
+        branch.update(
+            {
+                "mode": "unknown",
+                "location_source": location_result.get("location_source", "deterministic"),
+                "location_phrase": location_result.get("matched_text"),
+                "ambiguous_location": bool(location_result.get("ambiguous_location")),
+                "ambiguous_location_question": location_result.get("ambiguous_location_question"),
+                "geocoder_called": False,
+                "geocoder_reason": location_result.get("geocoder_reason") or "ambiguous_location",
+            }
+        )
         return branch
 
     if canonical_area:
@@ -531,6 +637,9 @@ def build_location_branch(
                 "location_display_label": canonical_area,
                 "location_source": location_result.get("location_source", "deterministic"),
                 "confidence": float(location_result.get("location_confidence") or 0.9),
+                "geocoder_called": False,
+                "geocoder_reason": "clear_area_match",
+                "area_match": True,
             }
         )
         return branch
@@ -602,6 +711,8 @@ def soft_filter_summary(tree: dict[str, Any] | FilterTree | None) -> str:
         parts.append("không giới hạn khu vực")
     elif mode == "area" and location.get("canonical_area"):
         parts.append(f"khu vực {location['canonical_area']}")
+    elif mode == "city_center" and location.get("location_display_label"):
+        parts.append(str(location["location_display_label"]))
     elif mode in {"near_anchor", "near_user"} and location.get("location_display_label"):
         parts.append(str(location["location_display_label"]))
 
@@ -666,7 +777,14 @@ def _empty_location_branch() -> dict[str, Any]:
         "geocoder_queries": [],
         "resolved_place": None,
         "unresolved_location": False,
+        "needs_city_clarification": False,
+        "ambiguous_location": False,
+        "ambiguous_location_question": None,
+        "rejected_geocoder_results": [],
         "confidence": 0.0,
+        "geocoder_called": False,
+        "geocoder_reason": "no_location_intent",
+        "area_match": False,
     }
 
 
@@ -707,6 +825,9 @@ def _branch_from_reference(
             },
             "unresolved_location": False,
             "confidence": 0.95,
+            "geocoder_called": False,
+            "geocoder_reason": "local_reference",
+            "area_match": reference.kind == "district",
         }
     return {
         "mode": "area",
@@ -730,6 +851,9 @@ def _branch_from_reference(
         "resolved_place": None,
         "unresolved_location": False,
         "confidence": 0.95,
+        "geocoder_called": False,
+        "geocoder_reason": "clear_area_match",
+        "area_match": True,
     }
 
 
@@ -964,6 +1088,34 @@ def _location_phrase_for_reference(text: str | None, reference: LocationReferenc
     return phrase or reference.canonical_name
 
 
+def _validated_geocoded_anchor(
+    branch: dict[str, Any],
+    geocoded: dict[str, Any] | None,
+    phrase: str | None,
+) -> dict[str, Any] | None:
+    if not geocoded:
+        return None
+    intent = _geocoder_intent_for_phrase(phrase)
+    if validate_geocoded_place(geocoded, intent=intent):
+        return geocoded
+    branch["rejected_geocoder_results"] = [
+        *branch.get("rejected_geocoder_results", []),
+        rejected_geocoder_payload(geocoded, reason=f"semantic_type_mismatch:{intent}"),
+    ]
+    return None
+
+
+def _geocoder_intent_for_phrase(phrase: str | None) -> str:
+    norm = normalize_key(phrase or "")
+    if any(token in norm for token in ("trung tam", "downtown", "city center")):
+        return "city_center"
+    if "san bay" in norm or "airport" in norm:
+        return "airport"
+    if "dai hoc" in norm or "truong" in norm:
+        return "university"
+    return "landmark"
+
+
 def _looks_like_place_follow_up(
     text: str | None,
     slots: dict[str, Any],
@@ -975,11 +1127,22 @@ def _looks_like_place_follow_up(
     if location_result.get("location_status") not in {None, "unresolved", "unsupported", "ambiguous"}:
         return False
     norm = normalize_key(phrase)
+    if is_blocked_location_phrase(norm):
+        return False
+    if is_ambiguous_location_phrase(norm):
+        return False
+    without_filler = re.sub(
+        r"\b(?:toi|minh|tui|em|anh|chi|muon|can|tim|kiem|tin|find|search|want|need)\b",
+        " ",
+        norm,
+    )
+    if not re.sub(r"\s+", " ", without_filler).strip():
+        return False
     if len(re.findall(r"\w+", norm)) < 2:
         return False
     if _is_generic_search_request_without_place(norm):
         return False
-    if re.search(r"\b(?:duoi|tren|tam|trieu|nghin|ngan|nguoi|ngay|dem|wifi|ho boi|khach san|hotel|homestay|hostel|can ho)\b", norm):
+    if re.search(r"\b(?:duoi|tren|tam|trieu|nghin|ngan|nguoi|ngay|dem|wifi|ho boi|khach san|hotel|homestay|hostel|can ho|bep|parking|may giat|dieu hoa)\b", norm):
         return False
     has_active_flow = bool(
         slots.get("search_intent")
@@ -1014,6 +1177,12 @@ def _resolved_place_payload(geocoded: dict[str, Any], anchor_name: str) -> dict[
         "source": geocoded.get("source"),
         "confidence": geocoded.get("confidence"),
     }
+
+
+def _external_geocoder_called(geocoded: dict[str, Any]) -> bool:
+    source = str(geocoded.get("source") or "").lower()
+    provider = str(geocoded.get("provider") or "").lower()
+    return source not in {"cache", "local_reference", "semantic"} and provider not in {"local", "semantic"}
 
 
 def _float_or_none(value: Any) -> float | None:

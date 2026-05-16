@@ -14,6 +14,7 @@ from .constants import (
     UNSUPPORTED_TYPE_PATTERNS,
 )
 from .normalizers import normalize_key
+from .slot_pipeline import find_accommodation_type_spans
 
 MONEY_UNITS = r"k|nghin|ngan|thousand|tr|trieu|m|cu|million|mil|mio"
 COUNT_TOKEN = r"\d+|mot|một|hai|ba|bon|bốn|tu|tư|nam|năm|sau|sáu|bay|bảy|tam|tám|chin|chín|muoi|mười|one|two|three|four|five|six|seven|eight|nine|ten"
@@ -227,12 +228,7 @@ def extract_trip_days(text: str) -> int | None:
 
 
 def find_type_candidates(text: str) -> list[str]:
-    lower_text = text.lower()
-
-    matches = []
-    for pattern, mapped in TYPE_PATTERNS:
-        for m in re.finditer(pattern, lower_text):
-            matches.append((m.start(), mapped))
+    matches = [(span.start, str(span.value)) for span in find_accommodation_type_spans(text)]
 
     if not matches:
         return []

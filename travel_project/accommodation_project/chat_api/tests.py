@@ -6,6 +6,9 @@ os.environ.setdefault("CHAT_API_ENABLE_HF_AGENT", "0")
 
 from django.test import SimpleTestCase, TestCase
 
+from accommodations.models import Accommodation
+from preferences.models import UserPreference
+
 from .agent.llm_parser import _extract_json_object
 from .agent.schema_normalizer import extract_budget_bounds, normalize_parsed_result
 from .fuzzy_location import resolve_location_fuzzy
@@ -610,6 +613,170 @@ class ConveniencePipelineTests(SimpleTestCase):
         amenity_nodes = [node for node in result["filter_tree"]["filters"] if node["key"] == "amenities"]
         self.assertEqual(amenity_nodes[0]["value"], ["pool"])
 
+    def test_protected_accommodation_type_is_not_resolved_as_location(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("tôi muốn tìm chỗ ở căn hộ", include_debug=True)
+
+        self.assertIn("apartment", result["slots"]["accommodation_types"])
+        self.assertIn(result["location_mode"], {"unknown", None})
+        self.assertIsNone(result["slots"]["area"])
+        self.assertNotEqual(result.get("canonical_area"), "Cần Thơ")
+        self.assertFalse(result["geocoder_called"])
+        mock_resolve.assert_not_called()
+        protected = result["debug_metadata"]["protected_spans"]
+        self.assertIn({"text": "căn hộ", "type": "accommodation_type", "value": "apartment"}, protected)
+
+    def test_homestay_typos_are_type_not_location(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            homtay = parse_user_text("Tôi muốn tìm hómtay", include_debug=True)
+            homstay = parse_user_text("Tôi muốn tìn nhà ở Homstay", include_debug=True)
+
+        self.assertIn("homestay", homtay["slots"]["accommodation_types"])
+        self.assertFalse(homtay["geocoder_called"])
+        self.assertIn("homestay", homstay["slots"]["accommodation_types"])
+        self.assertNotEqual(homstay.get("canonical_area"), "Nhà Bè")
+        self.assertIsNone(homstay["slots"]["area"])
+        self.assertFalse(homstay["geocoder_called"])
+        mock_resolve.assert_not_called()
+
+    def test_single_generic_nha_is_not_nha_be_location(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("Nhà", include_debug=True)
+
+        self.assertNotEqual(result.get("canonical_area"), "Nhà Bè")
+        self.assertIsNone(result["slots"]["area"])
+        self.assertEqual(result["location_mode"], "unknown")
+        self.assertFalse(result["geocoder_called"])
+        self.assertEqual(result["follow_up_question"], "Bạn muốn tìm loại chỗ ở nào hoặc khu vực nào rõ hơn không?")
+        mock_resolve.assert_not_called()
+
+    def test_parking_and_kitchen_amenities_do_not_geocode(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            parking = parse_user_text("parking", include_debug=True)
+            co_parking = parse_user_text("có parking", include_debug=True)
+            kitchen = parse_user_text("có bếp", include_debug=True)
+
+        self.assertIn("parking", parking["slots"]["required_amenities"])
+        self.assertFalse(parking["geocoder_called"])
+        self.assertIn("parking", co_parking["slots"]["required_amenities"])
+        self.assertFalse(co_parking["geocoder_called"])
+        self.assertIn("kitchen", kitchen["slots"]["required_amenities"])
+        self.assertFalse(kitchen["geocoder_called"])
+        self.assertNotIn("Bếp Nhà", str(kitchen.get("location_display_label") or ""))
+        mock_resolve.assert_not_called()
+
+    def test_amenity_plus_clear_area_keeps_only_area_location(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("có bếp gần Nhà Bè", include_debug=True)
+
+        self.assertIn("kitchen", result["slots"]["required_amenities"])
+        self.assertEqual(result["canonical_area"], "Nhà Bè")
+        self.assertEqual(result["location_mode"], "area")
+        self.assertTrue(result["area_match"])
+        self.assertFalse(result["geocoder_called"])
+        mock_resolve.assert_not_called()
+
+    def test_type_plus_strong_place_phrase_uses_near_anchor(self):
+        result = parse_user_text("căn hộ gần sân bay tân sơn nhất", include_debug=True)
+
+        self.assertIn("apartment", result["slots"]["accommodation_types"])
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["location_phrase"], "sân bay tân sơn nhất")
+        self.assertEqual(result["anchor_name"], "Tân Sơn Nhất")
+        self.assertFalse(result["geocoder_called"])
+
+    def test_generic_airport_needs_clarification_without_geocoder(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("gần sân bay", include_debug=True)
+
+        self.assertTrue(result["ambiguous_location"])
+        self.assertFalse(result["can_show_recommendations"])
+        self.assertFalse(result["geocoder_called"])
+        self.assertIsNone(result["anchor_lat"])
+        self.assertIn("sân bay nào", result["follow_up_question"])
+        mock_resolve.assert_not_called()
+
+    def test_lang_dai_hoc_does_not_autopick_cafe(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("Làng đại học", include_debug=True)
+
+        self.assertTrue(result["ambiguous_location"])
+        self.assertFalse(result["geocoder_called"])
+        self.assertNotEqual(result.get("anchor_kind"), "cafe")
+        mock_resolve.assert_not_called()
+
+    def test_city_center_typo_is_semantic_location_not_poi(self):
+        geocode_anchor.cache_clear()
+        text = "Tôi muốn đi chơi ở truang tâm thành phố cậu kiếm nhà hay khách sạn ở đâu gần đó nhé tầm 2 người chi phí dưới 5 triệu"
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text(text, include_debug=True)
+
+        self.assertIn("trung tâm thành phố", result["debug_metadata"]["normalized_text"])
+        self.assertEqual(result["location_mode"], "city_center")
+        self.assertEqual(result["location_phrase"], "trung tâm thành phố")
+        self.assertEqual(result["anchor_kind"], "city_center")
+        self.assertEqual(result["slots"]["guest_count"], 2)
+        self.assertEqual(result["slots"]["budget_max"], 5_000_000)
+        self.assertIn("hotel", result["slots"]["accommodation_types"])
+        self.assertNotIn("nhẹ cafe", str(result.get("location_display_label") or "").lower())
+        self.assertNotEqual(result.get("canonical_area"), "Nhà Bè")
+        self.assertFalse(result["geocoder_called"])
+        self.assertTrue(result["can_show_recommendations"])
+        mock_resolve.assert_not_called()
+
+    def test_city_center_short_phrases_do_not_geocode_raw_center(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            center = parse_user_text("trung tâm thành phố", include_debug=True)
+            near_center = parse_user_text("gần trung tâm", include_debug=True)
+
+        self.assertEqual(center["location_mode"], "city_center")
+        self.assertFalse(center["geocoder_called"])
+        self.assertEqual(center["debug_metadata"]["geocoder_block_reason"], "abstract_city_center_location")
+        self.assertEqual(near_center["location_mode"], "city_center")
+        self.assertFalse(near_center["geocoder_called"])
+        mock_resolve.assert_not_called()
+
+    def test_house_or_hotel_is_lodging_not_location(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("nhà hay khách sạn", include_debug=True)
+
+        self.assertIn("hotel", result["slots"]["accommodation_types"])
+        self.assertNotEqual(result.get("canonical_area"), "Nhà Bè")
+        self.assertIn(result["location_mode"], {"unknown", None})
+        self.assertFalse(result["geocoder_called"])
+        mock_resolve.assert_not_called()
+
+    def test_city_center_rejects_cafe_geocoder_candidate(self):
+        geocode_anchor.cache_clear()
+        with patch(
+            "chat_api.filter_tree.resolve_place_reference",
+            return_value={
+                "name": "nhẹ cafe - Đền Đô",
+                "lat": 21.1,
+                "lon": 105.9,
+                "display_name": "nhẹ cafe - Đền Đô",
+                "kind": "cafe",
+                "confidence": 0.9,
+                "provider": "osm",
+            },
+        ) as mock_resolve:
+            result = parse_user_text("trung tâm thành phố", include_debug=True)
+
+        self.assertEqual(result["location_mode"], "city_center")
+        self.assertNotEqual(result.get("anchor_name"), "nhẹ cafe - Đền Đô")
+        self.assertFalse(result["geocoder_called"])
+        self.assertEqual(result["rejected_geocoder_results"], [])
+        mock_resolve.assert_not_called()
+
     def test_soft_filter_area_mode_keeps_budget_and_people(self):
         result = parse_user_text("ở quận 3 dưới 1 triệu cho 2 người")
 
@@ -761,6 +928,17 @@ class ConveniencePipelineTests(SimpleTestCase):
 
         self.assertTrue(any("Nguyen Hue Walking Street" in query for query in queries))
 
+    def test_geocode_queries_are_hcm_bounded(self):
+        queries = build_geocode_queries("Dinh Độc Lập")
+
+        self.assertTrue(queries)
+        self.assertTrue(
+            all(
+                any(token in query for token in ("Hồ Chí Minh", "Ho Chi Minh City", "TP Hồ Chí Minh", "Thành phố Hồ Chí Minh"))
+                for query in queries
+            )
+        )
+
     def test_multi_turn_adds_near_anchor_to_existing_type(self):
         geocode_anchor.cache_clear()
         first = parse_user_text("Tôi muốn ở khách sạn")
@@ -815,11 +993,14 @@ class ConveniencePipelineTests(SimpleTestCase):
         hostel = parse_user_text("ở trọ")
         homstay = parse_user_text("Ở homstay")
         honestay = parse_user_text("honestay")
+        homestate = parse_user_text("Homestate")
         multi = parse_user_text("Homestay, trọ")
 
         self.assertIn("hostel", hostel["slots"]["accommodation_types"])
         self.assertIn("homestay", homstay["slots"]["accommodation_types"])
         self.assertIn("homestay", honestay["slots"]["accommodation_types"])
+        self.assertIn("homestay", homestate["slots"]["accommodation_types"])
+        self.assertTrue(homestate["can_show_recommendations"])
         self.assertEqual(multi["slots"]["accommodation_types"], ["homestay", "hostel"])
         self.assertIn("accommodation_types", multi["available_slots"])
 
@@ -831,6 +1012,19 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertEqual(result["slots"]["budget_max"], 5_000_000)
         self.assertIn("2.000.000đ - 5.000.000đ/đêm", result["confirm_table"][1]["display_value"])
         self.assertIn("2.000.000đ - 5.000.000đ/đêm", result["soft_filter_summary"])
+
+    def test_multi_turn_type_update_keeps_anywhere_and_budget_without_geocoder(self):
+        geocode_anchor.cache_clear()
+        first = parse_user_text("ở đâu cũng được giá tầm 2 đến 5 triệu", include_debug=True)
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            follow_up = parse_user_text("homstay", context_slots=first["slots"], include_debug=True)
+
+        self.assertEqual(follow_up["location_mode"], "anywhere")
+        self.assertEqual(follow_up["slots"]["budget_min"], 2_000_000)
+        self.assertEqual(follow_up["slots"]["budget_max"], 5_000_000)
+        self.assertIn("homestay", follow_up["slots"]["accommodation_types"])
+        self.assertFalse(follow_up["geocoder_called"])
+        mock_resolve.assert_not_called()
 
     def test_confirm_table_hides_internal_location_and_duplicate_type_keys(self):
         result = parse_user_text("khách sạn gần Tân Sơn Nhất")
@@ -909,6 +1103,30 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertFalse(result["explicit_anywhere"])
         self.assertEqual(result["location_mode"], "multiple_choice")
 
+    def test_ambiguous_university_does_not_autoresolve(self):
+        geocode_anchor.cache_clear()
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            result = parse_user_text("Đại học", include_debug=True)
+
+        self.assertTrue(result["ambiguous_location"])
+        self.assertFalse(result["can_show_recommendations"])
+        self.assertNotEqual(result.get("canonical_area"), "Đại học Quốc gia Hà Nội")
+        self.assertFalse(result["geocoder_called"])
+        self.assertIn("trường đại học", result["follow_up_question"])
+        mock_resolve.assert_not_called()
+
+    def test_existing_type_keeps_recommendation_for_ambiguous_university(self):
+        geocode_anchor.cache_clear()
+        first = parse_user_text("homestay")
+        with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+            follow_up = parse_user_text("Đại học", context_slots=first["slots"], include_debug=True)
+
+        self.assertIn("homestay", follow_up["slots"]["accommodation_types"])
+        self.assertTrue(follow_up["ambiguous_location"])
+        self.assertTrue(follow_up["can_show_recommendations"])
+        self.assertFalse(follow_up["geocoder_called"])
+        mock_resolve.assert_not_called()
+
 
 class ParseEndpointTests(SimpleTestCase):
     def test_api_chat_parse_alias_works(self):
@@ -923,6 +1141,25 @@ class ParseEndpointTests(SimpleTestCase):
         self.assertEqual(data["intent"], "recommend_accommodation")
         self.assertEqual(data["slots"]["area"], "TP HCM")
         self.assertEqual(data["slots"]["budget_max"], 900_000)
+        self.assertIn("protected_spans", data)
+        self.assertIn("location_meta", data)
+        self.assertIn("clarification", data)
+        self.assertIn("eligible", data["recommendation_action"])
+
+    def test_api_contract_for_type_only_soft_filter(self):
+        response = self.client.post(
+            "/api/chat/parse/",
+            data=json.dumps({"text": "homestay"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("homestay", data["slots"]["accommodation_types"])
+        self.assertTrue(data["can_show_recommendations"])
+        self.assertFalse(data["geocoder_called"])
+        self.assertEqual(data["location_meta"]["geocoder_called"], False)
+        self.assertFalse(data["recommendation_action"]["eligible"])
 
     def test_api_chat_parse_requires_text(self):
         response = self.client.post(
@@ -1002,8 +1239,48 @@ class PlaceReferenceCacheTests(TestCase):
         self.assertEqual(cached["source"], "cache")
         mock_fetch_osm.assert_not_called()
 
+    @patch("chat_api.services.geocoder._fetch_osm")
+    def test_geocoder_rejects_outside_hcm_result(self, mock_fetch_osm):
+        mock_fetch_osm.return_value = [
+            {
+                "lat": 21.0285,
+                "lon": 105.8542,
+                "display_name": "Dinh Độc Lập, Hà Nội",
+                "address": {"city": "Hà Nội"},
+                "place_id": 456,
+                "type": "attraction",
+                "class": "tourism",
+                "importance": 0.9,
+            }
+        ]
 
-class SubmitMessagePreferenceTests(SimpleTestCase):
+        result = resolve_place_reference("Dinh Độc Lập")
+
+        self.assertIsNone(result)
+        self.assertEqual(PlaceReference.objects.count(), 0)
+
+    @patch("chat_api.services.geocoder._fetch_osm")
+    def test_geocoder_rejects_blocked_poi_category(self, mock_fetch_osm):
+        mock_fetch_osm.return_value = [
+            {
+                "lat": 10.775,
+                "lon": 106.701,
+                "display_name": "Làng Đại Học Cafe, Thành phố Hồ Chí Minh",
+                "address": {"city": "Thành phố Hồ Chí Minh"},
+                "place_id": 789,
+                "type": "cafe",
+                "class": "amenity",
+                "importance": 0.9,
+            }
+        ]
+
+        result = resolve_place_reference("Làng đại học")
+
+        self.assertIsNone(result)
+        self.assertEqual(PlaceReference.objects.count(), 0)
+
+
+class SubmitMessagePreferenceTests(TestCase):
     def test_submit_off_topic_does_not_create_preference(self):
         response = self.client.post(
             "/chat_api/submit/",
@@ -1041,6 +1318,11 @@ class SubmitMessagePreferenceTests(SimpleTestCase):
         self.assertIn("/recommendations/", data["recommendation_url"])
         self.assertEqual(data["used_default_slots"]["budget"]["value"], 0)
         self.assertEqual(data["used_default_slots"]["guest_count"]["value"], 1)
+        self.assertTrue(data["recommendation_action"]["visible"])
+        self.assertTrue(data["recommendation_action"]["enabled"])
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertEqual(data["recommendation_action"]["pref_id"], 123)
+        self.assertEqual(data["recommendation_action"]["url"], "/recommendations/result/123/")
         self.assertIn(
             {"key": "area", "label": "Khu vực", "value": "Quận 5", "display_value": "Quận 5"},
             data["confirm_table"],
@@ -1075,6 +1357,97 @@ class SubmitMessagePreferenceTests(SimpleTestCase):
         )
         self.assertEqual(mock_bridge.call_args.args[0]["slots"]["preferred_type"], None)
 
+    def test_submit_type_only_uses_recommendation_action_contract(self):
+        bridge_payload = {
+            "pref_id": 789,
+            "recommendation_url": "/recommendations/result/789/",
+            "used_default_slots": {
+                "budget": {"value": 0, "reason": "user_missing_budget_no_budget_filter"},
+                "guest_count": {"value": 1, "reason": "user_missing_guest_count_safe_minimum"},
+            },
+        }
+        with patch("chat_api.views.create_preference_from_parse", return_value=bridge_payload) as mock_bridge:
+            response = self.client.post(
+                "/chat_api/submit/",
+                data=json.dumps({"text": "homestay"}),
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertIn("homestay", data["slots"]["accommodation_types"])
+        self.assertTrue(data["can_show_recommendations"])
+        self.assertEqual(data["usable_filters"], ["accommodation_types"])
+        self.assertTrue(data["recommendation_action"]["enabled"])
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertEqual(data["recommendation_action"]["pref_id"], 789)
+        self.assertEqual(data["recommendation_action"]["reason"], "has_usable_filters")
+        self.assertFalse(data["geocoder_called"])
+        mock_bridge.assert_called_once()
+
+    def test_submit_location_only_airport_creates_recommendation_action(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"text": "Sân bay tân sơn nhất"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        data = response.json()
+        self.assertTrue(data["created_preference"])
+        self.assertEqual(data["location_mode"], "near_anchor")
+        self.assertEqual(data["anchor_name"], "Tân Sơn Nhất")
+        self.assertEqual(data["usable_filters"], ["location"])
+        self.assertTrue(data["recommendation_action"]["eligible"])
+        self.assertTrue(data["recommendation_action"]["url"])
+
+    def test_submit_ambiguous_location_without_filters_disables_action(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"text": "Đại học"}),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ambiguous_location"])
+        self.assertFalse(data["can_show_recommendations"])
+        self.assertFalse(data["recommendation_action"]["enabled"])
+        self.assertFalse(data["recommendation_action"]["eligible"])
+        self.assertEqual(data["recommendation_action"]["reason"], "ambiguous_location")
+
+
+class RecommendationResultContractTests(TestCase):
+    def test_recommendation_result_uses_pagination_without_top_five_cutoff(self):
+        for index in range(7):
+            Accommodation.objects.create(
+                name=f"Chatbot Hotel {index}",
+                accommodation_type="hotel",
+                area="Quận 1",
+                address=f"{index} Nguyễn Huệ",
+                price_per_night=700_000 + index,
+                capacity=2,
+                rating=4.0,
+                amenities=["wifi"],
+                latitude=10.77,
+                longitude=106.70,
+            )
+        preference = UserPreference.objects.create(
+            area=None,
+            budget=0,
+            guest_count=1,
+            preferred_type=None,
+            location_mode="unknown",
+            filter_tree_json={},
+        )
+
+        response = self.client.get(f"/recommendations/{preference.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["page_obj"].paginator.per_page, 10)
+        self.assertEqual(response.context["total_results"], 7)
+        self.assertEqual(len(response.context["results"]), 7)
+
 
 class ParserPerformanceStrategyTests(SimpleTestCase):
     def test_auto_strategy_skips_hf_when_rule_result_is_enough(self):
@@ -1094,5 +1467,6 @@ class ParserPerformanceStrategyTests(SimpleTestCase):
         mock_get_parser.assert_not_called()
         self.assertTrue(result["ready_for_recommendation"])
         self.assertFalse(result["confirmation_required"])
-        self.assertIn("area", result["missing_slots"])
+        self.assertEqual(result["location_mode"], "city_center")
+        self.assertNotIn("area", result["missing_slots"])
         self.assertEqual(result["parser_mode"], "deterministic_fuzzy_fast")

@@ -16,11 +16,17 @@ from .extractors import (
     has_type_choice_connector,
 )
 from .schema import ALLOWED_AMENITIES, ALLOWED_PRIORITIES, ALLOWED_SPECIAL_REQUIREMENTS, ALLOWED_TYPES, empty_slots
+from .slot_pipeline import build_slot_parse_context
 from .text_normalizer import normalize_user_text
 from .validators import validate_and_normalize_slots
 
 
-def extract_slots_from_text(text: str, *, canonical_area: str | None = None) -> dict[str, Any]:
+def extract_slots_from_text(
+    text: str,
+    *,
+    canonical_area: str | None = None,
+    slot_parse_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     normalized = normalize_user_text(text)
     search_text = " ".join(
         value
@@ -31,9 +37,12 @@ def extract_slots_from_text(text: str, *, canonical_area: str | None = None) -> 
         ]
         if value
     )
+    slot_parse_context = slot_parse_context or build_slot_parse_context(text)
     budget_min, budget_max = extract_budget_bounds(search_text)
-    accommodation_types = find_type_candidates(search_text)
-    preferred_type = extract_preferred_type(search_text)
+    accommodation_types = slot_parse_context.get("accommodation_types") or find_type_candidates(search_text)
+    preferred_type = None if len(accommodation_types) > 1 and has_type_choice_connector(search_text) else (
+        accommodation_types[0] if accommodation_types else extract_preferred_type(search_text)
+    )
     check_in, check_out = _extract_date_bounds(search_text)
 
     slots = empty_slots()
@@ -48,7 +57,7 @@ def extract_slots_from_text(text: str, *, canonical_area: str | None = None) -> 
             "accommodation_type": preferred_type,
             "accommodation_types": accommodation_types,
             "type_choice_multiple": bool(len(accommodation_types) > 1 and has_type_choice_connector(search_text)),
-            "required_amenities": extract_required_amenities(search_text),
+            "required_amenities": slot_parse_context.get("required_amenities") or extract_required_amenities(search_text),
             "priorities": extract_priorities(search_text),
             "special_requirements": extract_special_requirements(search_text),
             "trip_days": extract_trip_days(search_text),

@@ -40,6 +40,7 @@ _ACCOMMODATION_HINTS = [
     "hotel",
     "homestay",
     "homstay",
+    "homestate",
     "honestay",
     "hostel",
     "nha tro",
@@ -60,6 +61,9 @@ _ACCOMMODATION_HINTS = [
     "di ha noi",
     "di tp hcm",
     "di dau cung duoc",
+    "trung tam",
+    "downtown",
+    "city center",
     "ngan sach",
     "budget",
     "nguoi",
@@ -85,7 +89,7 @@ _SHORT_SLOT_PATTERNS = [
     r"^\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|m|million)$",
     r"^\d+\s*(?:ngay|dem)$",
     r"^(?:co\s+)?(?:wifi|wf|ho boi|be boi|pool|bai do xe|parking|may lanh|dieu hoa|gan trung tam|yen tinh|view dep)$",
-    r"^(?:homestay|homstay|honestay|hostel|nha tro|phong tro|o tro|tro|khach san|hotel|ks|can ho|studio)$",
+    r"^(?:homestay|homstay|homestate|honestay|hostel|nha tro|phong tro|o tro|tro|khach san|hotel|ks|can ho|studio)$",
 ]
 
 

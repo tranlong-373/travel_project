@@ -5,8 +5,10 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any
 
-import requests
-
+from ..geocoder.providers.base import GeocoderQuery
+from ..geocoder.providers.nominatim import HCM_VIEWBOX, NominatimProvider
+from ..geocoder.scorer import score_geocode_candidate
+from ..geocoder.validator import rejected_geocoder_payload, validate_geocode_candidate
 from ..location_gazetteer import generate_location_aliases, load_supported_locations
 from ..normalizers import normalize_key
 
@@ -14,6 +16,7 @@ from ..normalizers import normalize_key
 DEFAULT_COUNTRY_HINT = "Việt Nam"
 DEFAULT_CITY_HINTS = (
     "Hồ Chí Minh, Việt Nam",
+    "Thành phố Hồ Chí Minh, Việt Nam",
     "TP Hồ Chí Minh, Việt Nam",
     "Ho Chi Minh City, Vietnam",
 )
@@ -79,6 +82,9 @@ class GeocodeResult:
     map_area: str | None = None
     geocoder_queries: tuple[str, ...] = ()
     unresolved_reason: str = ""
+    rejected_candidates: tuple[dict[str, Any], ...] = ()
+    score_breakdown: dict[str, Any] | None = None
+    result_margin: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
@@ -104,7 +110,7 @@ def geocode_place(
     queries = tuple(build_geocode_queries(phrase, city_hint=city_hint, country_hint=country_hint))
     if _cache_enabled():
         cached = get_cached_place_reference(phrase)
-        if cached:
+        if cached and validate_geocode_candidate(cached).accepted:
             return _result_from_cache(cached, queries)
 
     provider = _provider()
@@ -141,7 +147,6 @@ def build_geocode_queries(
         return []
 
     queries: list[str] = []
-    _append_unique(queries, f"{phrase}, {country_hint}")
     if city_hint:
         _append_unique(queries, f"{phrase}, {city_hint}")
     for hint in DEFAULT_CITY_HINTS:
@@ -188,6 +193,8 @@ def get_cached_place_reference(location_phrase: str | None) -> dict[str, Any] | 
 
 def save_place_reference(result: GeocodeResult | dict[str, Any]) -> None:
     payload = result.to_dict() if isinstance(result, GeocodeResult) else dict(result)
+    if not validate_geocode_candidate(payload).accepted:
+        return
     key = payload.get("normalized_name") or _normalized_place_name(payload.get("canonical_name"))
     lat = _float_or_none(payload.get("latitude") or payload.get("lat"))
     lon = _float_or_none(payload.get("longitude") or payload.get("lon"))
@@ -225,8 +232,9 @@ def save_place_reference(result: GeocodeResult | dict[str, Any]) -> None:
 
 
 def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
-    best: tuple[float, str, dict[str, Any]] | None = None
+    scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]] = []
     raw_attempts: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
 
     for query in queries:
         try:
@@ -236,24 +244,62 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
             continue
         raw_attempts.append({"query": query, "results": rows or []})
         for item in rows or []:
-            score = _score_candidate(phrase, query, item)
-            if score <= 0:
+            validation = validate_geocode_candidate(item)
+            score_payload = score_geocode_candidate(phrase, item, validation=validation)
+            score = score_payload.total
+            if not validation.accepted:
+                rejected.append(
+                    rejected_geocoder_payload(
+                        item,
+                        reason=validation.reason,
+                        validation=validation,
+                        score=score,
+                    )
+                )
                 continue
-            if best is None or score > best[0]:
-                best = (score, query, item)
-        if best and best[0] >= 0.82:
+            if score < 0.70:
+                rejected.append(
+                    rejected_geocoder_payload(
+                        item,
+                        reason="low_score",
+                        validation=validation,
+                        score=score,
+                    )
+                )
+                continue
+            scored.append((score, query, item, score_payload.to_dict()))
+        scored.sort(key=lambda candidate: candidate[0], reverse=True)
+        if scored and scored[0][0] >= 0.82 and _top_margin(scored) >= 0.08:
             break
 
-    if best is None:
+    if not scored:
         return GeocodeResult(
             success=False,
             provider="osm",
             raw_payload=raw_attempts,
             geocoder_queries=queries,
             unresolved_reason="no_geocoder_match",
+            rejected_candidates=tuple(rejected[:10]),
         )
 
-    score, query, item = best
+    margin = _top_margin(scored)
+    if len(scored) > 1 and margin < 0.08:
+        return GeocodeResult(
+            success=False,
+            provider="osm",
+            raw_payload=raw_attempts,
+            geocoder_queries=queries,
+            unresolved_reason="ambiguous_geocoder_match",
+            rejected_candidates=tuple(
+                [
+                    *rejected[:8],
+                    rejected_geocoder_payload(scored[0][2], reason="top1_top2_margin_too_small", score=scored[0][0]),
+                    rejected_geocoder_payload(scored[1][2], reason="top1_top2_margin_too_small", score=scored[1][0]),
+                ]
+            ),
+        )
+
+    score, query, item, score_breakdown = scored[0]
     lat = _float_or_none(item.get("lat"))
     lon = _float_or_none(item.get("lon"))
     if lat is None or lon is None:
@@ -263,6 +309,7 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
             raw_payload=item,
             geocoder_queries=queries,
             unresolved_reason="missing_coordinates",
+            rejected_candidates=tuple(rejected[:10]),
         )
 
     address = item.get("address") or {}
@@ -290,57 +337,36 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
         address=address,
         map_area=_area_from_address(address),
         geocoder_queries=queries,
+        rejected_candidates=tuple(rejected[:10]),
+        score_breakdown=score_breakdown,
+        result_margin=round(margin, 3) if margin is not None else None,
     )
 
 
 def _fetch_osm(query: str) -> list[dict[str, Any]]:
-    url = os.getenv("OSM_NOMINATIM_URL", DEFAULT_OSM_URL)
-    timeout = _timeout_seconds()
-    headers = {"User-Agent": os.getenv("GEOCODER_USER_AGENT", DEFAULT_USER_AGENT)}
-    response = requests.get(
-        url,
-        params={
-            "q": query,
-            "format": "json",
-            "limit": 5,
-            "addressdetails": 1,
-        },
-        headers=headers,
-        timeout=timeout,
+    return NominatimProvider().search(
+        GeocoderQuery(
+            text=query,
+            viewbox=HCM_VIEWBOX,
+            bounded=True,
+            limit=5,
+        )
     )
-    response.raise_for_status()
-    data = response.json()
-    return data if isinstance(data, list) else []
 
 
 def _score_candidate(phrase: str, query: str, item: dict[str, Any]) -> float:
-    haystack_parts = [item.get("display_name") or ""]
-    address = item.get("address") or {}
-    if isinstance(address, dict):
-        haystack_parts.extend(str(value) for value in address.values() if value)
-    haystack = normalize_key(" ".join(haystack_parts))
-
-    phrase_tokens = _meaningful_tokens(phrase)
-    query_tokens = _meaningful_tokens(_strip_context_from_query(query))
-    token_sets = [tokens for tokens in (phrase_tokens, query_tokens) if tokens]
-    if not token_sets:
+    validation = validate_geocode_candidate(item)
+    if not validation.accepted:
         return 0.0
+    return score_geocode_candidate(_strip_context_from_query(query) or phrase, item, validation=validation).total
 
-    ratios = []
-    for tokens in token_sets:
-        matched = sum(1 for token in tokens if token in haystack)
-        ratios.append(matched / len(tokens))
-    ratio = max(ratios)
-    if ratio < 0.34:
+
+def _top_margin(scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]]) -> float:
+    if not scored:
         return 0.0
-
-    try:
-        importance = float(item.get("importance") or 0.0)
-    except (TypeError, ValueError):
-        importance = 0.0
-
-    class_bonus = 0.08 if item.get("class") in {"tourism", "historic", "amenity", "leisure"} else 0.0
-    return min(0.99, ratio * 0.76 + min(max(importance, 0.0), 1.0) * 0.16 + class_bonus)
+    if len(scored) == 1:
+        return 1.0
+    return round(scored[0][0] - scored[1][0], 3)
 
 
 def _english_aliases(norm_phrase: str) -> list[str]:
