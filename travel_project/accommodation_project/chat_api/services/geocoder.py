@@ -11,6 +11,8 @@ from ..geocoder.scorer import score_geocode_candidate
 from ..geocoder.validator import rejected_geocoder_payload, validate_geocode_candidate
 from ..location_gazetteer import generate_location_aliases, load_supported_locations
 from ..normalizers import normalize_key
+from .place_cache import get_cached_place, save_place_cache
+from .place_reference import alias_expansions, find_place_reference, semantic_search_place_reference
 
 
 DEFAULT_COUNTRY_HINT = "Việt Nam"
@@ -108,21 +110,23 @@ def geocode_place(
         )
 
     queries = tuple(build_geocode_queries(phrase, city_hint=city_hint, country_hint=country_hint))
+    intent = _geocoder_intent_for_phrase(phrase)
     if _cache_enabled():
         cached = get_cached_place_reference(phrase)
-        if cached and validate_geocode_candidate(cached).accepted:
+        if cached and validate_geocode_candidate(cached, query=phrase, intent=intent).accepted:
             return _result_from_cache(cached, queries)
 
-    provider = _provider()
-    if provider == "osm":
-        result = _geocode_with_osm(phrase, queries)
-    else:
-        result = GeocodeResult(
-            success=False,
-            provider=provider,
-            geocoder_queries=queries,
-            unresolved_reason=f"unsupported_provider:{provider}",
-        )
+    reference = find_place_reference(phrase)
+    if reference and validate_geocode_candidate(reference, query=phrase, intent=intent).accepted:
+        return _result_from_cache({**reference, "source": reference.get("source") or "place_reference"}, queries)
+
+    semantic = semantic_search_place_reference(phrase)
+    if semantic and validate_geocode_candidate(semantic, query=phrase, intent=intent).accepted:
+        return _result_from_cache({**semantic, "source": "semantic", "provider": "semantic"}, queries)
+
+    result = _geocode_with_configured_providers(phrase, queries, intent=intent)
+    if not result.success:
+        result = _geocode_with_osm(phrase, queries, intent=intent)
 
     if result.success and _cache_enabled():
         save_place_reference(result)
@@ -163,78 +167,53 @@ def build_geocode_queries(
 
 
 def get_cached_place_reference(location_phrase: str | None) -> dict[str, Any] | None:
-    key = _normalized_place_name(location_phrase)
-    if not key:
-        return None
-
-    try:
-        from ..models import PlaceReference
-
-        reference = PlaceReference.objects.filter(normalized_name=key).first()
-        if reference is None:
-            try:
-                reference = PlaceReference.objects.filter(aliases__contains=[key]).first()
-            except Exception:
-                reference = next(
-                    (
-                        item
-                        for item in PlaceReference.objects.all()
-                        if key in {normalize_key(alias) for alias in (item.aliases or [])}
-                    ),
-                    None,
-                )
-    except Exception:
-        return None
-
-    if reference is None:
-        return None
-    return _reference_to_payload(reference)
+    return get_cached_place(location_phrase)
 
 
 def save_place_reference(result: GeocodeResult | dict[str, Any]) -> None:
     payload = result.to_dict() if isinstance(result, GeocodeResult) else dict(result)
-    if not validate_geocode_candidate(payload).accepted:
-        return
-    key = payload.get("normalized_name") or _normalized_place_name(payload.get("canonical_name"))
-    lat = _float_or_none(payload.get("latitude") or payload.get("lat"))
-    lon = _float_or_none(payload.get("longitude") or payload.get("lon"))
-    if not key or lat is None or lon is None:
-        return
+    query = payload.get("query_text") or payload.get("normalized_name") or payload.get("query_used") or payload.get("query")
+    save_place_cache(query, payload)
 
-    aliases = payload.get("aliases") or []
-    if not isinstance(aliases, (list, tuple)):
-        aliases = []
 
-    try:
-        from ..models import PlaceReference
-
-        PlaceReference.objects.update_or_create(
-            normalized_name=key,
-            defaults={
-                "canonical_name": payload.get("canonical_name") or payload.get("display_name") or key,
-                "aliases": sorted({normalize_key(alias) for alias in aliases if normalize_key(alias)}),
-                "kind": payload.get("place_type") or payload.get("kind") or "geocoded",
-                "latitude": lat,
-                "longitude": lon,
-                "default_radius_km": float(payload.get("default_radius_km") or 2.5),
-                "provider": payload.get("provider") or "osm",
-                "source": payload.get("source") or payload.get("provider") or "osm",
-                "confidence": float(payload.get("confidence") or 0.0),
-                "provider_place_id": payload.get("provider_place_id") or "",
-                "query": payload.get("query_used") or payload.get("query") or "",
-                "display_name": payload.get("display_name") or "",
-                "address": payload.get("address") or {},
-                "raw_payload": payload.get("raw_payload") or {},
-            },
+def _geocode_with_configured_providers(phrase: str, queries: tuple[str, ...], *, intent: str) -> GeocodeResult:
+    raw_attempts: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for provider_name, search in _provider_searches():
+        try:
+            rows = search(phrase)
+        except Exception as exc:
+            raw_attempts.append({"provider": provider_name, "query": phrase, "error": str(exc)})
+            continue
+        raw_attempts.append({"provider": provider_name, "query": phrase, "results": rows or []})
+        if not rows:
+            continue
+        result = _result_from_provider_candidates(
+            phrase,
+            rows,
+            provider=provider_name,
+            queries=queries,
+            rejected=rejected,
+            intent=intent,
         )
-    except Exception:
-        return
+        if result.success:
+            return result
+        rejected.extend(result.rejected_candidates)
+    return GeocodeResult(
+        success=False,
+        provider="provider_chain",
+        raw_payload=raw_attempts,
+        geocoder_queries=queries,
+        unresolved_reason="no_provider_match",
+        rejected_candidates=tuple(rejected[:10]),
+    )
 
 
-def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
+def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | None = None) -> GeocodeResult:
     scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]] = []
     raw_attempts: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    intent = intent or _geocoder_intent_for_phrase(phrase)
 
     for query in queries:
         try:
@@ -244,7 +223,7 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
             continue
         raw_attempts.append({"query": query, "results": rows or []})
         for item in rows or []:
-            validation = validate_geocode_candidate(item)
+            validation = validate_geocode_candidate(item, query=phrase, intent=intent)
             score_payload = score_geocode_candidate(phrase, item, validation=validation)
             score = score_payload.total
             if not validation.accepted:
@@ -283,18 +262,27 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...]) -> GeocodeResult:
         )
 
     margin = _top_margin(scored)
-    if len(scored) > 1 and margin < 0.08:
+    top_validation = validate_geocode_candidate(
+        scored[0][2],
+        query=phrase,
+        intent=intent,
+        top_score=scored[0][0],
+        runner_up_score=scored[1][0] if len(scored) > 1 else None,
+    )
+    if len(scored) > 1 and (margin < 0.08 or not top_validation.accepted):
         return GeocodeResult(
             success=False,
             provider="osm",
             raw_payload=raw_attempts,
             geocoder_queries=queries,
-            unresolved_reason="ambiguous_geocoder_match",
+            unresolved_reason="ambiguous_geocoder_match" if margin < 0.08 else top_validation.reason,
             rejected_candidates=tuple(
                 [
                     *rejected[:8],
-                    rejected_geocoder_payload(scored[0][2], reason="top1_top2_margin_too_small", score=scored[0][0]),
-                    rejected_geocoder_payload(scored[1][2], reason="top1_top2_margin_too_small", score=scored[1][0]),
+                    rejected_geocoder_payload(scored[0][2], reason=top_validation.reason, validation=top_validation, score=scored[0][0]),
+                    rejected_geocoder_payload(scored[1][2], reason="top1_top2_margin_too_small", score=scored[1][0])
+                    if len(scored) > 1
+                    else {},
                 ]
             ),
         )
@@ -354,6 +342,96 @@ def _fetch_osm(query: str) -> list[dict[str, Any]]:
     )
 
 
+def _provider_searches():
+    try:
+        from ..geocoder.providers import geoapify
+
+        yield "geoapify", geoapify.search_place
+    except Exception:
+        pass
+    try:
+        from ..geocoder.providers import foursquare
+
+        yield "foursquare", foursquare.search_place
+    except Exception:
+        pass
+
+
+def _result_from_provider_candidates(
+    phrase: str,
+    rows: list[dict[str, Any]],
+    *,
+    provider: str,
+    queries: tuple[str, ...],
+    rejected: list[dict[str, Any]],
+    intent: str,
+) -> GeocodeResult:
+    scored: list[tuple[float, dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    for item in rows:
+        validation = validate_geocode_candidate(item, query=phrase, intent=intent)
+        score_payload = score_geocode_candidate(phrase, item, validation=validation)
+        score = max(score_payload.total, min(float(item.get("confidence") or 0.0), 0.99))
+        if not validation.accepted:
+            rejected.append(rejected_geocoder_payload(item, reason=validation.reason, validation=validation, score=score))
+            continue
+        if score < 0.70:
+            rejected.append(rejected_geocoder_payload(item, reason="low_score", validation=validation, score=score))
+            continue
+        scored.append((score, item, score_payload.to_dict(), validation.to_dict()))
+    scored.sort(key=lambda candidate: candidate[0], reverse=True)
+    if not scored:
+        return GeocodeResult(success=False, provider=provider, geocoder_queries=queries, unresolved_reason="no_provider_match")
+    margin = _top_margin_provider(scored)
+    top_validation = validate_geocode_candidate(
+        scored[0][1],
+        query=phrase,
+        intent=intent,
+        top_score=scored[0][0],
+        runner_up_score=scored[1][0] if len(scored) > 1 else None,
+    )
+    if not top_validation.accepted:
+        return GeocodeResult(
+            success=False,
+            provider=provider,
+            geocoder_queries=queries,
+            unresolved_reason=top_validation.reason,
+            rejected_candidates=(
+                rejected_geocoder_payload(scored[0][1], reason=top_validation.reason, validation=top_validation, score=scored[0][0]),
+            ),
+        )
+    score, item, score_breakdown, _validation_dict = scored[0]
+    lat = _float_or_none(item.get("lat") if item.get("lat") is not None else item.get("latitude"))
+    lon = _float_or_none(item.get("lon") if item.get("lon") is not None else item.get("lng"))
+    if lat is None or lon is None:
+        return GeocodeResult(success=False, provider=provider, geocoder_queries=queries, unresolved_reason="missing_coordinates")
+    address = item.get("address") or {}
+    place_type = item.get("kind") or item.get("place_type") or item.get("type") or "geocoded"
+    canonical_name = item.get("canonical_name") or item.get("name") or str(item.get("display_name") or "").split(",")[0].strip() or phrase
+    return GeocodeResult(
+        success=True,
+        query_used=phrase,
+        display_name=item.get("display_name") or canonical_name,
+        latitude=lat,
+        longitude=lon,
+        place_type=place_type,
+        confidence=round(min(score, 0.99), 3),
+        provider=provider,
+        raw_payload=item.get("raw_payload") or item.get("raw") or item,
+        canonical_name=canonical_name,
+        normalized_name=_normalized_place_name(canonical_name),
+        aliases=_aliases_for_cache(phrase, canonical_name),
+        default_radius_km=_default_radius_km(place_type, canonical_name, address),
+        source=provider,
+        provider_place_id=str(item.get("provider_place_id") or ""),
+        address=address,
+        map_area=_area_from_address(address),
+        geocoder_queries=queries,
+        rejected_candidates=tuple(rejected[:10]),
+        score_breakdown=score_breakdown,
+        result_margin=round(margin, 3) if margin is not None else None,
+    )
+
+
 def _score_candidate(phrase: str, query: str, item: dict[str, Any]) -> float:
     validation = validate_geocode_candidate(item)
     if not validation.accepted:
@@ -369,31 +447,19 @@ def _top_margin(scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]])
     return round(scored[0][0] - scored[1][0], 3)
 
 
+def _top_margin_provider(scored: list[tuple[float, dict[str, Any], dict[str, Any], dict[str, Any]]]) -> float:
+    if not scored:
+        return 0.0
+    if len(scored) == 1:
+        return 1.0
+    return round(scored[0][0] - scored[1][0], 3)
+
+
 def _english_aliases(norm_phrase: str) -> list[str]:
-    aliases: list[str] = []
-    compact = re.sub(r"\s+", " ", norm_phrase)
-    if "cu chi" in compact or "dia dao" in compact:
-        aliases.extend(
-            [
-                "Cu Chi Tunnels, Ho Chi Minh City, Vietnam",
-                "Cu Chi Tunnel Historical Site, Ho Chi Minh City, Vietnam",
-            ]
-        )
-    if "dinh doc lap" in compact or "doc lap" in compact:
-        aliases.extend(
-            [
-                "Reunification Palace, Ho Chi Minh City, Vietnam",
-                "Independence Palace, Ho Chi Minh City, Vietnam",
-            ]
-        )
-    if "nguyen hue" in compact:
-        aliases.extend(
-            [
-                "Nguyen Hue Walking Street, Ho Chi Minh City, Vietnam",
-                "Nguyen Hue Street, District 1, Ho Chi Minh City, Vietnam",
-            ]
-        )
-    return aliases
+    aliases = alias_expansions(norm_phrase)
+    if "nguyen hue" in re.sub(r"\s+", " ", norm_phrase):
+        aliases.extend(["nguyen hue walking street", "nguyen hue street"])
+    return [f"{alias.title()}, Ho Chi Minh City, Vietnam" for alias in dict.fromkeys(aliases)]
 
 
 def _aliases_for_cache(phrase: str, canonical_name: str) -> tuple[str, ...]:
@@ -402,6 +468,8 @@ def _aliases_for_cache(phrase: str, canonical_name: str) -> tuple[str, ...]:
         _normalized_place_name(canonical_name),
         *generate_location_aliases(phrase),
         *generate_location_aliases(canonical_name),
+        *alias_expansions(phrase),
+        *alias_expansions(canonical_name),
     }
     aliases.update(normalize_key(alias) for alias in _english_aliases(normalize_key(phrase)))
     return tuple(sorted(alias for alias in aliases if alias))
@@ -517,6 +585,19 @@ def _meaningful_tokens(text: str | None) -> list[str]:
 def _strip_context_from_query(query: str) -> str:
     text = re.split(r",", query, maxsplit=1)[0]
     return text.strip()
+
+
+def _geocoder_intent_for_phrase(phrase: str | None) -> str:
+    norm = normalize_key(phrase or "")
+    if "san bay" in norm or "airport" in norm:
+        return "airport"
+    if "dai hoc" in norm or "truong" in norm:
+        return "university"
+    if any(token in norm for token in ("khach san", "hotel", "can ho", "homestay", "hostel")):
+        return "lodging"
+    if any(token in norm for token in ("cafe", "ca phe", "nha hang", "quan an", "restaurant")):
+        return "food"
+    return "landmark"
 
 
 def _normalized_place_name(place_name: str | None) -> str:

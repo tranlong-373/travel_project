@@ -3,6 +3,26 @@ from __future__ import annotations
 from typing import Any
 
 TERMINAL_INTENTS = {"off_topic", "unknown", "greeting", "thanks", "help", "goodbye"}
+NON_LOCATION_FILTER_KEYS = (
+    "preferred_type",
+    "accommodation_type",
+    "accommodation_types",
+    "required_amenities",
+    "amenities",
+    "budget",
+    "budget_min",
+    "budget_max",
+    "guest_count",
+    "room_count",
+    "rating",
+    "priorities",
+    "special_requirements",
+    "checkin_date",
+    "checkout_date",
+    "check_in",
+    "check_out",
+)
+LOCATION_REFINEMENT_QUESTION = "Bạn muốn tìm quanh khu vực hoặc địa danh nào để mình lọc sát hơn không?"
 
 
 def decide_user_effort_policy(parse_result: dict) -> dict:
@@ -94,6 +114,18 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
         base["quick_replies"] = _popular_location_replies()
         return base
 
+    if parse_result.get("unresolved_location") and has_non_location_filter:
+        base.update(
+            {
+                "recommendation_level": "partial",
+                "can_show_recommendations": True,
+                "needs_user_action": False,
+                "missing_slots": ["location"],
+                "next_best_question": LOCATION_REFINEMENT_QUESTION,
+            }
+        )
+        return base
+
     if parse_result.get("unresolved_location"):
         base.update(
             {
@@ -145,6 +177,8 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
     base["recommendation_level"] = "full" if full else "partial"
     base["can_show_recommendations"] = True
     base["needs_user_action"] = False
+    if not has_location and has_non_location_filter:
+        base["missing_slots"] = ["location"]
 
     if location_status == "ok" and canonical_area and 0.75 <= confidence < 0.90:
         base["confirmation_type"] = "implicit"
@@ -167,6 +201,8 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
 
 
 def _next_best_question(slots: dict[str, Any], *, has_location: bool = False) -> str | None:
+    if not has_location and has_non_location_filters(slots):
+        return LOCATION_REFINEMENT_QUESTION
     has_known_non_location_filter = any(
         slots.get(key)
         for key in (
@@ -251,23 +287,12 @@ def _has_non_location_filter(parse_result: dict, slots: dict[str, Any]) -> bool:
     filters = (parse_result.get("filter_tree") or {}).get("filters") or []
     if any(node.get("key") != "location" for node in filters if isinstance(node, dict)):
         return True
-    return any(
-        bool(slots.get(key))
-        for key in (
-            "budget",
-            "budget_min",
-            "budget_max",
-            "guest_count",
-            "preferred_type",
-            "accommodation_type",
-            "accommodation_types",
-            "required_amenities",
-            "priorities",
-            "special_requirements",
-            "room_count",
-            "rating",
-        )
-    )
+    return has_non_location_filters(slots)
+
+
+def has_non_location_filters(slots: dict[str, Any] | None) -> bool:
+    slots = slots or {}
+    return any(bool(slots.get(key)) for key in NON_LOCATION_FILTER_KEYS)
 
 
 def _no_signal_question(parse_result: dict) -> str:

@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..normalizers import normalize_key
-from .validator import BLOCKED_POI_CATEGORIES, GeocodeValidation, geocode_category
+from .validator import (
+    BLOCKED_POI_CATEGORIES,
+    GeocodeValidation,
+    geocode_category,
+    name_similarity as validated_name_similarity,
+    normalize_vi,
+    token_coverage as validated_token_coverage,
+)
 
 try:
     from rapidfuzz import fuzz
@@ -30,6 +37,7 @@ PLACE_STOPWORDS = {
     "di",
     "du",
     "lich",
+    "tich",
     "pho",
     "phuong",
     "duong",
@@ -90,23 +98,24 @@ def score_geocode_candidate(
     *,
     validation: GeocodeValidation,
 ) -> CandidateScore:
-    if not validation.inside_hcm:
+    if not (validation.inside_hcm or validation.address_matches_hcm):
         return CandidateScore(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-    phrase_key = normalize_key(phrase or "")
-    display = normalize_key(str(item.get("display_name") or item.get("name") or item.get("canonical_name") or ""))
-    name = normalize_key(str(item.get("name") or item.get("canonical_name") or "").split(",")[0])
-    display_head = normalize_key(str(item.get("display_name") or "").split(",")[0])
-    name_similarity = max(_ratio(phrase_key, display_head), _ratio(phrase_key, name), _ratio(phrase_key, display))
+    display = normalize_vi(str(item.get("display_name") or item.get("name") or item.get("canonical_name") or ""))
+    name = normalize_vi(str(item.get("name") or item.get("canonical_name") or "").split(",")[0])
+    display_head = normalize_vi(str(item.get("display_name") or "").split(",")[0])
+    aliases = item.get("aliases") or []
+    alias_text = " ".join(str(alias) for alias in aliases) if isinstance(aliases, (list, tuple, set)) else ""
+    candidate_text = " ".join(part for part in (display_head, name, display, alias_text) if part)
+    name_similarity = validated_name_similarity(phrase, candidate_text)
 
     haystack_parts = [display, name]
     address = item.get("address") or {}
     if isinstance(address, dict):
-        haystack_parts.extend(normalize_key(str(value)) for value in address.values() if value)
+        haystack_parts.extend(normalize_vi(str(value)) for value in address.values() if value)
     haystack = " ".join(haystack_parts)
 
-    tokens = _meaningful_tokens(phrase_key)
-    token_coverage = 0.0 if not tokens else sum(1 for token in tokens if token in haystack) / len(tokens)
+    token_coverage = max(validation.token_coverage, validated_token_coverage(phrase, haystack))
     category_score = _category_score(geocode_category(item))
     city_score = 1.0 if validation.address_matches_hcm else 0.85
     importance_score = _importance_score(item.get("importance"))
@@ -153,4 +162,3 @@ def _ratio(left: str, right: str) -> float:
     if left in right or right in left:
         return 0.95
     return difflib.SequenceMatcher(None, left, right).ratio()
-

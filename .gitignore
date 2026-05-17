@@ -20,6 +20,7 @@ media/
 .env
 **/secrets/
 *.json
+!travel_project/accommodation_project/chat_api/data/place_aliases.json
 *.log
 
 # Local machine settings

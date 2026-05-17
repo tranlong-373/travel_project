@@ -1088,7 +1088,7 @@
 
 .chat-msg.bot {
     background: #fff;
-    color: #334155;
+    color: #1f2937;
     border: 1px solid #e2e8f0;
     align-self: flex-start;
     border-bottom-left-radius: 4px;
@@ -1144,8 +1144,9 @@
 }
 
 .chat-confirm-question {
-    color: #64748b;
+    color: #475569;
     font-size: 13px;
+    font-weight: 500;
     margin: 0 0 12px;
 }
 
@@ -1168,10 +1169,10 @@
 }
 
 .chat-confirm-table th {
-    color: #64748b;
+    color: #475569;
     border-left: 1px solid #e8eef6;
     border-radius: 9px 0 0 9px;
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.35;
     width: 48%;
 }
@@ -1217,8 +1218,9 @@
 .chat-confirm-actions button.secondary {
     background: #eff6ff;
     border: 1px solid #bfdbfe;
-    color: #1565c0;
+    color: #0f4fa3;
     flex: 1 1 160px;
+    font-weight: 700;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
 
