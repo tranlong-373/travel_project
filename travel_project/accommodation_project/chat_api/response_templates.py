@@ -8,9 +8,15 @@ def build_partial_message(slots, assumptions=None, next_best_question=None) -> s
     if area:
         intro = f"Được nhé, mình sẽ gợi ý trước một vài chỗ ở phù hợp tại {area}."
     else:
-        intro = "Được nhé, mình sẽ gợi ý trước một vài chỗ ở phù hợp với điều kiện bạn vừa nói."
+        filter_phrase = _filter_phrase(slots)
+        intro = (
+            f"Được nhé, mình đã hiểu bạn muốn tìm {filter_phrase}. "
+            "Mình sẽ gợi ý trước vài lựa chọn phù hợp."
+        )
     if assumptions:
         intro = f"Mình đoán bạn muốn tìm ở {area or 'khu vực này'}. Mình gợi ý trước vài lựa chọn phù hợp nhé."
+    if not area:
+        return f"{intro} Nếu muốn lọc sát hơn, bạn cho mình thêm khu vực hoặc địa danh gần đó nhé."
     missing_hint = _missing_essential_hint(slots)
     if missing_hint:
         return f"{intro} Nếu muốn lọc sát hơn, bạn cho mình biết thêm {missing_hint} nhé."
@@ -84,7 +90,15 @@ def build_unresolved_location_message() -> str:
 
 
 def build_unresolved_place_message() -> str:
-    return "Mình chưa xác định được địa điểm này, bạn có thể nói rõ quận/thành phố không?"
+    return "Mình chưa xác định chắc địa điểm này. Bạn có thể nhập rõ hơn, ví dụ thêm quận/thành phố không?"
+
+
+def build_unresolved_place_with_filters_message(slots: dict[str, Any], place_name: str | None) -> str:
+    return (
+        f"Mình đã hiểu các tiêu chí như {_filter_phrase(slots)}. "
+        f"Riêng địa danh {place_name or 'này'} mình chưa xác định chắc, "
+        "bạn có thể nhập thêm quận/thành phố hoặc chọn một gợi ý gần đúng không?"
+    )
 
 
 def _area(slots: dict[str, Any]) -> str:
@@ -114,3 +128,28 @@ def _candidate_names(candidates) -> str:
         if name and name not in names:
             names.append(name)
     return ", ".join(names[:4])
+
+
+def _filter_phrase(slots: dict[str, Any]) -> str:
+    parts: list[str] = []
+    types = slots.get("accommodation_types") or []
+    if isinstance(types, str):
+        types = [types]
+    if not types and (slots.get("preferred_type") or slots.get("accommodation_type")):
+        types = [slots.get("preferred_type") or slots.get("accommodation_type")]
+    if types:
+        parts.append("loại " + ", ".join(str(item) for item in types))
+    amenities = slots.get("required_amenities") or slots.get("amenities") or []
+    if amenities:
+        parts.append("tiện nghi " + ", ".join(str(item) for item in amenities))
+    if slots.get("budget") or slots.get("budget_max") or slots.get("budget_min"):
+        parts.append("ngân sách")
+    if slots.get("guest_count"):
+        parts.append(f"{slots['guest_count']} khách")
+    if slots.get("room_count"):
+        parts.append(f"{slots['room_count']} phòng")
+    if slots.get("priorities"):
+        parts.append("ưu tiên " + ", ".join(str(item) for item in slots["priorities"]))
+    if slots.get("special_requirements"):
+        parts.append("yêu cầu " + ", ".join(str(item) for item in slots["special_requirements"]))
+    return "; ".join(parts) if parts else "các tiêu chí này"

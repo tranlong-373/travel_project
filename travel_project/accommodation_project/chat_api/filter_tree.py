@@ -541,8 +541,14 @@ def build_location_branch(
 
     location_status = location_result.get("location_status") or "unresolved"
     canonical_area = location_result.get("canonical_area") or slots.get("area")
-    pending_phrase = slots.get("location_phrase")
-    if slots.get("location_mode") == "near_anchor" and pending_phrase and not canonical_area:
+    pending_phrase = slots.get("location_phrase") or (
+        location_result.get("location_phrase") if location_result.get("location_mode") == "near_anchor" else None
+    )
+    if (
+        (slots.get("location_mode") == "near_anchor" or location_result.get("location_mode") == "near_anchor")
+        and pending_phrase
+        and not canonical_area
+    ):
         geocoded = (
             geocode_anchor(str(pending_phrase))
             if not is_ambiguous_location_phrase(str(pending_phrase)) and should_geocode_place_phrase(str(pending_phrase))
@@ -652,10 +658,34 @@ def resolve_local_location_reference(text: str | None) -> LocationReference | No
     if not norm:
         return None
 
+    dynamic_reference = _find_dynamic_place_reference(text)
+    if dynamic_reference:
+        lat = _float_or_none(dynamic_reference.get("lat"))
+        lon = _float_or_none(dynamic_reference.get("lon"))
+        if lat is not None and lon is not None:
+            return LocationReference(
+                canonical_name=dynamic_reference.get("canonical_name") or dynamic_reference.get("name") or str(text),
+                aliases=tuple(dynamic_reference.get("aliases") or ()),
+                kind=dynamic_reference.get("kind") or dynamic_reference.get("place_type") or "geocoded",
+                lat=lat,
+                lon=lon,
+                default_radius_km=float(dynamic_reference.get("default_radius_km") or 5.0),
+                canonical_area=dynamic_reference.get("district") if dynamic_reference.get("kind") == "district" else None,
+            )
+
     for alias_key, reference in _reference_alias_index():
         if re.search(rf"(?<!\w){re.escape(alias_key)}(?!\w)", norm):
             return reference
     return None
+
+
+def _find_dynamic_place_reference(text: str | None) -> dict[str, Any] | None:
+    try:
+        from importlib import import_module
+
+        return import_module("chat_api.services.place_reference").find_place_reference(text)
+    except Exception:
+        return None
 
 
 @lru_cache(maxsize=1)
@@ -1019,7 +1049,9 @@ def _extract_near_anchor_phrase(text: str) -> str | None:
         return None
     tail = (text or "")[match.end():].strip()
     tail = re.split(
-        r"\b(?:dưới|duoi|tối đa|toi da|tầm|tam|cho|for|cần|can|budget|giá|gia|với|voi)\b",
+        r"\b(?:dưới|duoi|tối đa|toi da|tầm|tam|cho|for|cần|can|budget|giá|gia|với|voi|"
+        r"có thêm|co them|phải có|phai co|yêu cầu|yeu cau|"
+        r"có\s+(?:parking|wifi|bếp|hồ|chỗ|bãi|máy)|co\s+(?:parking|wifi|bep|ho|cho|bai|may))\b",
         tail,
         maxsplit=1,
         flags=re.IGNORECASE,
@@ -1096,7 +1128,7 @@ def _validated_geocoded_anchor(
     if not geocoded:
         return None
     intent = _geocoder_intent_for_phrase(phrase)
-    if validate_geocoded_place(geocoded, intent=intent):
+    if validate_geocoded_place(geocoded, intent=intent, query=phrase):
         return geocoded
     branch["rejected_geocoder_results"] = [
         *branch.get("rejected_geocoder_results", []),

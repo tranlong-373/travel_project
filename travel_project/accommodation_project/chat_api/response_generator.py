@@ -17,6 +17,7 @@ from .response_templates import (
     build_unknown_message,
     build_unresolved_location_message,
     build_unresolved_place_message,
+    build_unresolved_place_with_filters_message,
     build_unsupported_message,
 )
 
@@ -61,6 +62,22 @@ class ResponseGenerator:
             return build_implicit_confirmation_message(policy["assumptions"][0])
         if result.get("location_mode") == "city_center" and policy.get("recommendation_level") in {"full", "partial"}:
             return self._city_center_message(result, policy)
+        if (
+            result.get("location_mode") == "near_anchor"
+            and result.get("can_show_recommendations")
+            and result.get("unresolved_location")
+        ):
+            return build_unresolved_place_with_filters_message(
+                result.get("slots") or {},
+                result.get("location_phrase") or result.get("matched_text"),
+            )
+        if (
+            result.get("location_mode") == "near_anchor"
+            and result.get("can_show_recommendations")
+            and not result.get("unresolved_location")
+            and result.get("anchor_name")
+        ):
+            return f"Được nhé, mình sẽ gợi ý chỗ ở gần {result['anchor_name']}."
         if result.get("ambiguous_location") and result.get("can_show_recommendations"):
             base_message = build_partial_message(
                 self.message_slots_with_location(result),
@@ -102,4 +119,3 @@ class ResponseGenerator:
         if policy.get("recommendation_level") == "partial" and policy.get("next_best_question"):
             message = f"{message} {policy['next_best_question']}"
         return message
-

@@ -93,6 +93,15 @@ _PLACE_STOPWORDS = {
     "tim",
     "kiem",
     "tin",
+    "co",
+    "thue",
+    "dat",
+    "book",
+    "booking",
+    "reserve",
+    "giup",
+    "goi",
+    "y",
 }
 
 
@@ -160,10 +169,15 @@ def save_place_reference(payload: dict[str, Any]) -> None:
     save(payload)
 
 
-def validate_geocoded_place(geocoded: dict[str, Any] | None, *, intent: str = "landmark") -> bool:
+def validate_geocoded_place(
+    geocoded: dict[str, Any] | None,
+    *,
+    intent: str = "landmark",
+    query: str | None = None,
+) -> bool:
     if not geocoded:
         return False
-    validation = validate_geocode_candidate(geocoded)
+    validation = validate_geocode_candidate(geocoded, query=query, intent=intent)
     if not validation.accepted:
         return False
     kind = normalize_key(str(geocoded.get("kind") or geocoded.get("place_type") or ""))

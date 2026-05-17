@@ -206,7 +206,8 @@ LOCATION_CUE_PATTERN = re.compile(
 
 LOCATION_TAIL_SPLIT_PATTERN = re.compile(
     r"\b(?:dưới|duoi|tối đa|toi da|tầm|tam|cho|for|cần|can|budget|giá|gia|"
-    r"với|voi|có|co|có thêm|co them|phải có|phai co|yêu cầu|yeu cau)\b",
+    r"với|voi|có thêm|co them|phải có|phai co|yêu cầu|yeu cau|"
+    r"có\s+(?:parking|wifi|bếp|hồ|chỗ|bãi|máy)|co\s+(?:parking|wifi|bep|ho|cho|bai|may))\b",
     re.IGNORECASE,
 )
 
@@ -218,12 +219,27 @@ DISTRICT_WORD_PATTERN = (
 
 STRONG_PLACE_PATTERNS = (
     r"\bsan bay\b",
+    r"\bdinh doc lap\b",
     r"\bdinh\b",
+    r"\bdam sen\b",
+    r"\bsuoi tien\b",
+    r"\bsnow town\b",
+    r"\bbinh quoi\b",
+    r"\bvan thanh\b",
+    r"\bvam sat\b",
+    r"\bcan gio\b",
+    r"\bcu chi\b",
     r"\bsuoi\b",
     r"\bnha tho\b",
     r"\bpho di bo\b",
     r"\bdia dao\b",
     r"\bkhu di tich\b",
+    r"\bbao tang\b",
+    r"\bcong vien\b",
+    r"\bkhu du lich\b",
+    r"\blang du lich\b",
+    r"\bnong trang\b",
+    r"\bmot thoang viet nam\b",
     r"\blandmark\b",
     r"\bben thanh\b",
     r"\bcho ray\b",
@@ -236,8 +252,9 @@ ANYWHERE_INTENT_PATTERN = re.compile(
 )
 
 LOCATION_FILLER_PATTERN = re.compile(
-    r"\b(?:toi|minh|tui|em|anh|chi|muon|can|tim|kiem|tim kiem|cho minh|cho toi|"
-    r"di|doi|thanh|nhe|nha|giup|minh|please|want|need|find|search)\b",
+    r"\b(?:toi|minh|tui|em|anh|chi|ban|muon|can|tim|kiem|tim kiem|thue|dat|book|booking|"
+    r"reserve|co|cho minh|cho toi|giup toi|goi y|goi|y|di|doi|thanh|nhe|nha|giup|"
+    r"please|want|need|find|search|rent|reserve)\b",
     re.IGNORECASE,
 )
 
@@ -362,12 +379,12 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
         }
 
     standalone = _standalone_place_phrase(text)
-    if standalone and _is_strong_place_phrase(standalone):
+    if standalone and (_is_strong_place_phrase(standalone) or _has_standalone_place_shape(standalone)):
         return {
             "should_resolve": True,
             "candidate": standalone,
             "resolve_text": standalone,
-            "confidence": 0.82,
+            "confidence": 0.82 if _is_strong_place_phrase(standalone) else 0.72,
             "reason": "strong_near_anchor_or_place_phrase",
             "mode_hint": "near_anchor",
         }
@@ -432,6 +449,7 @@ def _collect_protected_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
     spans: list[SlotSpan] = []
     spans.extend(_find_budget_spans(normalized))
     spans.extend(_find_guest_count_spans(normalized))
+    spans.extend(_find_trip_days_spans(normalized))
     spans.extend(_find_alias_spans(normalized, TYPE_ALIASES, "accommodation_type", priority=10))
     spans.extend(_find_homestay_typo_spans(normalized))
     spans.extend(_find_alias_spans(normalized, AMENITY_ALIASES, "amenity", priority=20))
@@ -541,6 +559,13 @@ def _find_guest_count_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
     return _regex_spans(normalized, patterns, "guest_count", "guest_count", priority=40)
 
 
+def _find_trip_days_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
+    patterns = (
+        rf"(?<!\d)(?:{COUNT_TOKEN})\s*(?:ngay|ngày|dem|đêm|days?|nights?)\b",
+    )
+    return _regex_spans(normalized, patterns, "trip_days", "trip_days", priority=45)
+
+
 def _regex_spans(
     normalized: dict[str, Any],
     patterns: Iterable[str],
@@ -624,6 +649,23 @@ def _standalone_place_phrase(text: str) -> str | None:
     return cleaned
 
 
+def _has_standalone_place_shape(text: str) -> bool:
+    norm = normalize_key(text)
+    if is_blocked_location_phrase(norm):
+        return False
+    if _has_clear_area_hint(norm):
+        return False
+    tokens = re.findall(r"\w+", norm)
+    if len(tokens) < 2:
+        return False
+    if any(
+        token in {"khach", "san", "hotel", "homestay", "hostel", "can", "ho", "parking", "wifi", "ngay", "dem"}
+        for token in tokens
+    ):
+        return False
+    return True
+
+
 def _has_clear_area_hint(norm: str) -> bool:
     if re.search(r"\b(?:quan|q\.?|district|dist)\s*(?:\d{1,2})(?!\d)\b", norm):
         return True
@@ -653,6 +695,8 @@ def _blocked_location_intent(reason: str) -> dict[str, Any]:
         "confidence": 0.0,
         "reason": reason,
         "mode_hint": "unknown",
+        "location_intent": "none",
+        "geocoder_called": False,
     }
 
 

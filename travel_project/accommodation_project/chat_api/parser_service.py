@@ -564,11 +564,7 @@ def _location_confirm_value(result: dict[str, Any]) -> str:
     if location_mode == "city_center":
         return result.get("location_display_label") or result.get("anchor_name") or "trung tâm thành phố"
     if location_mode in {"near_anchor", "near_user"}:
-        value = result.get("location_display_label") or result.get("anchor_name") or ""
-        map_area = result.get("map_area") or (result.get("filter_tree") or {}).get("location", {}).get("map_area")
-        if value and map_area and normalize_key(str(map_area)) not in normalize_key(str(value)):
-            return f"{value} ({map_area} theo bản đồ)"
-        return value
+        return result.get("location_display_label") or result.get("anchor_name") or ""
     if location_mode == "area":
         return result.get("canonical_area") or slots.get("area") or result.get("location_display_label") or ""
     return ""
