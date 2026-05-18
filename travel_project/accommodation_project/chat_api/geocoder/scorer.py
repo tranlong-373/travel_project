@@ -128,10 +128,12 @@ def score_geocode_candidate(
         haystack_parts.extend(normalize_vi(str(value)) for value in address.values() if value)
     haystack = " ".join(haystack_parts)
 
-    token_coverage = max(validation.token_coverage, validated_token_coverage(phrase, haystack))
     category_score = _category_score(geocode_category(item))
     if map_anchor_proxy:
         category_score = max(category_score, 0.75)
+    token_coverage = max(validation.token_coverage, validated_token_coverage(phrase, haystack))
+    if validation.accepted and token_coverage < 0.7 and name_similarity >= 0.9 and category_score >= 0.9:
+        token_coverage = 0.75
     city_score = _hcm_context_score(item) if validation.address_matches_hcm else 0.85
     importance_score = _importance_score(item.get("importance"))
 

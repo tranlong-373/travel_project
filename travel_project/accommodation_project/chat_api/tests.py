@@ -1350,6 +1350,49 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertEqual(result["confirm_table"][0]["label"], "Khu vực")
         self.assertEqual(result["confirm_table"][0]["display_value"], "gần Suối Tiên")
 
+    def test_near_hcm_history_museum_accepts_high_similarity_osm_result(self):
+        geocode_anchor.cache_clear()
+        row = {
+            "place_id": 258617149,
+            "osm_type": "relation",
+            "osm_id": 17758150,
+            "lat": "10.7879719",
+            "lon": "106.7049563",
+            "class": "tourism",
+            "type": "museum",
+            "importance": 0.3754795826599041,
+            "name": "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+            "display_name": (
+                "Bảo tàng Lịch sử Thành phố Hồ Chí Minh, 2, Nguyễn Thị Minh Khai, "
+                "Thành phố Hồ Chí Minh, Việt Nam"
+            ),
+            "address": {
+                "tourism": "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+                "house_number": "2",
+                "road": "Nguyễn Thị Minh Khai",
+                "city": "Thành phố Hồ Chí Minh",
+                "country": "Việt Nam",
+                "country_code": "vn",
+            },
+        }
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._provider_searches",
+            return_value=[],
+        ), patch("chat_api.services.geocoder._fetch_osm", return_value=[row]):
+            result = parse_user_text("Gần bảo tàng lịch sử thành phố giá 2 đến 5 triệu", include_debug=True)
+
+        self.assertEqual(result["location_status"], "ok")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Bảo tàng Lịch sử Thành phố Hồ Chí Minh")
+        self.assertEqual(result["anchor_kind"], "museum")
+        self.assertIsNotNone(result["anchor_lat"])
+        self.assertIsNotNone(result["anchor_lon"])
+        self.assertFalse(result["unresolved_location"])
+        self.assertEqual(result["slots"]["budget_min"], 2_000_000)
+        self.assertEqual(result["slots"]["budget_max"], 5_000_000)
+        geocode_anchor.cache_clear()
+
     def test_soft_filter_unknown_landmark_uses_osm_geocoder(self):
         geocode_anchor.cache_clear()
         with patch(
