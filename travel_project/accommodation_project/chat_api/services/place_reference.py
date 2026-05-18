@@ -1,18 +1,21 @@
 from __future__ import annotations
 
 import json
+import difflib
 import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from ..normalizers import normalize_key
+from ..location_phrase_cleaner import clean_location_candidate_phrase
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 PLACE_ALIASES_PATH = DATA_DIR / "place_aliases.json"
 SEMANTIC_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 SEMANTIC_ACCEPT_THRESHOLD = 0.78
+FUZZY_ACCEPT_THRESHOLD = 0.82
 
 ALIAS_PREFIXES = (
     "khu du lich",
@@ -157,6 +160,46 @@ def semantic_search_place_reference(query: str | None) -> dict[str, Any] | None:
     return payload
 
 
+def fuzzy_search_place_reference(query: str | None) -> dict[str, Any] | None:
+    key = normalize_place_text(clean_location_candidate_phrase(query))
+    if not key:
+        return None
+    query_tokens = _content_tokens(key)
+    if not query_tokens:
+        return None
+    try:
+        from ..models import PlaceReference
+
+        references = list(PlaceReference.objects.all()[:2000])
+    except Exception:
+        return None
+
+    best_reference = None
+    best_score = 0.0
+    best_text = ""
+    for reference in references:
+        values = [reference.canonical_name, *(reference.aliases or [])]
+        if reference.display_name:
+            values.append(reference.display_name)
+        for value in values:
+            candidate_text = normalize_place_text(value)
+            if not candidate_text:
+                continue
+            score = _fuzzy_place_score(key, candidate_text, query_tokens)
+            if score > best_score:
+                best_score = score
+                best_reference = reference
+                best_text = candidate_text
+
+    if best_reference is None or best_score < FUZZY_ACCEPT_THRESHOLD:
+        return None
+    payload = reference_to_payload(best_reference, source="fuzzy")
+    payload["fuzzy_similarity"] = round(best_score, 3)
+    payload["matched_alias"] = best_text
+    payload["confidence"] = max(float(payload.get("confidence") or 0.0), best_score)
+    return payload
+
+
 @lru_cache(maxsize=1)
 def _semantic_index():
     from sentence_transformers import SentenceTransformer
@@ -174,6 +217,40 @@ def _semantic_index():
                 texts.append(normalized)
                 expanded_references.append(reference)
     return SentenceTransformer(SEMANTIC_MODEL_NAME), expanded_references, texts
+
+
+def _content_tokens(value: str) -> set[str]:
+    stopwords = {
+        "tp",
+        "hcm",
+        "tphcm",
+        "ho",
+        "chi",
+        "minh",
+        "thanh",
+        "pho",
+        "city",
+        "viet",
+        "nam",
+        "vietnam",
+        "gan",
+        "quanh",
+        "near",
+        "around",
+    }
+    return {token for token in re.findall(r"\w+", normalize_place_text(value)) if token not in stopwords}
+
+
+def _fuzzy_place_score(query: str, candidate: str, query_tokens: set[str]) -> float:
+    candidate_tokens = _content_tokens(candidate)
+    if not candidate_tokens:
+        return 0.0
+    overlap = len(query_tokens & candidate_tokens)
+    coverage = overlap / max(len(query_tokens), 1)
+    reverse_coverage = overlap / max(len(candidate_tokens), 1)
+    ratio = difflib.SequenceMatcher(None, query, candidate).ratio()
+    token_score = (coverage * 0.7) + (reverse_coverage * 0.3)
+    return max(ratio, (ratio * 0.35) + (token_score * 0.65))
 
 
 def reference_to_payload(reference, *, source: str | None = None) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import difflib
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,7 @@ from .validator import (
     BLOCKED_POI_CATEGORIES,
     GeocodeValidation,
     geocode_category,
+    is_named_map_anchor_proxy,
     name_similarity as validated_name_similarity,
     normalize_vi,
     token_coverage as validated_token_coverage,
@@ -51,6 +53,7 @@ PLACE_STOPWORDS = {
     "hcm",
     "tphcm",
     "tp",
+    "thanh",
     "city",
     "viet",
     "nam",
@@ -67,6 +70,7 @@ GOOD_PLACE_CATEGORIES = {
     "monument",
     "museum",
     "pedestrian",
+    "post_office",
     "tourism",
     "university",
 }
@@ -107,7 +111,16 @@ def score_geocode_candidate(
     aliases = item.get("aliases") or []
     alias_text = " ".join(str(alias) for alias in aliases) if isinstance(aliases, (list, tuple, set)) else ""
     candidate_text = " ".join(part for part in (display_head, name, display, alias_text) if part)
-    name_similarity = validated_name_similarity(phrase, candidate_text)
+    base_similarity = validated_name_similarity(phrase, candidate_text)
+    ordered_similarity = max(_ordered_token_score(phrase, name), _ordered_token_score(phrase, display_head))
+    name_similarity = (
+        max((base_similarity * 0.65) + (ordered_similarity * 0.35), ordered_similarity * 0.9)
+        if ordered_similarity
+        else base_similarity
+    )
+    map_anchor_proxy = is_named_map_anchor_proxy(item, phrase)
+    if map_anchor_proxy:
+        name_similarity = max(name_similarity, 0.86)
 
     haystack_parts = [display, name]
     address = item.get("address") or {}
@@ -117,7 +130,9 @@ def score_geocode_candidate(
 
     token_coverage = max(validation.token_coverage, validated_token_coverage(phrase, haystack))
     category_score = _category_score(geocode_category(item))
-    city_score = 1.0 if validation.address_matches_hcm else 0.85
+    if map_anchor_proxy:
+        category_score = max(category_score, 0.75)
+    city_score = _hcm_context_score(item) if validation.address_matches_hcm else 0.85
     importance_score = _importance_score(item.get("importance"))
 
     total = (
@@ -152,6 +167,46 @@ def _importance_score(value: Any) -> float:
         return min(max(float(value), 0.0), 1.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _hcm_context_score(item: dict[str, Any]) -> float:
+    lat = _float_or_none(item.get("lat") if item.get("lat") is not None else item.get("latitude"))
+    lon = _float_or_none(item.get("lon") if item.get("lon") is not None else item.get("longitude"))
+    if lat is None or lon is None:
+        return 0.85
+    center_lat, center_lon = 10.7758, 106.7004
+    lat_km = (lat - center_lat) * 111.0
+    lon_km = (lon - center_lon) * 111.0 * math.cos(math.radians(center_lat))
+    distance_km = math.sqrt((lat_km * lat_km) + (lon_km * lon_km))
+    return max(0.2, 1.0 - (distance_km / 55.0))
+
+
+def _ordered_token_score(phrase: str, candidate_text: str) -> float:
+    query_tokens = _meaningful_tokens(phrase)
+    if len(query_tokens) < 2:
+        return 0.0
+    candidate = " ".join(_meaningful_tokens(candidate_text))
+    if not candidate:
+        return 0.0
+    query = " ".join(query_tokens)
+    if query in candidate:
+        return 1.0
+    best = 0.0
+    for size in range(len(query_tokens) - 1, 1, -1):
+        for index in range(0, len(query_tokens) - size + 1):
+            chunk = " ".join(query_tokens[index : index + size])
+            if chunk in candidate:
+                best = max(best, size / len(query_tokens))
+        if best:
+            return best
+    return 0.0
+
+
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _ratio(left: str, right: str) -> float:

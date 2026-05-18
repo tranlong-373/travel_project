@@ -71,6 +71,7 @@ CONFIRM_SKIP_KEYS = {
     "unsupported_preferred_type",
     "search_intent",
     "type_choice_multiple",
+    "search_radius_km",
 }
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
@@ -321,9 +322,21 @@ def _attach_parse_debug_metadata(
         "geocoder_block_reason": location.get("geocoder_reason")
         or slot_parse_context.get("geocoder_reason")
         or "no_location_intent",
+        "location_source": location.get("location_source") or "none",
+        "cache_hit": bool(location.get("cache_hit")),
+        "rejected_reason": _first_rejected_reason(location.get("rejected_geocoder_results")),
         "rejected_geocoder_results": location.get("rejected_geocoder_results") or [],
         "area_match": bool(location.get("area_match")),
     }
+
+
+def _first_rejected_reason(rejected_results: Any) -> str | None:
+    if not isinstance(rejected_results, list) or not rejected_results:
+        return None
+    first = rejected_results[0]
+    if isinstance(first, dict):
+        return first.get("reason") or first.get("rejected_reason")
+    return None
 
 
 def _has_confirm_value(value: Any) -> bool:
@@ -391,6 +404,14 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
                 or result["debug_metadata"].get("geocoder_reason"),
                 "geocoder_block_reason": location.get("geocoder_reason")
                 or result["debug_metadata"].get("geocoder_block_reason"),
+                "location_source": location.get("location_source")
+                or result["debug_metadata"].get("location_source")
+                or "none",
+                "cache_hit": bool(location.get("cache_hit")),
+                "location_confidence": location.get("confidence")
+                or result["debug_metadata"].get("location_confidence")
+                or 0.0,
+                "rejected_reason": _first_rejected_reason(location.get("rejected_geocoder_results")),
                 "rejected_geocoder_results": location.get("rejected_geocoder_results") or [],
                 "area_match": bool(location.get("area_match")),
             }
@@ -418,7 +439,12 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         location.get("anchor_lat") is None or location.get("anchor_lon") is None
     ):
         unresolved_location = True
-    if unresolved_location:
+    if location.get("mode") == "multiple_choice":
+        slots["area"] = None
+        result["canonical_area"] = None
+        result["location_status"] = "multiple_choice"
+        unresolved_location = False
+    elif unresolved_location:
         slots["area"] = None
         result["canonical_area"] = None
         result["location_status"] = "ambiguous" if location.get("needs_city_clarification") else "unresolved"
@@ -446,6 +472,7 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["anchor_lat"] = location.get("anchor_lat")
     result["anchor_lon"] = location.get("anchor_lon")
     result["anchor_radius_km"] = location.get("anchor_radius_km")
+    result["search_radius_km"] = location.get("search_radius_km") or slots.get("search_radius_km")
     result["provider"] = location.get("provider")
     result["resolved_place"] = location.get("resolved_place")
     result["location_display_label"] = location.get("location_display_label")
@@ -457,15 +484,20 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["geocoder_called"] = bool(location.get("geocoder_called"))
     result["geocoder_reason"] = location.get("geocoder_reason")
     result["rejected_geocoder_results"] = location.get("rejected_geocoder_results") or []
+    result["rejected_reason"] = _first_rejected_reason(result["rejected_geocoder_results"])
+    result["cache_hit"] = bool(location.get("cache_hit"))
     result["needs_city_clarification"] = bool(location.get("needs_city_clarification"))
     result["ambiguous_location"] = bool(location.get("ambiguous_location"))
     result["ambiguous_location_question"] = location.get("ambiguous_location_question")
+    result["location_candidates"] = location.get("location_candidates") or result.get("location_candidates") or []
     result["area_match"] = bool(location.get("area_match"))
     result["unresolved_location"] = unresolved_location
     if location.get("mode"):
         slots["location_mode"] = location.get("mode")
     if location.get("location_phrase"):
         slots["location_phrase"] = location.get("location_phrase")
+    if result.get("search_radius_km") is not None:
+        slots["search_radius_km"] = result.get("search_radius_km")
     if slots.get("preferred_type") and not slots.get("accommodation_type"):
         slots["accommodation_type"] = slots.get("preferred_type")
     if slots.get("preferred_type") and not slots.get("accommodation_types"):
@@ -910,6 +942,11 @@ def _resolve_location_pipeline(
 
     if location_intent.get("should_resolve") and location_intent.get("mode_hint") == "near_anchor":
         candidate = location_intent.get("candidate") or location_text
+        legacy_location = resolve_location(normalize_text(str(location_text or candidate or "")), locale=locale)
+        if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
+            converted = _convert_legacy_location(legacy_location, supported_locations)
+            converted["geocoder_reason"] = location_intent.get("reason") or "near_anchor_area_conflict"
+            return converted
         return {
             "location_status": "unresolved",
             "location_candidates": [],
@@ -1222,8 +1259,12 @@ def _attach_api_contract_metadata(result: dict[str, Any], policy: dict[str, Any]
         "confidence": result.get("location_confidence") or 0.0,
         "geocoder_called": bool(result.get("geocoder_called")),
         "geocoder_reason": result.get("geocoder_reason"),
+        "location_source": result.get("location_source"),
+        "cache_hit": bool(result.get("cache_hit")),
+        "rejected_reason": result.get("rejected_reason"),
         "canonical_area": result.get("canonical_area"),
         "display_label": result.get("location_display_label"),
+        "search_radius_km": result.get("search_radius_km"),
         "anchor": {
             "name": result.get("anchor_name"),
             "kind": result.get("anchor_kind"),

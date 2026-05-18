@@ -44,6 +44,7 @@ def extract_slots_from_text(
         accommodation_types[0] if accommodation_types else extract_preferred_type(search_text)
     )
     check_in, check_out = _extract_date_bounds(search_text)
+    search_radius_km = slot_parse_context.get("search_radius_km") or _extract_search_radius_km(search_text)
 
     slots = empty_slots()
     slots.update(
@@ -63,6 +64,7 @@ def extract_slots_from_text(
             "trip_days": extract_trip_days(search_text),
             "room_count": _extract_room_count(search_text),
             "rating": _extract_rating(search_text),
+            "search_radius_km": search_radius_km,
             "check_in": check_in,
             "check_out": check_out,
         }
@@ -102,6 +104,7 @@ def merge_slot_context(
         "trip_days",
         "room_count",
         "rating",
+        "search_radius_km",
         "check_in",
         "check_out",
         "location_phrase",
@@ -177,6 +180,9 @@ def validate_slots(slots_partial: dict[str, Any]) -> dict[str, Any]:
 
     rating = _as_float(slots_partial.get("rating") or slots.get("rating"))
     slots["rating"] = rating if rating is not None and 0 < rating <= 5 else None
+
+    search_radius_km = _as_float(slots_partial.get("search_radius_km") or slots.get("search_radius_km"))
+    slots["search_radius_km"] = search_radius_km if search_radius_km is not None and 0.1 <= search_radius_km <= 50 else None
 
     for key in ("check_in", "check_out", "location_phrase"):
         value = slots_partial.get(key) or slots.get(key)
@@ -281,6 +287,24 @@ def _extract_rating(text: str | None) -> float | None:
     if not match:
         return None
     return _as_float(match.group(1) or match.group(2))
+
+
+def _extract_search_radius_km(text: str | None) -> float | None:
+    normalized = normalize_user_text(text or "")
+    norm = normalized["no_accent_text"]
+    unit_pattern = r"km|kilomet|kilometer|kilometre|kilometers|kilometres|cay"
+    patterns = (
+        rf"\b(?:trong|ban\s+kinh|pham\s+vi)\s*(\d+(?:[.,]\d+)?)\s*(?:{unit_pattern})\b",
+        rf"\b(\d+(?:[.,]\d+)?)\s*(?:{unit_pattern})\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, norm, flags=re.IGNORECASE)
+        if not match:
+            continue
+        radius = _as_float(match.group(1))
+        if radius is not None and 0.1 <= radius <= 50:
+            return round(radius, 2)
+    return None
 
 
 def _extract_date_bounds(text: str | None) -> tuple[str | None, str | None]:

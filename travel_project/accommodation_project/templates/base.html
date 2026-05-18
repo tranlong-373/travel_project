@@ -331,6 +331,108 @@
         }
     }
 
+    function shouldShowLocationCandidateTable(result) {
+        const candidates = result.location_candidates || (result.clarification && result.clarification.candidates) || [];
+        return candidates.length > 0 && (
+            result.location_status === 'multiple_choice' ||
+            result.location_mode === 'multiple_choice' ||
+            result.ambiguous_location
+        );
+    }
+
+    function candidateLocationName(candidate) {
+        return candidate.name || candidate.canonical_area || candidate.display_name || 'Địa điểm';
+    }
+
+    function candidateLocationAddress(candidate) {
+        return candidate.address || candidate.display_address || candidate.display_name || '';
+    }
+
+    function addLocationCandidateTable(result, persist = true) {
+        const candidates = result.location_candidates || (result.clarification && result.clarification.candidates) || [];
+        if (!candidates.length) return;
+
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card chat-location-card';
+
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = 'Chọn địa điểm';
+        card.appendChild(title);
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.primary_message || result.polite_bot_message || result.bot_message || result.follow_up_question || 'Bạn chọn đúng địa chỉ giúp mình nhé.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table chat-location-choice-table';
+        candidates.slice(0, 5).forEach((candidate) => {
+            const row = document.createElement('tr');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.onclick = () => selectLocationCandidate(candidate);
+            row.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectLocationCandidate(candidate);
+                }
+            };
+
+            const name = document.createElement('th');
+            name.textContent = candidateLocationName(candidate);
+            const address = document.createElement('td');
+            address.textContent = candidateLocationAddress(candidate);
+            row.appendChild(name);
+            row.appendChild(address);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+        box.appendChild(card);
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'location_candidates',
+                result: {
+                    primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                    follow_up_question: result.follow_up_question || null,
+                    location_candidates: candidates
+                }
+            });
+            persistChatState();
+        }
+    }
+
+    async function selectLocationCandidate(candidate) {
+        if (chatIsBusy) return;
+        const payload = candidate.payload || { area: candidate.canonical_area || candidate.name };
+        const label = candidateLocationName(candidate);
+        addMessage('Chọn: ' + label, 'user');
+        setChatBusy(true);
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    locale: 'vi',
+                    context_slots: contextSlots,
+                    quick_reply_payload: payload
+                })
+            });
+            const data = await res.json();
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Mình chưa xác nhận được địa điểm này, bạn thử lại giúp mình nhé.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
     async function openRecommendationFromAction(result) {
         const action = result.recommendation_action || {};
         if (action.url && !action.requires_submit) {
@@ -380,6 +482,8 @@
                 chatHistory.forEach((entry) => {
                     if (entry.kind === 'confirmation') {
                         addConfirmationTable(entry.result || {}, false);
+                    } else if (entry.kind === 'location_candidates') {
+                        addLocationCandidateTable(entry.result || {}, false);
                     } else {
                         addMessage(entry.text || '', entry.type || 'bot', false);
                     }
@@ -540,6 +644,11 @@
         result.primary_message = primaryMessage || null;
 
         const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+        if (shouldShowLocationCandidateTable(result)) {
+            addLocationCandidateTable(result);
+            return;
+        }
+
         if (hasConfirmTable) {
             addConfirmationTable(result);
             return;

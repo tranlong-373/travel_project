@@ -304,9 +304,9 @@ def _no_signal_question(parse_result: dict) -> str:
 def _location_quick_replies(candidates: list[dict]) -> list[dict]:
     replies = []
     for candidate in candidates[:5]:
-        name = candidate.get("canonical_area")
+        name = candidate.get("canonical_area") or candidate.get("name")
         if name:
-            replies.append({"label": name, "payload": {"area": name}})
+            replies.append({"label": name, "payload": candidate.get("payload") or {"area": name}})
     return replies
 
 

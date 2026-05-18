@@ -51,6 +51,9 @@ def build_search_origin(parse_result: dict[str, Any] | None) -> dict[str, Any]:
         else None,
     )
     radius_km = _first_float(
+        slots.get("search_radius_km"),
+        parse_result.get("search_radius_km"),
+        location.get("search_radius_km"),
         parse_result.get("anchor_radius_km"),
         location.get("anchor_radius_km"),
         (parse_result.get("user_location") or {}).get("radius_km")

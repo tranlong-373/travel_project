@@ -12,6 +12,7 @@ from chat_api.services.place_reference import generate_place_aliases, normalize_
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 USER_AGENT = "travel-project-hcm-poi-import/1.0"
+# Overpass is used only by this offline import/cache command, never during chat requests.
 OVERPASS_QUERY = """
 [out:json][timeout:30];
 area["name"~"Thành phố Hồ Chí Minh|Ho Chi Minh", i]["admin_level"~"4|6"]->.hcm;
@@ -23,8 +24,10 @@ area["name"~"Thành phố Hồ Chí Minh|Ho Chi Minh", i]["admin_level"~"4|6"]->
   nwr(area.hcm)["historic"];
   nwr(area.hcm)["leisure"="park"];
   nwr(area.hcm)["leisure"="water_park"];
+  nwr(area.hcm)["amenity"="marketplace"];
   nwr(area.hcm)["amenity"="theatre"];
   nwr(area.hcm)["amenity"="arts_centre"];
+  nwr(area.hcm)["shop"="mall"];
 );
 out center tags;
 """.strip()
@@ -116,7 +119,7 @@ class Command(BaseCommand):
 
 
 def _kind_from_tags(tags: dict[str, Any]) -> str:
-    for key in ("tourism", "historic", "leisure", "amenity"):
+    for key in ("tourism", "historic", "leisure", "amenity", "shop"):
         value = tags.get(key)
         if value:
             return str(value)
