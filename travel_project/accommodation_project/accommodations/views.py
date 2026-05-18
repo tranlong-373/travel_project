@@ -9,8 +9,12 @@ from .models import Accommodation, AccommodationReview, Room
 
 
 def accommodation_list(request):
+
     qs = Accommodation.objects.all()
 
+    # =========================
+    # SEARCH
+    # =========================
     destination = request.GET.get('destination', '').strip()
     guests = request.GET.get('guests', '').strip()
     check_in = request.GET.get('check_in', '').strip()
@@ -25,54 +29,121 @@ def accommodation_list(request):
         )
 
     guest_count = None
+
     if guests:
         try:
             guest_count = int(guests)
+
             if guest_count > 0:
                 qs = qs.filter(capacity__gte=guest_count)
+
         except (TypeError, ValueError):
             guest_count = None
 
+    # =========================
+    # TYPE
+    # =========================
     acc_type = request.GET.get('type', '')
+
     if acc_type:
         qs = qs.filter(accommodation_type=acc_type)
 
+    # =========================
+    # PRICE RADIO
+    # =========================
     price_range = request.GET.get('price', '')
+
     if price_range == '0-500k':
         qs = qs.filter(price_per_night__lte=500000)
+
     elif price_range == '500k-1tr':
-        qs = qs.filter(price_per_night__gt=500000, price_per_night__lte=1000000)
+        qs = qs.filter(
+            price_per_night__gt=500000,
+            price_per_night__lte=1000000
+        )
+
     elif price_range == '1tr-2tr':
-        qs = qs.filter(price_per_night__gt=1000000, price_per_night__lte=2000000)
+        qs = qs.filter(
+            price_per_night__gt=1000000,
+            price_per_night__lte=2000000
+        )
+
     elif price_range == '2tr+':
         qs = qs.filter(price_per_night__gt=2000000)
 
-    amenities = request.GET.getlist('amenity')
-    if amenities:
-        qs = [room for room in qs if all(a in (room.amenities or []) for a in amenities)]
+    # =========================
+    # PRICE SLIDER
+    # =========================
+    price_min = request.GET.get('price_min', '')
+    price_max = request.GET.get('price_max', '')
 
+    try:
+        if price_min != '':
+            qs = qs.filter(price_per_night__gte=int(price_min))
+
+        if price_max != '':
+            qs = qs.filter(price_per_night__lte=int(price_max))
+
+    except ValueError:
+        pass
+
+    # =========================
+    # AMENITIES
+    # =========================
+    amenities = request.GET.getlist('amenity')
+
+    if amenities:
+        qs = [
+            room for room in qs
+            if all(a in (room.amenities or []) for a in amenities)
+        ]
+
+    # =========================
+    # SORT
+    # =========================
     sort = request.GET.get('sort', '')
+
     if isinstance(qs, list):
+
         if sort == 'price_asc':
             qs.sort(key=lambda x: x.price_per_night)
+
         elif sort == 'price_desc':
             qs.sort(key=lambda x: x.price_per_night, reverse=True)
+
         elif sort == 'rating':
             qs.sort(key=lambda x: x.rating, reverse=True)
+
     else:
+
         if sort == 'price_asc':
             qs = qs.order_by('price_per_night')
+
         elif sort == 'price_desc':
             qs = qs.order_by('-price_per_night')
+
         elif sort == 'rating':
             qs = qs.order_by('-rating')
 
+    # =========================
+    # PAGINATION
+    # =========================
     paginator = Paginator(qs, 5)
-    page_number = request.GET.get('page', 1)
-    page_obj = paginator.get_page(page_number)
-    page_accommodations = list(page_obj.object_list)
-    accommodation_ids = [accommodation.id for accommodation in page_accommodations]
 
+    page_number = request.GET.get('page', 1)
+
+    page_obj = paginator.get_page(page_number)
+
+    page_accommodations = list(page_obj.object_list)
+
+    accommodation_ids = [
+        accommodation.id
+        for accommodation in page_accommodations
+    ]
+
+    # =========================
+    # REVIEWS
+    # =========================
     latest_reviews = (
         AccommodationReview.objects.filter(
             accommodation_id__in=accommodation_ids,
@@ -81,47 +152,103 @@ def accommodation_list(request):
         .select_related('user', 'accommodation')
         .order_by('accommodation_id', '-created_at')
     )
+
+    reviews_by_accommodation = {}
+
+    for review in latest_reviews:
+
+        reviews_by_accommodation.setdefault(
+            review.accommodation_id,
+            []
+        )
+
+        if len(reviews_by_accommodation[review.accommodation_id]) < 2:
+            reviews_by_accommodation[
+                review.accommodation_id
+            ].append(review)
+
+    # =========================
+    # POSTS
+    # =========================
     latest_posts = (
-        BlogPost.objects.filter(accommodation_id__in=accommodation_ids)
+        BlogPost.objects.filter(
+            accommodation_id__in=accommodation_ids
+        )
         .select_related('author', 'accommodation')
         .prefetch_related('images', 'comments')
         .order_by('accommodation_id', '-created_at')
     )
 
-    reviews_by_accommodation = {}
-    for review in latest_reviews:
-        reviews_by_accommodation.setdefault(review.accommodation_id, [])
-        if len(reviews_by_accommodation[review.accommodation_id]) < 2:
-            reviews_by_accommodation[review.accommodation_id].append(review)
-
     posts_by_accommodation = {}
+
     for post in latest_posts:
-        posts_by_accommodation.setdefault(post.accommodation_id, [])
+
+        posts_by_accommodation.setdefault(
+            post.accommodation_id,
+            []
+        )
+
         if len(posts_by_accommodation[post.accommodation_id]) < 2:
-            posts_by_accommodation[post.accommodation_id].append(post)
+            posts_by_accommodation[
+                post.accommodation_id
+            ].append(post)
 
+    # =========================
+    # ATTACH PREVIEW
+    # =========================
     for accommodation in page_accommodations:
-        accommodation.preview_reviews = reviews_by_accommodation.get(accommodation.id, [])
-        accommodation.preview_posts = posts_by_accommodation.get(accommodation.id, [])
 
+        accommodation.preview_reviews = (
+            reviews_by_accommodation.get(
+                accommodation.id,
+                []
+            )
+        )
+
+        accommodation.preview_posts = (
+            posts_by_accommodation.get(
+                accommodation.id,
+                []
+            )
+        )
+
+    # =========================
+    # QUERY STRING
+    # =========================
     query_params = request.GET.copy()
+
     query_params.pop('page', None)
 
-    return render(request, 'accommodations/accommodation_list.html', {
-        'accommodations': page_obj,
-        'page_obj': page_obj,
-        'current_type': acc_type,
-        'current_price': price_range,
-        'current_sort': sort,
-        'current_amenities': amenities,
-        'current_destination': destination,
-        'current_guests': guests,
-        'current_check_in': check_in,
-        'current_check_out': check_out,
-        'query_string': query_params.urlencode(),
-        'guest_count': guest_count,
-    })
+    # =========================
+    # RENDER
+    # =========================
+    return render(
+        request,
+        'accommodations/accommodation_list.html',
+        {
+            'accommodations': page_obj,
+            'page_obj': page_obj,
 
+            'current_type': acc_type,
+            'current_price': price_range,
+            'current_sort': sort,
+
+            'current_amenities': amenities,
+
+            'current_destination': destination,
+            'current_guests': guests,
+
+            'current_check_in': check_in,
+            'current_check_out': check_out,
+
+            'current_price_min': price_min,
+            'current_price_max': price_max,
+
+            'query_string': query_params.urlencode(),
+
+            'guest_count': guest_count,
+        }
+    )
 
 
 def accommodation_detail(request, pk):

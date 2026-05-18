@@ -10,40 +10,209 @@
             <h1 class="hero-title">Unlock Your Dream Getaway</h1>
             <p class="hero-sub">Vietnam Awaits Your Journey</p>
     
-            <form method="GET" action="{% url 'accommodation_list' %}" class="search-form">
-    
+            <form method="GET" action="{% url 'accommodation_list' %}" class="search-form" id="searchForm">
+
                 <!-- Destination -->
-                <div class="search-field">
-                    <p class="search-label">Where</p>
-                    <input type="text" name="destination" placeholder="Destinations" class="search-input" />
+                <div class="search-field sf-destination">
+                    <p class="search-label">Thành phố, địa điểm hoặc tên khách sạn:</p>
+                    <div class="sf-input-row">
+                        <i class="fa-regular fa-circle-dot sf-icon"></i>
+                        <input type="text" name="destination" placeholder="Điểm đến" class="search-input" />
+                    </div>
                 </div>
-    
-                <!-- Check in -->
-                <div class="search-field">
-                    <p class="search-label">Check in</p>
-                    <input type="date" name="check_in" class="search-input" />
+
+                <!-- Date range (check in + check out combined) -->
+                <div class="search-field sf-dates" id="sfDatesField">
+                    <p class="search-label">Ngày nhận phòng và trả phòng</p>
+                    <div class="sf-input-row sf-date-display" id="sfDateDisplay">
+                        <i class="fa-regular fa-calendar sf-icon"></i>
+                        <span id="sfDateText" class="sf-date-text">Chọn ngày</span>
+                    </div>
+                    <p class="sf-nights-label" id="sfNightsLabel"></p>
+                    <!-- Hidden real inputs -->
+                    <input type="date" name="check_in"  id="sfCheckIn"  class="sf-hidden-date" />
+                    <input type="date" name="check_out" id="sfCheckOut" class="sf-hidden-date" />
+                    <!-- Inline date pickers shown on click -->
+                    <div class="sf-date-pickers" id="sfDatePickers">
+                        <div class="sf-date-picker-group">
+                            <label>Nhận phòng</label>
+                            <input type="date" id="sfPickIn" class="sf-picker-input" />
+                        </div>
+                        <div class="sf-date-picker-group">
+                            <label>Trả phòng</label>
+                            <input type="date" id="sfPickOut" class="sf-picker-input" />
+                        </div>
+                        <button type="button" class="sf-done-btn" id="sfDateDone">Xong</button>
+                    </div>
                 </div>
-    
-                <!-- Check out -->
-                <div class="search-field">
-                    <p class="search-label">Check out</p>
-                    <input type="date" name="check_out" class="search-input" />
+
+                <!-- Guests & Rooms -->
+                <div class="search-field sf-guests" id="sfGuestsField">
+                    <p class="search-label">Khách và Phòng</p>
+                    <div class="sf-input-row" id="sfGuestsDisplay">
+                        <i class="fa-regular fa-user sf-icon"></i>
+                        <span id="sfGuestsText" class="sf-guests-text">2 người lớn, 0 Trẻ em, 1 phòng</span>
+                        <i class="fa-solid fa-chevron-down sf-chevron" id="sfChevron"></i>
+                    </div>
+                    <!-- Hidden inputs -->
+                    <input type="hidden" name="adults"   id="sfAdults"   value="2" />
+                    <input type="hidden" name="children" id="sfChildren" value="0" />
+                    <input type="hidden" name="rooms"    id="sfRooms"    value="1" />
+                    <!-- Dropdown -->
+                    <div class="sf-guests-dropdown" id="sfGuestsDropdown">
+                        <div class="sf-guest-row">
+                            <div class="sf-guest-label">
+                                <i class="fa-regular fa-user"></i>
+                                <span>Người lớn</span>
+                            </div>
+                            <div class="sf-counter">
+                                <button type="button" class="sf-counter-btn" data-target="sfAdults" data-min="1">−</button>
+                                <span class="sf-counter-val" id="sfAdultsVal">2</span>
+                                <button type="button" class="sf-counter-btn" data-target="sfAdults" data-op="add">+</button>
+                            </div>
+                        </div>
+                        <div class="sf-guest-row">
+                            <div class="sf-guest-label">
+                                <i class="fa-solid fa-child"></i>
+                                <span>Trẻ em</span>
+                            </div>
+                            <div class="sf-counter">
+                                <button type="button" class="sf-counter-btn" data-target="sfChildren" data-min="0">−</button>
+                                <span class="sf-counter-val" id="sfChildrenVal">0</span>
+                                <button type="button" class="sf-counter-btn" data-target="sfChildren" data-op="add">+</button>
+                            </div>
+                        </div>
+                        <div class="sf-guest-row">
+                            <div class="sf-guest-label">
+                                <i class="fa-regular fa-square"></i>
+                                <span>Phòng</span>
+                            </div>
+                            <div class="sf-counter">
+                                <button type="button" class="sf-counter-btn" data-target="sfRooms" data-min="1">−</button>
+                                <span class="sf-counter-val" id="sfRoomsVal">1</span>
+                                <button type="button" class="sf-counter-btn" data-target="sfRooms" data-op="add">+</button>
+                            </div>
+                        </div>
+                        <button type="button" class="sf-done-btn sf-guests-done" id="sfGuestsDone">Xong</button>
+                    </div>
                 </div>
-    
-                <!-- Guests -->
-                <div class="search-field">
-                    <p class="search-label">Guests</p>
-                    <input type="number" name="guests" min="1" max="4" placeholder="Add guests" class="search-input" />
-                </div>
-    
+
                 <!-- Button -->
                 <div class="search-btn-wrap">
                     <button type="submit" class="search-btn">
-                        <i class="fa-solid fa-magnifying-glass"></i>
+                        Tìm kiếm <i class="fa-solid fa-magnifying-glass"></i>
                     </button>
                 </div>
-    
+
             </form>
+
+            <script>
+            (function() {
+                // ── Date range logic ──────────────────────────────────────────
+                const dateField   = document.getElementById('sfDatesField');
+                const datePickers = document.getElementById('sfDatePickers');
+                const pickIn      = document.getElementById('sfPickIn');
+                const pickOut     = document.getElementById('sfPickOut');
+                const hiddenIn    = document.getElementById('sfCheckIn');
+                const hiddenOut   = document.getElementById('sfCheckOut');
+                const dateText    = document.getElementById('sfDateText');
+                const nightsLabel = document.getElementById('sfNightsLabel');
+                const dateDone    = document.getElementById('sfDateDone');
+
+                const VI_DAYS  = ['CN','Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7'];
+                const VI_MONTHS = ['thg 1','thg 2','thg 3','thg 4','thg 5','thg 6','thg 7','thg 8','thg 9','thg 10','thg 11','thg 12'];
+
+                function fmtDate(d) {
+                    if (!d) return '';
+                    const obj = new Date(d + 'T00:00:00');
+                    return VI_DAYS[obj.getDay()] + ', ' + obj.getDate() + ' ' + VI_MONTHS[obj.getMonth()] + ' ' + obj.getFullYear();
+                }
+
+                function updateDateDisplay() {
+                    const inVal  = pickIn.value;
+                    const outVal = pickOut.value;
+                    if (inVal && outVal) {
+                        const d1 = new Date(inVal + 'T00:00:00');
+                        const d2 = new Date(outVal + 'T00:00:00');
+                        const nights = Math.round((d2 - d1) / 86400000);
+                        dateText.textContent = fmtDate(inVal) + ' – ' + fmtDate(outVal);
+                        nightsLabel.textContent = nights > 0 ? 'Thời gian: ' + nights + ' Đêm' : '';
+                        hiddenIn.value  = inVal;
+                        hiddenOut.value = outVal;
+                    } else if (inVal) {
+                        dateText.textContent = fmtDate(inVal) + ' – ...';
+                        nightsLabel.textContent = '';
+                        hiddenIn.value = inVal;
+                    } else {
+                        dateText.textContent = 'Chọn ngày';
+                        nightsLabel.textContent = '';
+                    }
+                }
+
+                document.getElementById('sfDateDisplay').addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    datePickers.classList.toggle('sf-open');
+                    document.getElementById('sfGuestsDropdown').classList.remove('sf-open');
+                });
+
+                dateDone.addEventListener('click', function() {
+                    datePickers.classList.remove('sf-open');
+                });
+
+                pickIn.addEventListener('change', updateDateDisplay);
+                pickOut.addEventListener('change', updateDateDisplay);
+
+                // ── Guests & Rooms logic ──────────────────────────────────────
+                const guestsField    = document.getElementById('sfGuestsField');
+                const guestsDropdown = document.getElementById('sfGuestsDropdown');
+                const chevron        = document.getElementById('sfChevron');
+
+                document.getElementById('sfGuestsDisplay').addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    guestsDropdown.classList.toggle('sf-open');
+                    chevron.style.transform = guestsDropdown.classList.contains('sf-open') ? 'rotate(180deg)' : '';
+                    datePickers.classList.remove('sf-open');
+                });
+
+                document.getElementById('sfGuestsDone').addEventListener('click', function() {
+                    guestsDropdown.classList.remove('sf-open');
+                    chevron.style.transform = '';
+                });
+
+                document.querySelectorAll('.sf-counter-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        const targetId = this.dataset.target;
+                        const isAdd    = this.dataset.op === 'add';
+                        const minVal   = parseInt(this.dataset.min || '0');
+                        const hidden   = document.getElementById(targetId);
+                        const valEl    = document.getElementById(targetId + 'Val');
+                        let val = parseInt(hidden.value);
+                        val = isAdd ? val + 1 : Math.max(minVal, val - 1);
+                        hidden.value  = val;
+                        valEl.textContent = val;
+                        updateGuestsText();
+                    });
+                });
+
+                function updateGuestsText() {
+                    const a = document.getElementById('sfAdults').value;
+                    const c = document.getElementById('sfChildren').value;
+                    const r = document.getElementById('sfRooms').value;
+                    document.getElementById('sfGuestsText').textContent =
+                        a + ' người lớn, ' + c + ' Trẻ em, ' + r + ' phòng';
+                }
+
+                // Close dropdowns when clicking outside
+                document.addEventListener('click', function() {
+                    datePickers.classList.remove('sf-open');
+                    guestsDropdown.classList.remove('sf-open');
+                    chevron.style.transform = '';
+                });
+
+                guestsField.addEventListener('click', function(e) { e.stopPropagation(); });
+                dateField.addEventListener('click',   function(e) { e.stopPropagation(); });
+            })();
+            </script>
         </div>
     </div>
     
