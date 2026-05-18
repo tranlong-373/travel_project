@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load humanize %}
 
 {% block content %}
 
@@ -242,7 +243,7 @@
                         <span style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">Khuyến mãi</span><br>
                         <span style="color: #dc3545; font-weight: bold;">{{ room.avg_final_price|floatformat:0 }}₫</span>
                     {% else %}
-                        <span>{{ room.price_per_night|floatformat:0 }}₫</span>
+                        <span>{{ room.price_per_night|floatformat:0|intcomma }}₫</span>
                     {% endif %}
                     /đêm
                 </p>

@@ -1,4 +1,5 @@
-{% extends 'base.html' %} {% load static %} {% block content %}
+{% extends 'base.html' %} {% load static %} {% load humanize %}
+{% block content %}
 <div class="detail-page">
   <!-- TOP -->
   <div class="top-card">
@@ -96,12 +97,12 @@
               color: #94a3b8;
               font-size: 0.6em;
             "
-            >{{ accommodation.price_per_night|floatformat:0 }}₫</span
+            >{{ accommodation.price_per_night|floatformat:0|intcomma }}₫</span
           >
           <span style="color: #dc3545"
-            >{{ accommodation.avg_final_price|floatformat:0 }}₫</span
+            >{{ accommodation.avg_final_price|floatformat:0|intcomma }}₫</span
           >
-          {% else %} {{ accommodation.price_per_night|floatformat:0 }}₫ {% endif %}
+          {% else %} {{ accommodation.price_per_night|floatformat:0|intcomma }}₫ {% endif %}
         </div>
         <div class="price-night">/đêm</div>
 
@@ -147,7 +148,7 @@
                     color: #94a3b8;
                     font-size: 14px;
                   "
-                  >{{ room.price_per_night|floatformat:0 }}₫</span
+                  >{{ room.price_per_night|floatformat:0|intcomma }}₫</span
                 >
                 <span
                   style="
@@ -162,11 +163,11 @@
                 >
               </div>
               <div class="room-price" style="color: #dc3545">
-                {{ room.final_price|floatformat:0 }}₫
+                {{ room.final_price|floatformat:0|intcomma }}₫
               </div>
               {% else %}
               <div class="room-price">
-                {{ room.price_per_night|floatformat:0 }}₫
+                {{ room.price_per_night|floatformat:0|intcomma }}₫
               </div>
               {% endif %}
               <div class="room-price-night">/đêm</div>
