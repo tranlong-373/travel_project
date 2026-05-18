@@ -40,6 +40,7 @@ GENERIC_POI_NOUNS: tuple[str, ...] = (
     "dai hoc",
     "chua",
     "pagoda",
+    "toa",
     "toa nha",
     "tower",
 )
@@ -104,8 +105,10 @@ def clean_location_candidate_phrase(value: str | None, *, strip_leading_cues: bo
         return ""
 
     text = _strip_leading_noise(text, strip_leading_cues=strip_leading_cues)
+    text = _normalize_common_location_typos(text)
     text = _strip_location_tail(text)
     text = _strip_leading_noise(text, strip_leading_cues=strip_leading_cues)
+    text = _normalize_common_location_typos(text)
     text = _strip_location_tail(text)
     text = TRAILING_FILLER_PATTERN.sub("", text)
     text = re.sub(r"\s+", " ", text).strip(" ,.;:-")
@@ -136,6 +139,11 @@ def has_concrete_place_noun(value: str | None) -> bool:
 
 def strip_location_tails(value: str | None) -> str:
     return _strip_location_tail(" ".join(str(value or "").split()))
+
+
+def _normalize_common_location_typos(value: str) -> str:
+    building_like = r"landmark|tower|building|toa|tòa|toà|nha|nhà|cao\s+oc|cao\s+ốc"
+    return re.sub(rf"\bto(?:à|a)n\b(?=\s+(?:{building_like})\b)", "tòa", value, flags=re.IGNORECASE)
 
 
 def _strip_location_tail(value: str) -> str:

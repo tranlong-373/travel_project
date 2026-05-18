@@ -202,7 +202,9 @@ function resetPrefChat() {
 }
 
 function visiblePrefConfirmItems(items) {
+    const hiddenKeys = new Set(['selected_place']);
     return (items || []).map((item) => {
+        if (hiddenKeys.has(item.key)) return null;
         if (item.key !== 'priorities') return item;
         const rawValue = item.display_value !== undefined ? item.display_value : item.value;
         const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
