@@ -12,14 +12,36 @@
 
 <body class='body'>
     <nav class="nav">
-        <a href="/" class="nav-brand">Accommodation <br> <span class='recommendation'>Recommendation</span></a>
+
+        <a href="/" class="nav-brand">
+            Accommodation <br>
+            <span class='recommendation'>Recommendation</span>
+        </a>
+
+        <!-- MOBILE MENU BUTTON -->
+        <div class="menu-toggle" onclick="toggleMenu()">
+            <i class="fa-solid fa-bars"></i>
+        </div>
 
         {% if request.path != '/accounts/login/' and request.path != '/accounts/register/' %}
-        <div class="nav-links">
+        <div class="nav-links" id="mobileMenu">
+
             <a href="/">Home</a>
             <a href="/accommodations/">Accommodation List</a>
             <a href="/preferences/">Find Recommendation</a>
             <a href="/blog/">Blog</a>
+
+            <!-- MOBILE AUTH -->
+            <div class="mobile-auth">
+                {% if user.is_authenticated %}
+                    <a href="/accounts/profile/">{{ user.username }}</a>
+                    <a href="/accounts/logout/">Logout</a>
+                {% else %}
+                    <a href="/accounts/login/">Login</a>
+                    <a href="/accounts/register/">Register</a>
+                {% endif %}
+            </div>
+
         </div>
         {% endif %}
 
@@ -100,6 +122,11 @@
 
     checkScroll();
     window.addEventListener('scroll', checkScroll);
+
+    
+    function toggleMenu() {
+        document.getElementById("mobileMenu").classList.toggle("show");
+    }
 
     let contextSlots = {};
     let chatRecorder = null;

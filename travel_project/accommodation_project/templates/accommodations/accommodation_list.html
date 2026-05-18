@@ -1,6 +1,8 @@
 {% extends 'base.html' %}
 {% load static %}
 
+{% load humanize %}
+
 {% block content %}
 
 <div class="acc-list-page">
@@ -14,124 +16,309 @@
 
         <!-- FILTER SIDEBAR -->
         <form method="GET" class="filter-sidebar" id="filterForm">
+
+            <!-- Header -->
             <div class="filter-header">
                 <span><i class="fa-solid fa-sliders"></i> Bộ lọc</span>
                 <a href="{% url 'accommodation_list' %}" class="filter-clear">Xóa tất cả</a>
             </div>
 
-            <div class="filter-section">
-                <p class="filter-title">Tìm nhanh</p>
-                <input type="text" name="destination" value="{{ current_destination }}" placeholder="Nhập khu vực, tên chỗ ở..." class="search-input" style="width:100%; margin-bottom:12px;" />
-                <input type="number" min="1" name="guests" value="{{ current_guests }}" placeholder="Số khách" class="search-input" style="width:100%; margin-bottom:12px;" />
-                <input type="date" name="check_in" value="{{ current_check_in }}" class="search-input" style="width:100%; margin-bottom:12px;" />
-                <input type="date" name="check_out" value="{{ current_check_out }}" class="search-input" style="width:100%; margin-bottom:12px;" />
-                <button type="submit" class="view-all-btn" style="width:100%; border:none; cursor:pointer;">Áp dụng tìm kiếm</button>
+            <!-- TÌM NHANH -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">TÌM NHANH</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <div class="fcard-field">
+                        <i class="fa-solid fa-magnifying-glass fcard-field-icon"></i>
+                        <input type="text" name="destination" value="{{ current_destination }}"
+                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-solid fa-user fcard-field-icon"></i>
+                        <input type="number" min="1" name="guests" value="{{ current_guests }}"
+                               placeholder="Số khách" class="fcard-input" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-regular fa-calendar fcard-field-icon"></i>
+                        <input type="date" name="check_in" value="{{ current_check_in }}" class="fcard-input" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-regular fa-calendar fcard-field-icon"></i>
+                        <input type="date" name="check_out" value="{{ current_check_out }}" class="fcard-input" />
+                    </div>
+                    <button type="submit" class="fcard-apply-btn">Áp dụng tìm kiếm</button>
+                </div>
             </div>
 
-            <!-- Loại chỗ ở -->
-            <div class="filter-section">
-                <p class="filter-title">Loại chỗ ở</p>
-                <label class="filter-item">
-                    <input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /> Tất cả
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="type" value="hotel" {% if current_type == 'hotel' %}checked{% endif %} onchange="this.form.submit()" /> Khách sạn
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="type" value="homestay" {% if current_type == 'homestay' %}checked{% endif %} onchange="this.form.submit()" /> Homestay
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="type" value="hostel" {% if current_type == 'hostel' %}checked{% endif %} onchange="this.form.submit()" /> Hostel
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="type" value="apartment" {% if current_type == 'apartment' %}checked{% endif %} onchange="this.form.submit()" /> Căn hộ
-                </label>
+            <!-- KHOẢNG GIÁ SLIDER -->
+           <!-- KHOẢNG GIÁ SLIDER -->
+            <div class="filter-card">
+
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <div>
+                        <span class="fcard-title">Khoảng giá</span>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <a href="{% url 'accommodation_list' %}"
+                        class="fcard-reset-link"
+                        onclick="event.stopPropagation()">
+                        Đặt lại
+                        </a>
+
+                        <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                    </div>
+                </div>
+
+                <div class="fcard-body">
+
+                    <div class="fs-range-wrap">
+
+                        <div class="fs-range-track">
+                            <div class="fs-range-fill" id="fsRangeFill"></div>
+                        </div>
+
+                        <input
+                            type="range"
+                            id="fsRangeMin"
+                            min="0"
+                            max="24000000"
+                            step="100000"
+                            value="{{ current_price_min|default:'0' }}"
+                            class="fs-range"
+                        />
+
+                        <input
+                            type="range"
+                            id="fsRangeMax"
+                            min="0"
+                            max="24000000"
+                            step="100000"
+                            value="{{ current_price_max|default:'24000000' }}"
+                            class="fs-range"
+                        />
+
+                    </div>
+
+                    <div class="fs-range-vals">
+
+                        <div class="fs-range-val-box">
+                            <span id="fsMinDisplay">0</span>
+                            <span class="fs-currency">VND</span>
+                        </div>
+
+                        <span class="fs-range-dash">—</span>
+
+                        <div class="fs-range-val-box">
+                            <span id="fsMaxDisplay">24.000.000</span>
+                            <span class="fs-currency">VND</span>
+                        </div>
+
+                    </div>
+
+                    <!-- hidden input submit -->
+                    <input
+                        type="hidden"
+                        name="price_min"
+                        id="fsPriceMin"
+                        value="{{ current_price_min|default:'0' }}"
+                    />
+
+                    <input
+                        type="hidden"
+                        name="price_max"
+                        id="fsPriceMax"
+                        value="{{ current_price_max|default:'24000000' }}"
+                    />
+
+                    <button type="submit" class="fs-apply-btn">
+                        Áp dụng
+                    </button>
+
+                </div>
+            </div>
+            <!-- LOẠI CHỖ Ở -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">LOẠI CHỖ Ở</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
+                    <label class="fcard-item"><input type="radio" name="type" value="hotel" {% if current_type == 'hotel' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Khách sạn</label>
+                    <label class="fcard-item"><input type="radio" name="type" value="homestay" {% if current_type == 'homestay' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Homestay</label>
+                    <label class="fcard-item"><input type="radio" name="type" value="hostel" {% if current_type == 'hostel' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Hostel</label>
+                    <label class="fcard-item"><input type="radio" name="type" value="apartment" {% if current_type == 'apartment' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Căn hộ</label>
+                </div>
             </div>
 
-            <!-- Khoảng giá -->
-            <div class="filter-section">
-                <p class="filter-title">Khoảng giá / đêm</p>
-                <label class="filter-item">
-                    <input type="radio" name="price" value="" {% if not current_price %}checked{% endif %} onchange="this.form.submit()" /> Tất cả
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="price" value="0-500k" {% if current_price == '0-500k' %}checked{% endif %} onchange="this.form.submit()" /> Dưới 500.000₫
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="price" value="500k-1tr" {% if current_price == '500k-1tr' %}checked{% endif %} onchange="this.form.submit()" /> 500k – 1.000.000₫
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="price" value="1tr-2tr" {% if current_price == '1tr-2tr' %}checked{% endif %} onchange="this.form.submit()" /> 1tr – 2.000.000₫
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="price" value="2tr+" {% if current_price == '2tr+' %}checked{% endif %} onchange="this.form.submit()" /> Trên 2.000.000₫
-                </label>
+            <!-- KHOẢNG GIÁ / ĐÊM (radio) -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">KHOẢNG GIÁ / ĐÊM</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="price" value="" {% if not current_price %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="0-500k" {% if current_price == '0-500k' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Dưới 500.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="500k-1tr" {% if current_price == '500k-1tr' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> 500k – 1.000.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="1tr-2tr" {% if current_price == '1tr-2tr' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> 1tr – 2.000.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="2tr+" {% if current_price == '2tr+' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Trên 2.000.000₫</label>
+                </div>
             </div>
 
-            <!-- Tiện nghi -->
-            <div class="filter-section">
-                <p class="filter-title">Tiện nghi</p>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="wifi"
-                        {% if 'wifi' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-wifi"></i> Wifi
-                </label>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="pool"
-                        {% if 'pool' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-person-swimming"></i> Hồ bơi
-                </label>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="parking"
-                        {% if 'parking' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-square-parking"></i> Đỗ xe
-                </label>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="air_conditioner"
-                        {% if 'air_conditioner' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-wind"></i> Điều hòa
-                </label>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="kitchen"
-                        {% if 'kitchen' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-kitchen-set"></i> Bếp
-                </label>
-                <label class="filter-item">
-                    <input type="checkbox" name="amenity" value="washing_machine"
-                        {% if 'washing_machine' in current_amenities %}checked{% endif %}
-                        onchange="this.form.submit()" />
-                    <i class="fa-solid fa-jug-detergent"></i> Máy giặt
-                </label>
+            <!-- KHUYẾN MÃI & GIẢM GIÁ -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">Khuyến mãi &amp; Giảm giá</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="favorite" {% if 'favorite' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Được yêu thích nhất</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="promo_for_you" {% if 'promo_for_you' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Khuyến mãi dành cho bạn</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="breakfast" {% if 'breakfast' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Có bữa sáng</label>
+                    <label class="fcard-item fcard-check-item fcard-extra-promo" style="display:none;"><input type="checkbox" name="promo" value="family" {% if 'family' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Phù hợp cho gia đình</label>
+                    <label class="fcard-item fcard-check-item fcard-extra-promo" style="display:none;"><input type="checkbox" name="promo" value="value_star" {% if 'value_star' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> 4-5 sao giá tốt</label>
+                    <a href="#" class="fcard-see-all" id="promoToggle" onclick="togglePromo(event)">Xem Tất cả</a>
+                </div>
             </div>
 
-            <!-- Sắp xếp -->
-            <div class="filter-section">
-                <p class="filter-title">Sắp xếp</p>
-                <label class="filter-item">
-                    <input type="radio" name="sort" value="" {% if not current_sort %}checked{% endif %} onchange="this.form.submit()" /> Mặc định
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="sort" value="price_asc" {% if current_sort == 'price_asc' %}checked{% endif %} onchange="this.form.submit()" />
-                    <i class="fa-solid fa-arrow-up-wide-short"></i> Giá thấp → cao
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="sort" value="price_desc" {% if current_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" />
-                    <i class="fa-solid fa-arrow-down-wide-short"></i> Giá cao → thấp
-                </label>
-                <label class="filter-item">
-                    <input type="radio" name="sort" value="rating" {% if current_sort == 'rating' %}checked{% endif %} onchange="this.form.submit()" />
-                    <i class="fa-solid fa-star"></i> Đánh giá cao nhất
-                </label>
+            <!-- ĐÁNH GIÁ SAO -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">Đánh giá sao</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    {% for star in "12345" %}<label class="fcard-item fcard-check-item"><input type="checkbox" name="rating" value="{{ star }}" {% if star in current_ratings %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> {{ star }} <span class="fcard-star">★</span></label>{% endfor %}
+                </div>
+            </div>
+
+            <!-- TIỆN NGHI -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">TIỆN NGHI</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="wifi" {% if 'wifi' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-wifi fcard-amenity-icon"></i> Wifi</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="pool" {% if 'pool' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-person-swimming fcard-amenity-icon"></i> Hồ bơi</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="parking" {% if 'parking' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-square-parking fcard-amenity-icon"></i> Đỗ xe</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="air_conditioner" {% if 'air_conditioner' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-wind fcard-amenity-icon"></i> Điều hòa</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="kitchen" {% if 'kitchen' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-kitchen-set fcard-amenity-icon"></i> Bếp</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="washing_machine" {% if 'washing_machine' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-jug-detergent fcard-amenity-icon"></i> Máy giặt</label>
+                </div>
+            </div>
+
+            <!-- SẮP XẾP -->
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">SẮP XẾP</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="sort" value="" {% if not current_sort %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Mặc định</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="price_asc" {% if current_sort == 'price_asc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-up-wide-short fcard-amenity-icon"></i> Giá thấp → cao</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="price_desc" {% if current_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-down-wide-short fcard-amenity-icon"></i> Giá cao → thấp</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="rating" {% if current_sort == 'rating' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-star fcard-amenity-icon"></i> Đánh giá cao nhất</label>
+                </div>
             </div>
 
         </form>
 
-        <!-- DANH SÁCH -->
+        <script>
+
+        function fsToggle(headEl) {
+            const body = headEl.nextElementSibling;
+            const chevron = headEl.querySelector('.fcard-chevron');
+
+            if (!body) return;
+
+            const isOpen = body.style.display !== 'none';
+
+            body.style.display = isOpen ? 'none' : '';
+            chevron.style.transform = isOpen ? 'rotate(180deg)' : '';
+        }
+
+        (function () {
+
+            const rMin = document.getElementById('fsRangeMin');
+            const rMax = document.getElementById('fsRangeMax');
+
+            const fill = document.getElementById('fsRangeFill');
+
+            const minTxt = document.getElementById('fsMinDisplay');
+            const maxTxt = document.getElementById('fsMaxDisplay');
+
+            const hMin = document.getElementById('fsPriceMin');
+            const hMax = document.getElementById('fsPriceMax');
+
+            if (!rMin || !rMax) return;
+
+            const MAX = 24000000;
+
+            function formatVND(v) {
+                return Number(v).toLocaleString('vi-VN');
+            }
+
+            function updateSlider() {
+
+                let minVal = parseInt(rMin.value);
+                let maxVal = parseInt(rMax.value);
+
+                // tránh min > max
+                if (minVal > maxVal) {
+                    [minVal, maxVal] = [maxVal, minVal];
+                }
+
+                // fill line
+                const percentMin = (minVal / MAX) * 100;
+                const percentMax = (maxVal / MAX) * 100;
+
+                fill.style.left = percentMin + '%';
+                fill.style.width = (percentMax - percentMin) + '%';
+
+                // display
+                minTxt.textContent = formatVND(minVal);
+                maxTxt.textContent = formatVND(maxVal);
+
+                // hidden submit input
+                hMin.value = minVal;
+                hMax.value = maxVal;
+            }
+
+            // load lại state cũ
+            rMin.value = hMin.value || 0;
+            rMax.value = hMax.value || MAX;
+
+            rMin.addEventListener('input', updateSlider);
+            rMax.addEventListener('input', updateSlider);
+
+            updateSlider();
+
+        })();
+
+        function togglePromo(e) {
+
+            e.preventDefault();
+
+            const extras = document.querySelectorAll('.fcard-extra-promo');
+            const link = document.getElementById('promoToggle');
+
+            const hidden = extras[0].style.display === 'none';
+
+            extras.forEach(el => {
+                el.style.display = hidden ? '' : 'none';
+            });
+
+            link.textContent = hidden ? 'Ẩn bớt' : 'Xem Tất cả';
+        }
+
+        </script>
+
+                <!-- DANH SÁCH -->
         <div class="acc-main">
             {% if current_destination or current_guests or current_check_in or current_check_out %}
             <div class="filter-summary" style="margin-bottom:20px; padding:16px 18px; border-radius:16px; background:#f8fafc; border:1px solid #e2e8f0;">
@@ -219,7 +406,7 @@
                                         <span style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">Khuyến mãi</span><br>
                                         <span style="color: #dc3545; font-weight: bold;">{{ room.avg_final_price|floatformat:0 }}₫</span>
                                     {% else %}
-                                        <span>{{ room.price_per_night|floatformat:0 }}₫</span>
+                                        <span>{{ room.price_per_night|floatformat:0|intcomma }}₫</span>
                                     {% endif %}
                                     /đêm
                                 </p>
@@ -274,3 +461,5 @@
 </div>
 
 {% endblock %}
+
+
