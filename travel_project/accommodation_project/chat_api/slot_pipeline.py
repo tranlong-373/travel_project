@@ -7,6 +7,12 @@ from functools import lru_cache
 from typing import Any, Iterable
 
 from .constants import PRIORITY_MAP, SPECIAL_REQUIREMENT_MAP
+from .location_phrase_cleaner import (
+    GENERIC_POI_NOUN_PATTERN,
+    clean_location_candidate_phrase,
+    has_concrete_place_noun,
+    strip_location_tails,
+)
 from .location_gazetteer import load_supported_locations
 from .normalizers import normalize_key
 from .semantic_locations import detect_semantic_location
@@ -62,14 +68,27 @@ AMENITY_ALIASES: tuple[tuple[str, str], ...] = (
     ("parking", "parking"),
     ("có parking", "parking"),
     ("co parking", "parking"),
+    ("đậu xe", "parking"),
+    ("dau xe", "parking"),
+    ("có đậu xe", "parking"),
+    ("co dau xe", "parking"),
+    ("đậu xxe", "parking"),
+    ("dau xxe", "parking"),
+    ("có đậu xxe", "parking"),
+    ("co dau xxe", "parking"),
+    ("chổ đậu xe", "parking"),
     ("chỗ đậu xe", "parking"),
     ("cho dau xe", "parking"),
+    ("chỗ để xe", "parking"),
+    ("cho de xe", "parking"),
     ("đỗ xe", "parking"),
     ("do xe", "parking"),
     ("bãi đỗ xe", "parking"),
     ("bai do xe", "parking"),
     ("gửi xe", "parking"),
     ("gui xe", "parking"),
+    ("gara", "parking"),
+    ("garage", "parking"),
     ("bếp", "kitchen"),
     ("bep", "kitchen"),
     ("có bếp", "kitchen"),
@@ -82,25 +101,38 @@ AMENITY_ALIASES: tuple[tuple[str, str], ...] = (
     ("nau an", "kitchen"),
     ("wifi", "wifi"),
     ("wi-fi", "wifi"),
+    ("có wifi", "wifi"),
+    ("co wifi", "wifi"),
     ("internet", "wifi"),
     ("mạng", "wifi"),
     ("mang", "wifi"),
     ("hồ bơi", "pool"),
     ("ho boi", "pool"),
+    ("có hồ bơi", "pool"),
+    ("co ho boi", "pool"),
     ("bể bơi", "pool"),
     ("be boi", "pool"),
+    ("có bể bơi", "pool"),
+    ("co be boi", "pool"),
     ("swimming pool", "pool"),
     ("pool", "pool"),
     ("điều hòa", "air_conditioner"),
     ("dieu hoa", "air_conditioner"),
+    ("có điều hòa", "air_conditioner"),
+    ("co dieu hoa", "air_conditioner"),
     ("máy lạnh", "air_conditioner"),
     ("may lanh", "air_conditioner"),
+    ("có máy lạnh", "air_conditioner"),
+    ("co may lanh", "air_conditioner"),
     ("aircon", "air_conditioner"),
     ("ac", "air_conditioner"),
     ("máy giặt", "washing_machine"),
     ("may giat", "washing_machine"),
+    ("có máy giặt", "washing_machine"),
+    ("co may giat", "washing_machine"),
     ("giặt đồ", "washing_machine"),
     ("giat do", "washing_machine"),
+    ("washing machine", "washing_machine"),
     ("laundry", "washing_machine"),
 )
 
@@ -199,17 +231,23 @@ AMENITY_TRIGGERS = (
 )
 
 LOCATION_CUE_PATTERN = re.compile(
-    r"\b(?:gần|gan|quanh|xung quanh|ở gần|o gan|tại|tai|ở|o|khu vực|khu vuc|"
+    r"\b(?:gần|gan|quanh|xung quanh|ở gần|o gan|cạnh|canh|kề|ke|sát|sat|tại|tai|ở|o|khu vực|khu vuc|"
     r"quanh khu|gần khu|gan khu|gần địa điểm|gan dia diem|cách|cach|near|around|close to|in|at)\b",
     re.IGNORECASE,
 )
 
 LOCATION_TAIL_SPLIT_PATTERN = re.compile(
-    r"\b(?:dưới|duoi|tối đa|toi da|tầm|tam|cho|for|cần|can|budget|giá|gia|"
+    r"\b(?:dưới|duoi|tối đa|toi da|tầm|tam|for|không cần|khong can|cần|can|"
+    r"cho\s+(?:nhóm|nhom|group|\d+|một|mot|hai|ba|bốn|bon|năm|nam|sáu|sau|bảy|bay|tám|tam|chín|chin|mười|muoi)|"
+    r"budget|giá|gia|"
     r"với|voi|có thêm|co them|phải có|phai co|yêu cầu|yeu cau|"
+    r"trong\s+\d+(?:[.,]\d+)?\s*(?:km|kilomet|kilometer|kilometre|cây)|"
+    r"trong\s+\d+(?:[.,]\d+)?\s*cay|"
+    r"bán kính|ban kinh|phạm vi|pham vi|"
     r"có\s+(?:parking|wifi|bếp|hồ|chỗ|bãi|máy)|co\s+(?:parking|wifi|bep|ho|cho|bai|may))\b",
     re.IGNORECASE,
 )
+RADIUS_UNIT_PATTERN = r"km|kilomet|kilometer|kilometre|kilometers|kilometres|cây|cay"
 
 DISTRICT_WORD_PATTERN = (
     r"muoi\s+(?:mot|hai)|eleven|twelve|"
@@ -220,7 +258,6 @@ DISTRICT_WORD_PATTERN = (
 STRONG_PLACE_PATTERNS = (
     r"\bsan bay\b",
     r"\bdinh doc lap\b",
-    r"\bdinh\b",
     r"\bdam sen\b",
     r"\bsuoi tien\b",
     r"\bsnow town\b",
@@ -236,6 +273,13 @@ STRONG_PLACE_PATTERNS = (
     r"\bkhu di tich\b",
     r"\bbao tang\b",
     r"\bcong vien\b",
+    r"\bnha hat\b",
+    r"\bben\b",
+    r"\bham\b",
+    r"\bnoc ham\b",
+    r"\bmall\b",
+    r"\btrung tam thuong mai\b",
+    r"\bkhu do thi\b",
     r"\bkhu du lich\b",
     r"\blang du lich\b",
     r"\bnong trang\b",
@@ -247,13 +291,15 @@ STRONG_PLACE_PATTERNS = (
     r"\bairport\b",
 )
 
+POI_NOUN_PATTERN = GENERIC_POI_NOUN_PATTERN
+
 ANYWHERE_INTENT_PATTERN = re.compile(
     r"\b(?:o dau cung duoc|di dau cung duoc|khu nao cung duoc|cho nao cung duoc|anywhere|wherever)\b"
 )
 
 LOCATION_FILLER_PATTERN = re.compile(
     r"\b(?:toi|minh|tui|em|anh|chi|ban|muon|can|tim|kiem|tim kiem|thue|dat|book|booking|"
-    r"reserve|co|cho minh|cho toi|giup toi|goi y|goi|y|di|doi|thanh|nhe|nha|giup|"
+    r"reserve|co|va|cho minh|cho toi|giup toi|goi y|goi|y|di|doi|thanh|nhe|nha|giup|"
     r"please|want|need|find|search|rent|reserve)\b",
     re.IGNORECASE,
 )
@@ -280,10 +326,17 @@ def build_slot_parse_context(text: str | None) -> dict[str, Any]:
     normalized = normalize_user_text(text or "")
     spans = _select_non_overlapping_spans(_collect_protected_spans(normalized))
     remaining = _remove_spans(normalized["normalized_text"], spans)
-    location_intent = detect_semantic_location(normalized["normalized_text"]) or detect_location_intent(remaining)
+    detected_location = detect_location_intent(remaining)
+    semantic_location = detect_semantic_location(normalized["normalized_text"])
+    location_intent = (
+        semantic_location
+        if _should_prefer_semantic_location(semantic_location, detected_location, remaining)
+        else detected_location
+    )
 
     accommodation_types = _ordered_values(spans, "accommodation_type")
     amenities = _ordered_values(spans, "amenity")
+    radius_values = [span.value for span in spans if span.type == "search_radius_km"]
 
     return {
         "raw_text": normalized["raw_text"],
@@ -293,6 +346,7 @@ def build_slot_parse_context(text: str | None) -> dict[str, Any]:
         "remaining_text_for_location": remaining,
         "accommodation_types": accommodation_types,
         "required_amenities": amenities,
+        "search_radius_km": radius_values[0] if radius_values else None,
         "location_candidate": location_intent.get("candidate"),
         "location_candidate_confidence": location_intent.get("confidence", 0.0),
         "location_intent": location_intent,
@@ -314,13 +368,25 @@ def find_amenity_spans(text: str | None) -> list[SlotSpan]:
     return _select_non_overlapping_spans(spans)
 
 
+def is_amenity_only_query(text: str | None) -> bool:
+    normalized = normalize_user_text(text or "")
+    spans = _select_non_overlapping_spans(_find_alias_spans(normalized, AMENITY_ALIASES, "amenity", priority=20))
+    if not spans:
+        return False
+    remaining = _remove_spans(normalized["normalized_text"], spans)
+    remaining_key = normalize_key(remaining)
+    remaining_key = LOCATION_FILLER_PATTERN.sub(" ", remaining_key)
+    return not re.sub(r"\s+", " ", remaining_key).strip()
+
+
 def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
-    text = " ".join(str(remaining_text or "").split())
+    text = clean_location_candidate_phrase(remaining_text, strip_leading_cues=False)
     norm = normalize_key(text)
     if not norm:
         return _blocked_location_intent("blocked_by_protected_span")
     without_filler = LOCATION_FILLER_PATTERN.sub(" ", norm)
-    if not re.sub(r"\s+", " ", without_filler).strip():
+    stripped_without_filler = re.sub(r"\s+", " ", without_filler).strip()
+    if not stripped_without_filler:
         return _blocked_location_intent("blocked_by_protected_span")
     if ANYWHERE_INTENT_PATTERN.search(norm):
         return _blocked_location_intent("explicit_anywhere")
@@ -328,6 +394,9 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
     ambiguous = ambiguous_location_intent(text)
     if ambiguous:
         return ambiguous
+
+    if stripped_without_filler in _blocked_phrase_keys():
+        return _blocked_location_intent("blocked_by_protected_span")
 
     if is_blocked_location_phrase(text):
         return _blocked_location_intent("blocked_by_generic_slot_phrase")
@@ -341,6 +410,15 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
             return _blocked_location_intent("blocked_by_protected_span")
         if cue in {"o", "tai", "in", "at", "khu vuc"}:
             resolve_text = text if cue_prefix and _is_strong_place_phrase(cue_prefix) else cue_candidate
+            if _has_poi_noun(cue_candidate):
+                return {
+                    "should_resolve": True,
+                    "candidate": cue_candidate,
+                    "resolve_text": resolve_text,
+                    "confidence": 0.9,
+                    "reason": "strong_near_anchor_or_place_phrase",
+                    "mode_hint": "near_anchor",
+                }
             return {
                 "should_resolve": True,
                 "candidate": cue_candidate,
@@ -349,7 +427,7 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
                 "reason": "clear_area_match",
                 "mode_hint": "area",
             }
-        if _has_clear_area_hint(normalize_key(cue_candidate)):
+        if _has_clear_area_hint(normalize_key(cue_candidate)) and not _has_poi_noun(cue_candidate):
             return {
                 "should_resolve": True,
                 "candidate": cue_candidate,
@@ -367,6 +445,18 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
             "reason": "strong_near_anchor_or_place_phrase",
             "mode_hint": "near_anchor",
         }
+
+    if _has_poi_noun(norm):
+        standalone = _standalone_place_phrase(text)
+        if standalone and _has_standalone_place_shape(standalone):
+            return {
+                "should_resolve": True,
+                "candidate": standalone,
+                "resolve_text": standalone,
+                "confidence": 0.82,
+                "reason": "strong_near_anchor_or_place_phrase",
+                "mode_hint": "near_anchor",
+            }
 
     if _has_clear_area_hint(norm):
         return {
@@ -450,6 +540,7 @@ def _collect_protected_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
     spans.extend(_find_budget_spans(normalized))
     spans.extend(_find_guest_count_spans(normalized))
     spans.extend(_find_trip_days_spans(normalized))
+    spans.extend(_find_radius_spans(normalized))
     spans.extend(_find_alias_spans(normalized, TYPE_ALIASES, "accommodation_type", priority=10))
     spans.extend(_find_homestay_typo_spans(normalized))
     spans.extend(_find_alias_spans(normalized, AMENITY_ALIASES, "amenity", priority=20))
@@ -566,6 +657,32 @@ def _find_trip_days_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
     return _regex_spans(normalized, patterns, "trip_days", "trip_days", priority=45)
 
 
+def _find_radius_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
+    patterns = (
+        rf"\b(?:trong|bán\s+kính|ban\s+kinh|phạm\s+vi|pham\s+vi)\s*(\d+(?:[.,]\d+)?)\s*(?:{RADIUS_UNIT_PATTERN})\b",
+        rf"\b(\d+(?:[.,]\d+)?)\s*(?:{RADIUS_UNIT_PATTERN})\b",
+    )
+    haystack = normalized["no_accent_text"]
+    display = normalized["normalized_text"]
+    spans: list[SlotSpan] = []
+    for pattern in patterns:
+        for match in re.finditer(pattern, haystack, flags=re.IGNORECASE):
+            value = _radius_value(match.group(1))
+            if value is None:
+                continue
+            spans.append(
+                SlotSpan(
+                    start=match.start(),
+                    end=match.end(),
+                    text=display[match.start() : match.end()] or match.group(0),
+                    type="search_radius_km",
+                    value=value,
+                    priority=35,
+                )
+            )
+    return spans
+
+
 def _regex_spans(
     normalized: dict[str, Any],
     patterns: Iterable[str],
@@ -630,12 +747,13 @@ def _location_cue_parts(text: str) -> tuple[str | None, str | None, str | None]:
     cue = normalize_key(match.group(0))
     tail = (text or "")[match.end() :].strip()
     tail = LOCATION_TAIL_SPLIT_PATTERN.split(tail, maxsplit=1)[0]
-    tail = re.sub(r"\s+", " ", tail).strip(" ,.;:")
+    tail = strip_location_tails(tail)
+    tail = clean_location_candidate_phrase(tail)
     return prefix or None, cue or None, tail or None
 
 
 def _standalone_place_phrase(text: str) -> str | None:
-    cleaned = re.sub(r"\s+", " ", text or "").strip(" ,.;:")
+    cleaned = clean_location_candidate_phrase(text)
     if not cleaned:
         return None
     norm = normalize_key(cleaned)
@@ -653,7 +771,7 @@ def _has_standalone_place_shape(text: str) -> bool:
     norm = normalize_key(text)
     if is_blocked_location_phrase(norm):
         return False
-    if _has_clear_area_hint(norm):
+    if _has_clear_area_hint(norm) and not _has_poi_noun(norm):
         return False
     tokens = re.findall(r"\w+", norm)
     if len(tokens) < 2:
@@ -664,6 +782,35 @@ def _has_standalone_place_shape(text: str) -> bool:
     ):
         return False
     return True
+
+
+def _has_poi_noun(text: str | None) -> bool:
+    return has_concrete_place_noun(text)
+
+
+def _should_prefer_semantic_location(
+    semantic_location: dict[str, Any] | None,
+    detected_location: dict[str, Any],
+    remaining_text: str | None,
+) -> bool:
+    if not semantic_location:
+        return False
+    if not detected_location.get("should_resolve"):
+        return True
+    if semantic_location.get("mode_hint") == "city_center":
+        phrase = detected_location.get("candidate") or detected_location.get("resolve_text") or remaining_text
+        return not has_concrete_place_noun(phrase)
+    return False
+
+
+def _radius_value(value: str | None) -> float | None:
+    try:
+        radius = float(str(value or "").replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if 0.1 <= radius <= 50:
+        return round(radius, 2)
+    return None
 
 
 def _has_clear_area_hint(norm: str) -> bool:

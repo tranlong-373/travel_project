@@ -37,6 +37,17 @@ BLOCKED_POI_CATEGORIES = {
     "hostel",
     "guest_house",
     "apartment",
+    "bus_stop",
+}
+
+MAP_ANCHOR_PROXY_CATEGORIES = {
+    "bus_stop",
+    "station",
+    "tram_stop",
+    "subway_entrance",
+    "ferry_terminal",
+    "public_transport",
+    "platform",
 }
 
 FOOD_INTENT_TOKENS = {"an", "uong", "cafe", "ca phe", "restaurant", "quan an", "food"}
@@ -201,11 +212,30 @@ def is_blocked_category(
     if category not in BLOCKED_POI_CATEGORIES:
         return False
     query_key = normalize_vi(query)
-    if any(token in query_key for token in FOOD_INTENT_TOKENS):
+    if _has_intent_token(query_key, FOOD_INTENT_TOKENS):
         return False
-    if any(token in query_key for token in LODGING_INTENT_TOKENS):
+    if _has_intent_token(query_key, LODGING_INTENT_TOKENS):
+        return False
+    if is_named_map_anchor_proxy(candidate, query):
         return False
     return intent in {"landmark", "poi", "near_anchor"}
+
+
+def is_named_map_anchor_proxy(candidate: dict[str, Any] | None, query: str | None) -> bool:
+    candidate = candidate or {}
+    if geocode_category(candidate) not in MAP_ANCHOR_PROXY_CATEGORIES:
+        return False
+    query_tokens = _distinctive_tokens(query)
+    if not query_tokens:
+        return False
+    if token_coverage(query, _candidate_text(candidate)) < 0.95:
+        return False
+    candidate_head = _candidate_head_text(candidate)
+    return any(token in candidate_head for token in query_tokens)
+
+
+def _has_intent_token(query_key: str, tokens: set[str]) -> bool:
+    return any(re.search(rf"(?<!\w){re.escape(token)}(?!\w)", query_key) for token in tokens)
 
 
 def is_ambiguous(top1: Any, top2: Any) -> bool:
@@ -264,6 +294,16 @@ def _candidate_text(item: dict[str, Any]) -> str:
     if isinstance(aliases, (list, tuple, set)):
         parts.extend(str(alias) for alias in aliases)
     return " ".join(str(part) for part in parts if part)
+
+
+def _candidate_head_text(item: dict[str, Any]) -> str:
+    display_head = str(item.get("display_name") or "").split(",")[0]
+    parts = [item.get("name") or "", item.get("canonical_name") or "", display_head]
+    return normalize_vi(" ".join(str(part) for part in parts if part))
+
+
+def _distinctive_tokens(text: str | None) -> list[str]:
+    return [token for token in _meaningful_tokens(text) if token.isdigit() or len(token) >= 4]
 
 
 def _candidate_matches_known_alias(query: str, item: dict[str, Any]) -> bool:

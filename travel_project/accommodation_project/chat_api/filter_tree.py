@@ -6,10 +6,10 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any
 
+from .location_phrase_cleaner import clean_location_candidate_phrase, has_concrete_place_noun
 from .normalizers import normalize_key
 from .place_geocoder import (
     rejected_geocoder_payload,
-    resolve_place_reference,
     should_geocode_place_phrase,
     validate_geocoded_place,
 )
@@ -302,8 +302,19 @@ def build_location_branch(
     location_text = debug_metadata.get("remaining_text_for_location") or text or ""
     norm = normalize_key(location_text)
     user_location = slots.get("user_location") or location_result.get("user_location")
+    explicit_radius_km = _explicit_radius_km(slots, location_result)
 
     branch = _empty_location_branch()
+    selected_place = _selected_place_payload(slots, location_result)
+    if selected_place:
+        branch.update(
+            _branch_from_selected_place(
+                selected_place,
+                location_phrase=slots.get("location_phrase") or location_result.get("location_phrase"),
+                explicit_radius_km=explicit_radius_km,
+            )
+        )
+        return branch
     if debug_metadata.get("geocoder_reason"):
         branch["geocoder_reason"] = debug_metadata["geocoder_reason"]
     if has_explicit_anywhere(text):
@@ -346,8 +357,15 @@ def build_location_branch(
                 "anchor_kind": "city_center",
                 "anchor_lat": _float_or_none(location_result.get("anchor_lat")),
                 "anchor_lon": _float_or_none(location_result.get("anchor_lon")),
-                "anchor_radius_km": _float_or_none(location_result.get("anchor_radius_km")) or 4.0,
-                "location_display_label": location_result.get("location_display_label") or "trung tâm thành phố",
+                "anchor_radius_km": _requested_radius_km(
+                    slots,
+                    location_result,
+                    _float_or_none(location_result.get("anchor_radius_km")) or 4.0,
+                ),
+                "location_display_label": _with_radius_label(
+                    location_result.get("location_display_label") or "trung tâm thành phố",
+                    explicit_radius_km,
+                ),
                 "location_source": location_result.get("location_source") or "semantic_city_center",
                 "provider": location_result.get("provider") or "semantic",
                 "confidence": float(location_result.get("location_confidence") or 0.93),
@@ -370,8 +388,12 @@ def build_location_branch(
                 "anchor_kind": "user_location",
                 "anchor_lat": _float_or_none(user_location.get("lat")),
                 "anchor_lon": _float_or_none(user_location.get("lon")),
-                "anchor_radius_km": _float_or_none(user_location.get("radius_km") or user_location.get("radius")) or 10.0,
-                "location_display_label": "Gần vị trí hiện tại",
+                "anchor_radius_km": _requested_radius_km(
+                    slots,
+                    location_result,
+                    _float_or_none(user_location.get("radius_km") or user_location.get("radius")) or 10.0,
+                ),
+                "location_display_label": _with_radius_label("Gần vị trí hiện tại", explicit_radius_km),
                 "location_source": "browser_geolocation",
                 "confidence": 1.0,
             }
@@ -384,8 +406,8 @@ def build_location_branch(
                 "mode": "near_user",
                 "anchor_name": "Vị trí hiện tại",
                 "anchor_kind": "user_location",
-                "anchor_radius_km": 10.0,
-                "location_display_label": "Gần vị trí hiện tại",
+                "anchor_radius_km": _requested_radius_km(slots, location_result, 10.0),
+                "location_display_label": _with_radius_label("Gần vị trí hiện tại", explicit_radius_km),
                 "location_source": "deterministic_near_user",
                 "confidence": 0.9,
             }
@@ -410,7 +432,13 @@ def build_location_branch(
     anchor_phrase = _extract_near_anchor_phrase(location_text or "") if has_near_cue else None
     local_reference = resolve_local_location_reference(anchor_phrase or location_text)
     if has_near_cue and local_reference:
-        branch = _branch_from_reference(local_reference, near=True, location_phrase=anchor_phrase)
+        branch = _branch_from_reference(
+            local_reference,
+            near=True,
+            location_phrase=anchor_phrase,
+            radius_km=_requested_radius_km(slots, location_result, local_reference.default_radius_km),
+            explicit_radius_km=explicit_radius_km,
+        )
         return branch
 
     if has_near_cue:
@@ -423,8 +451,11 @@ def build_location_branch(
         )
         geocoded = geocode_anchor(unresolved_anchor) if unresolved_anchor and should_try_geocoder else None
         geocoded = _validated_geocoded_anchor(branch, geocoded, unresolved_anchor)
+        if branch.get("mode") == "multiple_choice":
+            return branch
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or unresolved_anchor
+            radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
             branch.update(
                 {
                     "mode": "near_anchor",
@@ -433,10 +464,12 @@ def build_location_branch(
                     "anchor_kind": geocoded.get("kind") or "geocoded",
                     "anchor_lat": geocoded.get("lat"),
                     "anchor_lon": geocoded.get("lon"),
-                    "anchor_radius_km": geocoded.get("default_radius_km") or 5.0,
-                    "location_display_label": f"gần {anchor_name}",
+                    "anchor_radius_km": radius_km,
+                    "search_radius_km": explicit_radius_km,
+                    "location_display_label": _near_location_display_label(str(anchor_name), explicit_radius_km),
                     "location_source": geocoded.get("source") or "osm_geocoder",
                     "provider": geocoded.get("provider"),
+                    "cache_hit": bool(geocoded.get("cache_hit") or geocoded.get("source") == "cache"),
                     "map_area": geocoded.get("map_area"),
                     "map_display_name": geocoded.get("display_name"),
                     "map_address": geocoded.get("address") or {},
@@ -451,14 +484,16 @@ def build_location_branch(
             )
             return branch
         if unresolved_anchor and should_try_geocoder:
+            radius_km = _requested_radius_km(slots, location_result, 5.0)
             branch.update(
                 {
                     "mode": "near_anchor",
                     "location_phrase": unresolved_anchor,
                     "anchor_name": unresolved_anchor,
                     "anchor_kind": "unresolved",
-                    "anchor_radius_km": 5.0,
-                    "location_display_label": unresolved_anchor,
+                    "anchor_radius_km": radius_km,
+                    "search_radius_km": explicit_radius_km,
+                    "location_display_label": _near_location_display_label(unresolved_anchor, explicit_radius_km),
                     "location_source": "unresolved_near_anchor",
                     "unresolved_location": True,
                     "confidence": 0.35,
@@ -478,6 +513,8 @@ def build_location_branch(
             text_reference,
             near=True,
             location_phrase=_location_phrase_for_reference(location_text, text_reference),
+            radius_km=_requested_radius_km(slots, location_result, text_reference.default_radius_km),
+            explicit_radius_km=explicit_radius_km,
         )
         return branch
 
@@ -485,7 +522,13 @@ def build_location_branch(
         follow_up_phrase = _extract_standalone_place_phrase(location_text)
         local_reference = resolve_local_location_reference(follow_up_phrase)
         if local_reference and local_reference.kind not in {"district", "city"}:
-            branch = _branch_from_reference(local_reference, near=True, location_phrase=follow_up_phrase)
+            branch = _branch_from_reference(
+                local_reference,
+                near=True,
+                location_phrase=follow_up_phrase,
+                radius_km=_requested_radius_km(slots, location_result, local_reference.default_radius_km),
+                explicit_radius_km=explicit_radius_km,
+            )
             return branch
         if (
             follow_up_phrase
@@ -495,8 +538,11 @@ def build_location_branch(
         ):
             geocoded = geocode_anchor(follow_up_phrase)
             geocoded = _validated_geocoded_anchor(branch, geocoded, follow_up_phrase)
+            if branch.get("mode") == "multiple_choice":
+                return branch
             if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
                 anchor_name = geocoded.get("name") or geocoded.get("display_name") or follow_up_phrase
+                radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
                 branch.update(
                     {
                         "mode": "near_anchor",
@@ -505,10 +551,12 @@ def build_location_branch(
                         "anchor_kind": geocoded.get("kind") or "geocoded",
                         "anchor_lat": geocoded.get("lat"),
                         "anchor_lon": geocoded.get("lon"),
-                        "anchor_radius_km": geocoded.get("default_radius_km") or 5.0,
-                        "location_display_label": f"gần {anchor_name}",
+                        "anchor_radius_km": radius_km,
+                        "search_radius_km": explicit_radius_km,
+                        "location_display_label": _near_location_display_label(str(anchor_name), explicit_radius_km),
                         "location_source": geocoded.get("source") or "osm_geocoder",
                         "provider": geocoded.get("provider"),
+                        "cache_hit": bool(geocoded.get("cache_hit") or geocoded.get("source") == "cache"),
                         "map_area": geocoded.get("map_area"),
                         "map_display_name": geocoded.get("display_name"),
                         "map_address": geocoded.get("address") or {},
@@ -528,8 +576,9 @@ def build_location_branch(
                     "location_phrase": follow_up_phrase,
                     "anchor_name": follow_up_phrase,
                     "anchor_kind": "unresolved",
-                    "anchor_radius_km": 5.0,
-                    "location_display_label": follow_up_phrase,
+                    "anchor_radius_km": _requested_radius_km(slots, location_result, 5.0),
+                    "search_radius_km": explicit_radius_km,
+                    "location_display_label": _near_location_display_label(follow_up_phrase, explicit_radius_km),
                     "location_source": "unresolved_near_anchor",
                     "unresolved_location": True,
                     "confidence": 0.35,
@@ -541,9 +590,9 @@ def build_location_branch(
 
     location_status = location_result.get("location_status") or "unresolved"
     canonical_area = location_result.get("canonical_area") or slots.get("area")
-    pending_phrase = slots.get("location_phrase") or (
+    pending_phrase = (
         location_result.get("location_phrase") if location_result.get("location_mode") == "near_anchor" else None
-    )
+    ) or slots.get("location_phrase")
     if (
         (slots.get("location_mode") == "near_anchor" or location_result.get("location_mode") == "near_anchor")
         and pending_phrase
@@ -555,8 +604,11 @@ def build_location_branch(
             else None
         )
         geocoded = _validated_geocoded_anchor(branch, geocoded, str(pending_phrase))
+        if branch.get("mode") == "multiple_choice":
+            return branch
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or pending_phrase
+            radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
             branch.update(
                 {
                     "mode": "near_anchor",
@@ -565,10 +617,12 @@ def build_location_branch(
                     "anchor_kind": geocoded.get("kind") or "geocoded",
                     "anchor_lat": geocoded.get("lat"),
                     "anchor_lon": geocoded.get("lon"),
-                    "anchor_radius_km": geocoded.get("default_radius_km") or 5.0,
-                    "location_display_label": f"gần {anchor_name}",
+                    "anchor_radius_km": radius_km,
+                    "search_radius_km": explicit_radius_km,
+                    "location_display_label": _near_location_display_label(str(anchor_name), explicit_radius_km),
                     "location_source": geocoded.get("source") or "osm_geocoder",
                     "provider": geocoded.get("provider"),
+                    "cache_hit": bool(geocoded.get("cache_hit") or geocoded.get("source") == "cache"),
                     "map_area": geocoded.get("map_area"),
                     "map_display_name": geocoded.get("display_name"),
                     "map_address": geocoded.get("address") or {},
@@ -588,8 +642,9 @@ def build_location_branch(
                 "location_phrase": pending_phrase,
                 "anchor_name": pending_phrase,
                 "anchor_kind": "unresolved",
-                "anchor_radius_km": 5.0,
-                "location_display_label": str(pending_phrase),
+                "anchor_radius_km": _requested_radius_km(slots, location_result, 5.0),
+                "search_radius_km": explicit_radius_km,
+                "location_display_label": _near_location_display_label(str(pending_phrase), explicit_radius_km),
                 "location_source": "unresolved_near_anchor",
                 "unresolved_location": True,
                 "confidence": 0.35,
@@ -706,25 +761,45 @@ def geocode_anchor(anchor_name: str | None) -> dict[str, Any] | None:
         return None
 
     try:
-        result = resolve_place_reference(anchor_name)
+        from .services.geocoder import geocode_place
+
+        result = geocode_place(str(anchor_name), city_hint="Hồ Chí Minh, Việt Nam")
     except Exception:
         return None
-    if not result:
-        return None
+    payload = result.to_dict()
+    if not result.success:
+        source = payload.get("source")
+        if source in {None, "", "none"}:
+            source = payload.get("provider") or "osm_geocoder"
+        return {
+            "name": anchor_name,
+            "lat": None,
+            "lon": None,
+            "display_name": anchor_name,
+            "kind": "unresolved",
+            "source": source,
+            "provider": payload.get("provider"),
+            "confidence": payload.get("confidence"),
+            "location_candidates": payload.get("location_candidates") or [],
+            "rejected_geocoder_results": payload.get("rejected_candidates") or [],
+            "geocoder_queries": payload.get("geocoder_queries") or [],
+            "unresolved_reason": payload.get("unresolved_reason"),
+        }
     return {
-        "name": result.get("name") or anchor_name,
-        "lat": result.get("lat"),
-        "lon": result.get("lon"),
-        "display_name": result.get("display_name") or anchor_name,
-        "kind": result.get("kind") or "geocoded",
-        "default_radius_km": result.get("default_radius_km") or 5.0,
-        "source": result.get("source") or "osm_geocoder",
-        "provider": result.get("provider"),
-        "confidence": result.get("confidence"),
-        "map_area": result.get("map_area"),
-        "address": result.get("address") or {},
-        "query": result.get("query"),
-        "geocoder_queries": result.get("geocoder_queries") or [],
+        "name": payload.get("canonical_name") or payload.get("display_name") or anchor_name,
+        "lat": payload.get("lat"),
+        "lon": payload.get("lon"),
+        "display_name": payload.get("display_name") or anchor_name,
+        "kind": payload.get("kind") or "geocoded",
+        "default_radius_km": payload.get("default_radius_km") or 5.0,
+        "source": payload.get("source") or "osm_geocoder",
+        "provider": payload.get("provider"),
+        "cache_hit": bool(payload.get("cache_hit") or payload.get("source") == "cache"),
+        "confidence": payload.get("confidence"),
+        "map_area": payload.get("map_area"),
+        "address": payload.get("address") or {},
+        "query": payload.get("query_used"),
+        "geocoder_queries": payload.get("geocoder_queries") or [],
     }
 
 
@@ -785,6 +860,31 @@ def _format_vnd(value: Any) -> str:
         return str(value)
 
 
+def _explicit_radius_km(slots: dict[str, Any], location_result: dict[str, Any]) -> float | None:
+    return _float_or_none(slots.get("search_radius_km") or location_result.get("search_radius_km"))
+
+
+def _requested_radius_km(slots: dict[str, Any], location_result: dict[str, Any], default: Any) -> float:
+    return _explicit_radius_km(slots, location_result) or _float_or_none(default) or 5.0
+
+
+def _near_location_display_label(anchor_name: str, explicit_radius_km: float | None = None) -> str:
+    return _with_radius_label(f"gần {anchor_name}", explicit_radius_km)
+
+
+def _with_radius_label(label: str, explicit_radius_km: float | None = None) -> str:
+    if explicit_radius_km is None:
+        return label
+    return f"{label} trong bán kính {_format_radius_km(explicit_radius_km)}"
+
+
+def _format_radius_km(radius_km: float) -> str:
+    value = float(radius_km)
+    if value.is_integer():
+        return f"{int(value)}km"
+    return f"{value:g}km"
+
+
 def _empty_location_branch() -> dict[str, Any]:
     return {
         "mode": "unknown",
@@ -797,9 +897,11 @@ def _empty_location_branch() -> dict[str, Any]:
         "anchor_lat": None,
         "anchor_lon": None,
         "anchor_radius_km": None,
+        "search_radius_km": None,
         "location_display_label": None,
         "location_source": "none",
         "provider": None,
+        "cache_hit": False,
         "map_area": None,
         "map_display_name": None,
         "map_address": {},
@@ -810,10 +912,64 @@ def _empty_location_branch() -> dict[str, Any]:
         "needs_city_clarification": False,
         "ambiguous_location": False,
         "ambiguous_location_question": None,
+        "location_candidates": [],
         "rejected_geocoder_results": [],
         "confidence": 0.0,
         "geocoder_called": False,
         "geocoder_reason": "no_location_intent",
+        "area_match": False,
+    }
+
+
+def _selected_place_payload(slots: dict[str, Any], location_result: dict[str, Any]) -> dict[str, Any] | None:
+    selected = location_result.get("selected_place") or slots.get("selected_place")
+    if not isinstance(selected, dict):
+        return None
+    lat = _float_or_none(selected.get("lat"))
+    lon = _float_or_none(selected.get("lon"))
+    if lat is None or lon is None:
+        return None
+    return {**selected, "lat": lat, "lon": lon}
+
+
+def _branch_from_selected_place(
+    selected: dict[str, Any],
+    *,
+    location_phrase: str | None = None,
+    explicit_radius_km: float | None = None,
+) -> dict[str, Any]:
+    name = selected.get("name") or selected.get("display_name") or location_phrase or "địa điểm đã chọn"
+    radius_km = _float_or_none(selected.get("default_radius_km")) or 5.0
+    return {
+        "mode": "near_anchor",
+        "explicit_anywhere": False,
+        "strength": FilterStrength.SOFT.value,
+        "location_phrase": location_phrase or name,
+        "canonical_area": None,
+        "anchor_name": name,
+        "anchor_kind": selected.get("kind") or selected.get("place_type") or "geocoded",
+        "anchor_lat": selected.get("lat"),
+        "anchor_lon": selected.get("lon"),
+        "anchor_radius_km": radius_km,
+        "search_radius_km": explicit_radius_km,
+        "location_display_label": _near_location_display_label(str(name), explicit_radius_km),
+        "location_source": selected.get("source") or "selected_map_candidate",
+        "provider": selected.get("provider") or "osm",
+        "cache_hit": False,
+        "map_area": selected.get("map_area"),
+        "map_display_name": selected.get("display_name") or name,
+        "map_address": selected.get("address") or {},
+        "geocode_query": selected.get("query"),
+        "geocoder_queries": selected.get("geocoder_queries") or [],
+        "resolved_place": _resolved_place_payload(selected, str(name)),
+        "unresolved_location": False,
+        "needs_city_clarification": False,
+        "ambiguous_location": False,
+        "ambiguous_location_question": None,
+        "location_candidates": [],
+        "confidence": selected.get("confidence") or 0.95,
+        "geocoder_called": False,
+        "geocoder_reason": "selected_map_candidate",
         "area_match": False,
     }
 
@@ -823,7 +979,10 @@ def _branch_from_reference(
     *,
     near: bool,
     location_phrase: str | None = None,
+    radius_km: float | None = None,
+    explicit_radius_km: float | None = None,
 ) -> dict[str, Any]:
+    resolved_radius_km = radius_km or reference.default_radius_km
     if near:
         return {
             "mode": "near_anchor",
@@ -835,10 +994,12 @@ def _branch_from_reference(
             "anchor_kind": reference.kind,
             "anchor_lat": reference.lat,
             "anchor_lon": reference.lon,
-            "anchor_radius_km": reference.default_radius_km,
-            "location_display_label": f"gần {reference.canonical_name}",
+            "anchor_radius_km": resolved_radius_km,
+            "search_radius_km": explicit_radius_km,
+            "location_display_label": _near_location_display_label(reference.canonical_name, explicit_radius_km),
             "location_source": "local_reference",
             "provider": "local",
+            "cache_hit": False,
             "map_area": None,
             "map_display_name": None,
             "map_address": {},
@@ -870,9 +1031,11 @@ def _branch_from_reference(
         "anchor_lat": None,
         "anchor_lon": None,
         "anchor_radius_km": None,
+        "search_radius_km": None,
         "location_display_label": reference.canonical_area or reference.canonical_name,
         "location_source": "local_reference",
         "provider": "local",
+        "cache_hit": False,
         "map_area": None,
         "map_display_name": None,
         "map_address": {},
@@ -1056,7 +1219,8 @@ def _extract_near_anchor_phrase(text: str) -> str | None:
         maxsplit=1,
         flags=re.IGNORECASE,
     )[0]
-    tail = re.sub(r"\s+", " ", tail).strip(" ,.;:")
+    tail = _strip_radius_phrase(tail)
+    tail = clean_location_candidate_phrase(tail)
     return tail or None
 
 
@@ -1065,7 +1229,19 @@ def _extract_standalone_place_phrase(text: str | None) -> str | None:
     if not value:
         return None
     value = re.sub(r"^(?:ở|o|tại|tai|khu vực|khu vuc)\s+", "", value, flags=re.IGNORECASE)
+    value = _strip_radius_phrase(value)
     return value.strip(" ,.;:") or None
+
+
+def _strip_radius_phrase(value: str | None) -> str:
+    value = str(value or "")
+    return re.sub(
+        r"\b(?:(?:trong|bán\s+kính|ban\s+kinh|phạm\s+vi|pham\s+vi)\s*)?"
+        r"\d+(?:[.,]\d+)?\s*(?:km|kilomet|kilometer|kilometre|cây|cay)\b",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
 
 
 def _slot_list(value: Any) -> list[str]:
@@ -1127,6 +1303,9 @@ def _validated_geocoded_anchor(
 ) -> dict[str, Any] | None:
     if not geocoded:
         return None
+    if geocoded.get("location_candidates"):
+        _apply_map_candidate_choice(branch, geocoded, phrase)
+        return None
     intent = _geocoder_intent_for_phrase(phrase)
     if validate_geocoded_place(geocoded, intent=intent, query=phrase):
         return geocoded
@@ -1137,14 +1316,36 @@ def _validated_geocoded_anchor(
     return None
 
 
+def _apply_map_candidate_choice(branch: dict[str, Any], geocoded: dict[str, Any], phrase: str | None) -> None:
+    candidates = geocoded.get("location_candidates") or []
+    branch.update(
+        {
+            "mode": "multiple_choice",
+            "location_phrase": phrase,
+            "location_source": geocoded.get("source") or "osm_geocoder",
+            "provider": geocoded.get("provider"),
+            "confidence": geocoded.get("confidence") or 0.55,
+            "geocoder_called": True,
+            "geocoder_reason": geocoded.get("unresolved_reason") or "ambiguous_geocoder_match",
+            "ambiguous_location": True,
+            "ambiguous_location_question": "Mình thấy vài địa điểm trên bản đồ, bạn chọn đúng địa chỉ giúp mình nhé.",
+            "location_candidates": candidates,
+            "rejected_geocoder_results": geocoded.get("rejected_geocoder_results") or [],
+            "unresolved_location": False,
+        }
+    )
+
+
 def _geocoder_intent_for_phrase(phrase: str | None) -> str:
     norm = normalize_key(phrase or "")
-    if any(token in norm for token in ("trung tam", "downtown", "city center")):
-        return "city_center"
     if "san bay" in norm or "airport" in norm:
         return "airport"
     if "dai hoc" in norm or "truong" in norm:
         return "university"
+    if has_concrete_place_noun(norm):
+        return "landmark"
+    if any(token in norm for token in ("trung tam", "downtown", "city center")):
+        return "city_center"
     return "landmark"
 
 
@@ -1156,7 +1357,7 @@ def _looks_like_place_follow_up(
     phrase = _extract_standalone_place_phrase(text)
     if not phrase:
         return False
-    if location_result.get("location_status") not in {None, "unresolved", "unsupported", "ambiguous"}:
+    if location_result.get("location_status") not in {None, "unresolved", "ambiguous"}:
         return False
     norm = normalize_key(phrase)
     if is_blocked_location_phrase(norm):

@@ -247,8 +247,14 @@ def _read_anchor_location(parse_result: dict[str, Any]) -> dict[str, float] | No
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None
 
+    slots = parse_result.get("slots") or {}
     try:
-        radius_km = float(parse_result.get("anchor_radius_km") or DEFAULT_NEARBY_RADIUS_KM)
+        radius_km = float(
+            slots.get("search_radius_km")
+            or parse_result.get("search_radius_km")
+            or parse_result.get("anchor_radius_km")
+            or DEFAULT_NEARBY_RADIUS_KM
+        )
     except (TypeError, ValueError):
         radius_km = DEFAULT_NEARBY_RADIUS_KM
 

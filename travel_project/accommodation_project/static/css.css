@@ -1185,6 +1185,24 @@
     overflow-wrap: anywhere;
 }
 
+.chat-location-choice-table tr {
+    cursor: pointer;
+    outline: none;
+}
+
+.chat-location-choice-table tr:hover th,
+.chat-location-choice-table tr:hover td,
+.chat-location-choice-table tr:focus th,
+.chat-location-choice-table tr:focus td {
+    background: #eff6ff;
+    border-color: #93c5fd;
+}
+
+.chat-location-choice-table td {
+    color: #334155;
+    font-weight: 600;
+}
+
 .chat-confirm-actions {
     display: flex;
     flex-wrap: wrap;

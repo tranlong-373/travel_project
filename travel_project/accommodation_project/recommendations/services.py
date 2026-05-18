@@ -340,6 +340,12 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
         "quality": 1.0,
         "type": 0.3 if is_group_trip else 0.5
     }
+    if preference_location_mode(req) in NEARBY_LOCATION_MODES and preference_has_coordinate_origin(req):
+        WEIGHTS["location"] = 1.8
+        WEIGHTS["price"] = 1.0
+        WEIGHTS["amenities"] = 1.2 if is_group_trip else 1.0
+        WEIGHTS["quality"] = 0.8
+        WEIGHTS["type"] = 0.2 if is_group_trip else 0.4
     
     # Cân bằng lại tổng trọng số về đúng 5.0
     total_weight = sum(WEIGHTS.values())
@@ -643,7 +649,15 @@ def _apply_candidate_filters(
 
 def _sort_candidate_retrieval(candidates: list[Accommodation], preference) -> list[Accommodation]:
     if preference_location_mode(preference) in NEARBY_LOCATION_MODES and preference_has_coordinate_origin(preference):
-        return sorted(candidates, key=lambda item: getattr(item, "distance_km", float("inf")))
+        return sorted(
+            candidates,
+            key=lambda item: (
+                -calculate_matching_score(item, preference),
+                getattr(item, "distance_km", float("inf")),
+                -(item.rating or 0),
+                item.price_per_night or float("inf"),
+            ),
+        )
     return candidates
 
 

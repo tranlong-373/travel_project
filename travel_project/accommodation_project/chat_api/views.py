@@ -248,9 +248,16 @@ def _attach_user_location(result, user_location):
 
 
 def _build_confirmed_result(slots):
-    slots = validate_slots(slots)
+    raw_slots = dict(slots or {})
+    selected_place = raw_slots.get("selected_place") if isinstance(raw_slots.get("selected_place"), dict) else None
+    slots = validate_slots(raw_slots)
+    if selected_place:
+        slots["area"] = None
+        slots["location_mode"] = "near_anchor"
+        slots["location_phrase"] = selected_place.get("name") or selected_place.get("display_name")
     missing_slots = core_missing_slots(slots)
     canonical_area = slots.get("area")
+    has_selected_place = bool(selected_place and selected_place.get("lat") is not None and selected_place.get("lon") is not None)
 
     result = {
         "schema_version": SCHEMA_VERSION,
@@ -265,12 +272,13 @@ def _build_confirmed_result(slots):
         "should_ask_optional": False,
         "follow_up_question": None,
         "parser_mode": "confirmed_slots",
-        "location_status": "ok" if canonical_area else "unresolved",
+        "location_status": "ok" if canonical_area or has_selected_place else "unresolved",
         "location_candidates": [],
         "canonical_area": canonical_area,
-        "location_confidence": 1.0 if canonical_area else 0.0,
-        "location_source": "confirmed_slots" if canonical_area else "none",
-        "matched_text": canonical_area,
+        "location_confidence": 1.0 if canonical_area or has_selected_place else 0.0,
+        "location_source": "selected_map_candidate" if has_selected_place else ("confirmed_slots" if canonical_area else "none"),
+        "matched_text": canonical_area or (selected_place.get("name") if selected_place else None),
+        "selected_place": selected_place,
         "assumptions": [],
         "used_default_slots": {},
     }

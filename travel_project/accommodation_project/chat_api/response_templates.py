@@ -57,8 +57,8 @@ def build_help_message() -> str:
 def build_multiple_choice_message(candidates) -> str:
     names = _candidate_names(candidates)
     if names:
-        return f"Mình thấy vài khu vực khác nhau: {names}. Bạn muốn chọn khu vực nào?"
-    return "Mình thấy có nhiều khu vực trong câu. Bạn muốn chọn một khu vực nào?"
+        return f"Mình thấy vài địa điểm khác nhau: {names}. Bạn chọn đúng địa chỉ giúp mình nhé?"
+    return "Mình thấy có nhiều địa điểm gần đúng. Bạn chọn một địa điểm giúp mình nhé?"
 
 
 def build_conflict_message(location_info) -> str:
@@ -124,7 +124,7 @@ def _missing_essential_hint(slots: dict[str, Any]) -> str:
 def _candidate_names(candidates) -> str:
     names = []
     for candidate in candidates or []:
-        name = candidate.get("canonical_area") if isinstance(candidate, dict) else None
+        name = candidate.get("canonical_area") or candidate.get("name") if isinstance(candidate, dict) else None
         if name and name not in names:
             names.append(name)
     return ", ".join(names[:4])

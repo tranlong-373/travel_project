@@ -8,11 +8,12 @@ from typing import Any
 from ..geocoder.providers.base import GeocoderQuery
 from ..geocoder.providers.nominatim import HCM_VIEWBOX, NominatimProvider
 from ..geocoder.scorer import score_geocode_candidate
-from ..geocoder.validator import rejected_geocoder_payload, validate_geocode_candidate
+from ..geocoder.validator import geocode_category, rejected_geocoder_payload, validate_geocode_candidate
+from ..location_phrase_cleaner import clean_location_candidate_phrase, cleaned_location_variants
 from ..location_gazetteer import generate_location_aliases, load_supported_locations
 from ..normalizers import normalize_key
 from .place_cache import get_cached_place, save_place_cache
-from .place_reference import alias_expansions, find_place_reference, semantic_search_place_reference
+from .place_reference import alias_expansions, find_place_reference, fuzzy_search_place_reference, semantic_search_place_reference
 
 
 DEFAULT_COUNTRY_HINT = "Việt Nam"
@@ -24,6 +25,23 @@ DEFAULT_CITY_HINTS = (
 )
 DEFAULT_OSM_URL = "https://nominatim.openstreetmap.org/search"
 DEFAULT_USER_AGENT = "travel_project_dev_contact_email"
+OSM_SAME_PLACE_CLUSTER_KM = 1.0
+TRANSIT_PLACE_PREFIXES = (
+    "ga ",
+    "metro station ",
+    "station ",
+    "tram ",
+)
+TRANSIT_PLACE_CATEGORIES = {
+    "bus_stop",
+    "ferry_terminal",
+    "platform",
+    "public_transport",
+    "station",
+    "stop",
+    "subway_entrance",
+    "tram_stop",
+}
 CONTEXT_STOPWORDS = {
     "ho",
     "chi",
@@ -85,6 +103,7 @@ class GeocodeResult:
     geocoder_queries: tuple[str, ...] = ()
     unresolved_reason: str = ""
     rejected_candidates: tuple[dict[str, Any], ...] = ()
+    location_candidates: tuple[dict[str, Any], ...] = ()
     score_breakdown: dict[str, Any] | None = None
     result_margin: float | None = None
 
@@ -124,6 +143,10 @@ def geocode_place(
     if semantic and validate_geocode_candidate(semantic, query=phrase, intent=intent).accepted:
         return _result_from_cache({**semantic, "source": "semantic", "provider": "semantic"}, queries)
 
+    fuzzy = fuzzy_search_place_reference(phrase)
+    if fuzzy and validate_geocode_candidate(fuzzy, query=phrase, intent=intent).accepted:
+        return _result_from_cache({**fuzzy, "source": "fuzzy", "provider": fuzzy.get("provider") or "fuzzy"}, queries)
+
     result = _geocode_with_configured_providers(phrase, queries, intent=intent)
     if not result.success:
         result = _geocode_with_osm(phrase, queries, intent=intent)
@@ -134,10 +157,7 @@ def geocode_place(
 
 
 def clean_location_phrase(value: str | None) -> str:
-    text = " ".join(str(value or "").replace("\n", " ").split())
-    text = re.sub(r"^[,.;:\-\s]+|[,.;:\-\s]+$", "", text)
-    text = re.sub(r"\b(?:khu vuc|khu vực|dia diem|địa điểm)\s+", "", text, flags=re.IGNORECASE)
-    return text.strip()
+    return clean_location_candidate_phrase(value)
 
 
 def build_geocode_queries(
@@ -151,17 +171,19 @@ def build_geocode_queries(
         return []
 
     queries: list[str] = []
-    if city_hint:
-        _append_unique(queries, f"{phrase}, {city_hint}")
-    for hint in DEFAULT_CITY_HINTS:
-        _append_unique(queries, f"{phrase}, {hint}")
+    phrase_variants = cleaned_location_variants(phrase) or [phrase]
+    for variant in phrase_variants:
+        if city_hint:
+            _append_unique(queries, f"{variant}, {city_hint}")
+        for hint in DEFAULT_CITY_HINTS:
+            _append_unique(queries, f"{variant}, {hint}")
 
-    norm = normalize_key(phrase)
-    if "cu chi" in norm or "dia dao" in norm:
-        _append_unique(queries, f"{phrase}, Củ Chi, Hồ Chí Minh, Việt Nam")
+        norm = normalize_key(variant)
+        if "cu chi" in norm or "dia dao" in norm:
+            _append_unique(queries, f"{variant}, Củ Chi, Hồ Chí Minh, Việt Nam")
 
-    for alias in _english_aliases(norm):
-        _append_unique(queries, alias)
+        for alias in _english_aliases(norm):
+            _append_unique(queries, alias)
 
     return queries
 
@@ -247,7 +269,7 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
                 )
                 continue
             scored.append((score, query, item, score_payload.to_dict()))
-        scored.sort(key=lambda candidate: candidate[0], reverse=True)
+        scored = _dedupe_osm_scored_candidates(scored)
         if scored and scored[0][0] >= 0.82 and _top_margin(scored) >= 0.08:
             break
 
@@ -261,6 +283,7 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
             rejected_candidates=tuple(rejected[:10]),
         )
 
+    scored = _dedupe_osm_scored_candidates(scored)
     margin = _top_margin(scored)
     top_validation = validate_geocode_candidate(
         scored[0][2],
@@ -285,6 +308,8 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
                     else {},
                 ]
             ),
+            location_candidates=tuple(_location_candidate_payload(candidate, index + 1) for index, candidate in enumerate(scored[:5])),
+            result_margin=round(margin, 3) if margin is not None else None,
         )
 
     score, query, item, score_breakdown = scored[0]
@@ -329,6 +354,183 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
         score_breakdown=score_breakdown,
         result_margin=round(margin, 3) if margin is not None else None,
     )
+
+
+def _dedupe_osm_scored_candidates(
+    scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]],
+) -> list[tuple[float, str, dict[str, Any], dict[str, Any]]]:
+    unique: list[tuple[float, str, dict[str, Any], dict[str, Any]]] = []
+    for candidate in scored:
+        existing_index = next(
+            (
+                index
+                for index, existing in enumerate(unique)
+                if _osm_candidate_identity(candidate[2]) == _osm_candidate_identity(existing[2])
+                or _is_same_osm_place_cluster(candidate[2], existing[2])
+            ),
+            None,
+        )
+        if existing_index is None:
+            unique.append(candidate)
+        elif _should_replace_equivalent_osm_candidate(unique[existing_index], candidate):
+            unique[existing_index] = candidate
+    return sorted(unique, key=lambda candidate: candidate[0], reverse=True)
+
+
+def _should_replace_equivalent_osm_candidate(
+    current: tuple[float, str, dict[str, Any], dict[str, Any]],
+    challenger: tuple[float, str, dict[str, Any], dict[str, Any]],
+) -> bool:
+    current_score, challenger_score = current[0], challenger[0]
+    current_priority = _osm_candidate_kind_priority(current[2])
+    challenger_priority = _osm_candidate_kind_priority(challenger[2])
+    if current_priority != challenger_priority and abs(challenger_score - current_score) < 0.08:
+        return challenger_priority > current_priority
+    return challenger_score > current_score
+
+
+def _osm_candidate_kind_priority(item: dict[str, Any]) -> int:
+    category = geocode_category(item)
+    if category in TRANSIT_PLACE_CATEGORIES:
+        return 0
+    if category in {"highway", "road"}:
+        return 1
+    return 2
+
+
+def _location_candidate_payload(
+    candidate: tuple[float, str, dict[str, Any], dict[str, Any]],
+    rank: int,
+) -> dict[str, Any]:
+    score, query, item, score_breakdown = candidate
+    address = item.get("address") or {}
+    name = _canonical_name("", item)
+    display_name = item.get("display_name") or name
+    place_type = item.get("type") or item.get("class") or "geocoded"
+    lat = _float_or_none(item.get("lat"))
+    lon = _float_or_none(item.get("lon"))
+    selected_place = {
+        "name": name,
+        "display_name": display_name,
+        "kind": place_type,
+        "lat": lat,
+        "lon": lon,
+        "default_radius_km": _default_radius_km(place_type, name, address),
+        "source": "osm",
+        "provider": "osm",
+        "provider_place_id": str(item.get("place_id") or item.get("osm_id") or ""),
+        "query": query,
+        "geocoder_queries": [query],
+        "address": address,
+        "map_area": _area_from_address(address),
+        "confidence": round(min(score, 0.99), 3),
+        "score_breakdown": score_breakdown,
+    }
+    return {
+        "id": f"osm:{item.get('place_id') or item.get('osm_id') or rank}",
+        "rank": rank,
+        "name": name,
+        "canonical_area": name,
+        "kind": place_type,
+        "address": _candidate_address_label(item),
+        "display_name": display_name,
+        "confidence": round(min(score, 0.99), 3),
+        "source": "osm",
+        "payload": {
+            "location_mode": "near_anchor",
+            "location_phrase": name,
+            "area": None,
+            "selected_place": selected_place,
+        },
+    }
+
+
+def _candidate_address_label(item: dict[str, Any]) -> str:
+    address = item.get("address") or {}
+    if isinstance(address, dict):
+        parts = [
+            address.get("house_number"),
+            address.get("road"),
+            address.get("suburb") or address.get("city_district") or address.get("district"),
+            address.get("city") or address.get("state"),
+            address.get("country"),
+        ]
+        label = ", ".join(str(part) for part in parts if part)
+        if label:
+            return label
+    display_parts = [part.strip() for part in str(item.get("display_name") or "").split(",")]
+    return ", ".join(display_parts[1:]) if len(display_parts) > 1 else str(item.get("display_name") or "")
+
+
+def _osm_candidate_identity(item: dict[str, Any]) -> str:
+    osm_type = item.get("osm_type")
+    osm_id = item.get("osm_id")
+    if osm_type and osm_id:
+        return f"osm:{osm_type}:{osm_id}"
+
+    lat = _float_or_none(item.get("lat"))
+    lon = _float_or_none(item.get("lon"))
+    if lat is not None and lon is not None:
+        name = normalize_key(str(item.get("name") or str(item.get("display_name") or "").split(",")[0]))
+        return f"geo:{name}:{round(lat, 5)}:{round(lon, 5)}"
+
+    return f"place:{item.get('place_id') or id(item)}"
+
+
+def _is_same_osm_place_cluster(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_names = set(_normalized_osm_place_head_variants(left))
+    right_names = set(_normalized_osm_place_head_variants(right))
+    if not left_names or not right_names:
+        return False
+    if left_names.isdisjoint(right_names) and not _osm_place_names_overlap(left_names, right_names):
+        return False
+    left_lat = _float_or_none(left.get("lat"))
+    left_lon = _float_or_none(left.get("lon"))
+    right_lat = _float_or_none(right.get("lat"))
+    right_lon = _float_or_none(right.get("lon"))
+    if None in {left_lat, left_lon, right_lat, right_lon}:
+        return False
+    return _approx_distance_km(left_lat, left_lon, right_lat, right_lon) <= OSM_SAME_PLACE_CLUSTER_KM
+
+
+def _osm_place_names_overlap(left_names: set[str], right_names: set[str]) -> bool:
+    for left in left_names:
+        left_tokens = set(_meaningful_tokens(left))
+        if not left_tokens:
+            continue
+        for right in right_names:
+            right_tokens = set(_meaningful_tokens(right))
+            if not right_tokens:
+                continue
+            overlap = len(left_tokens & right_tokens)
+            smaller = min(len(left_tokens), len(right_tokens))
+            if smaller and overlap / smaller >= 0.67:
+                return True
+    return False
+
+
+def _normalized_osm_place_head(item: dict[str, Any]) -> str:
+    head = item.get("name") or str(item.get("display_name") or "").split(",")[0]
+    return normalize_key(str(head or ""))
+
+
+def _normalized_osm_place_head_variants(item: dict[str, Any]) -> tuple[str, ...]:
+    head = _normalized_osm_place_head(item)
+    if not head:
+        return ()
+    variants = [head]
+    for prefix in TRANSIT_PLACE_PREFIXES:
+        if head.startswith(prefix):
+            stripped = head[len(prefix) :].strip()
+            if stripped:
+                variants.append(stripped)
+    return tuple(dict.fromkeys(variants))
+
+
+def _approx_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    lat_km = (float(lat1) - float(lat2)) * 111.0
+    lon_km = (float(lon1) - float(lon2)) * 109.0
+    return ((lat_km * lat_km) + (lon_km * lon_km)) ** 0.5
 
 
 def _fetch_osm(query: str) -> list[dict[str, Any]]:

@@ -7,6 +7,7 @@ from typing import Any
 
 from django.conf import settings
 
+from .location_phrase_cleaner import has_concrete_place_noun
 from .normalizers import normalize_key
 
 
@@ -73,6 +74,8 @@ CITY_CENTER_PATTERNS: tuple[str, ...] = (
 def detect_city_center_intent(text: str | None) -> dict[str, Any] | None:
     norm = normalize_key(text or "")
     if not norm or not any(re.search(pattern, norm) for pattern in CITY_CENTER_PATTERNS):
+        return None
+    if has_concrete_place_noun(norm):
         return None
 
     city = city_hint_from_text(norm) or default_search_city()
