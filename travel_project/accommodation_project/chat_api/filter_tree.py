@@ -306,7 +306,7 @@ def build_location_branch(
 
     branch = _empty_location_branch()
     selected_place = _selected_place_payload(slots, location_result)
-    if selected_place:
+    if selected_place and not _has_current_turn_location_signal(location_result):
         branch.update(
             _branch_from_selected_place(
                 selected_place,
@@ -706,6 +706,15 @@ def build_location_branch(
         return branch
 
     return branch
+
+
+def _has_current_turn_location_signal(location_result: dict[str, Any]) -> bool:
+    source = location_result.get("location_source")
+    if source in {None, "", "none", "context", "selected_map_candidate", "browser_geolocation"}:
+        return False
+    if location_result.get("location_mode") in {"area", "near_anchor", "city_center", "multiple_choice"}:
+        return True
+    return location_result.get("location_status") in {"ambiguous", "multiple_choice", "conflict", "unsupported"}
 
 
 def resolve_local_location_reference(text: str | None) -> LocationReference | None:

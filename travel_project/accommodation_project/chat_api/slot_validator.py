@@ -83,14 +83,18 @@ def merge_slot_context(
     context_slots: dict[str, Any] | None,
     *,
     replace_area: bool = False,
+    replace_location_context: bool = False,
 ) -> dict[str, Any]:
     if not context_slots:
         return slots_new
 
     merged = dict(context_slots)
-    if replace_area:
+    if replace_area or replace_location_context:
         merged.pop("area", None)
         merged.pop("canonical_area", None)
+    if replace_location_context:
+        for key in ("location_phrase", "location_mode", "selected_place"):
+            merged.pop(key, None)
 
     for key in [
         "area",

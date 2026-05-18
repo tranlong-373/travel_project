@@ -368,6 +368,10 @@ class LocationFoundationTests(SimpleTestCase):
         self.assertEqual(place_only, "Bưu điện Trung tâm Thành phố")
         self.assertTrue(has_concrete_place_noun(place_only))
 
+    def test_location_phrase_cleaner_normalizes_building_typo(self):
+        self.assertEqual(clean_location_candidate_phrase("Gần toàn Landmark"), "tòa Landmark")
+        self.assertTrue(has_concrete_place_noun("tòa Landmark"))
+
     def test_load_supported_locations_keeps_single_thu_duc_label(self):
         names = [
             location["canonical_name"]
@@ -1241,6 +1245,97 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertEqual(len(result["location_candidates"]), 2)
         self.assertFalse(result["can_show_recommendations"])
         self.assertIn("payload", result["location_candidates"][0])
+        geocode_anchor.cache_clear()
+
+    def test_selected_map_candidate_context_changes_to_new_place(self):
+        selected_place = {
+            "name": "Bưu Điện Việt Nam",
+            "display_name": "Bưu Điện Việt Nam, 447 Trần Hưng Đạo, Thành phố Hồ Chí Minh",
+            "kind": "post_office",
+            "lat": 10.7581,
+            "lon": 106.6899,
+            "default_radius_km": 2.5,
+            "source": "osm",
+            "provider": "osm",
+            "address": {"road": "Trần Hưng Đạo", "city": "Thành phố Hồ Chí Minh"},
+        }
+        context = {
+            "preferred_type": "hotel",
+            "accommodation_types": ["hotel"],
+            "location_mode": "near_anchor",
+            "location_phrase": "Bưu Điện Việt Nam",
+            "selected_place": selected_place,
+        }
+
+        result = parse_user_text("Gần Nhà thờ Đức Bà", context_slots=context)
+
+        self.assertEqual(result["location_status"], "ok")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Nhà thờ Đức Bà")
+        self.assertNotEqual(result["anchor_name"], "Bưu Điện Việt Nam")
+        self.assertNotIn("selected_place", result["slots"])
+        self.assertNotIn("selected_place", {item["key"] for item in result.get("confirm_table", [])})
+
+    def test_selected_map_candidate_context_stays_for_non_location_follow_up(self):
+        selected_place = {
+            "name": "Bưu Điện Việt Nam",
+            "display_name": "Bưu Điện Việt Nam, 447 Trần Hưng Đạo, Thành phố Hồ Chí Minh",
+            "kind": "post_office",
+            "lat": 10.7581,
+            "lon": 106.6899,
+            "default_radius_km": 2.5,
+            "source": "osm",
+            "provider": "osm",
+            "address": {"road": "Trần Hưng Đạo", "city": "Thành phố Hồ Chí Minh"},
+        }
+        context = {
+            "preferred_type": "hotel",
+            "accommodation_types": ["hotel"],
+            "location_mode": "near_anchor",
+            "location_phrase": "Bưu Điện Việt Nam",
+            "selected_place": selected_place,
+        }
+
+        result = parse_user_text("2 người", context_slots=context)
+
+        self.assertEqual(result["location_status"], "ok")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Bưu Điện Việt Nam")
+        self.assertEqual(result["slots"]["guest_count"], 2)
+        self.assertNotIn("selected_place", {item["key"] for item in result.get("confirm_table", [])})
+
+    def test_soft_filter_landmark_building_typo_uses_map_api_result(self):
+        geocode_anchor.cache_clear()
+        row = {
+            "place_id": 4101,
+            "osm_type": "way",
+            "osm_id": 8101,
+            "lat": "10.7948877",
+            "lon": "106.7216825",
+            "class": "highway",
+            "type": "bus_stop",
+            "name": "Tòa nhà Landmark 81",
+            "display_name": "Tòa nhà Landmark 81, Bình Thạnh, Thành phố Hồ Chí Minh, Việt Nam",
+            "address": {
+                "highway": "Tòa nhà Landmark 81",
+                "suburb": "Bình Thạnh",
+                "city": "Thành phố Hồ Chí Minh",
+                "country": "Việt Nam",
+                "country_code": "vn",
+            },
+            "importance": 0.4,
+        }
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._fetch_osm",
+            return_value=[row],
+        ):
+            result = parse_user_text("Gần toàn Landmark", include_debug=True)
+
+        self.assertEqual(result["location_status"], "ok")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Tòa nhà Landmark 81")
+        self.assertTrue(result["geocoder_called"])
         geocode_anchor.cache_clear()
 
     def test_soft_filter_near_suoi_tien_uses_local_reference(self):

@@ -67,6 +67,7 @@ CONFIRM_SKIP_KEYS = {
     "location_phrase",
     "location_mode",
     "canonical_area",
+    "selected_place",
     "raw_preferred_type",
     "unsupported_preferred_type",
     "search_intent",
@@ -715,8 +716,14 @@ def parse_user_text_rule_based(
     )
     _apply_bare_count_follow_up(slots_partial, raw, context_slots)
 
-    replace_area = bool(location.get("_from_text") and location.get("location_status") == "ok")
-    slots_partial = merge_slot_context(slots_partial, context_slots, replace_area=replace_area)
+    replace_location_context = bool(location.get("_from_text"))
+    replace_area = bool(replace_location_context and location.get("location_status") == "ok")
+    slots_partial = merge_slot_context(
+        slots_partial,
+        context_slots,
+        replace_area=replace_area,
+        replace_location_context=replace_location_context,
+    )
     slots = validate_slots(slots_partial)
 
     if location["location_status"] == "ok":
