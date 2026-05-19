@@ -97,6 +97,38 @@ def build_unresolved_place_message() -> str:
     return "Mình chưa xác định chắc địa điểm này. Bạn có thể nhập rõ hơn, ví dụ thêm quận/thành phố không?"
 
 
+# ── Input-type-aware messages ─────────────────────────────────────────────────
+
+def build_hotel_name_message(hotel_name: str | None, area: str | None = None) -> str:
+    """Message khi bot nhận ra user đang tìm theo tên khách sạn cụ thể."""
+    name_part = f'"{hotel_name}"' if hotel_name else "tên này"
+    area_part = f" tại {area}" if area else ""
+    return (
+        f"Mình tìm thấy chỗ ở khớp với {name_part}{area_part}. "
+        "Mình cũng gợi ý thêm các chỗ ở tên tương tự bạn có thể tham khảo."
+    )
+
+
+def build_address_search_message(address_phrase: str | None = None) -> str:
+    """Message khi bot nhận ra user nhập địa chỉ cụ thể."""
+    addr_part = f'"{address_phrase}"' if address_phrase else "địa chỉ bạn nhập"
+    return (
+        f"Mình đã xác định {addr_part}. "
+        "Đây là các chỗ ở gần khu vực đó, được sắp xếp theo khoảng cách."
+    )
+
+
+def build_landmark_search_message(landmark_name: str | None, resolved: bool = True) -> str:
+    """Message khi bot nhận ra user tìm gần một địa danh cụ thể."""
+    place_part = f"gần {landmark_name}" if landmark_name else "khu vực bạn chọn"
+    if not resolved:
+        return (
+            f"Mình chưa xác định được tọa độ của {landmark_name or 'địa danh này'}. "
+            "Bạn có thể thêm tên quận hoặc thành phố để mình tìm chính xác hơn không?"
+        )
+    return f"Được nhé! Mình sẽ gợi ý các chỗ ở {place_part} cho bạn."
+
+
 def build_unresolved_place_with_filters_message(slots: dict[str, Any], place_name: str | None) -> str:
     return (
         f"Mình đã hiểu các tiêu chí như {_filter_phrase(slots)}. "

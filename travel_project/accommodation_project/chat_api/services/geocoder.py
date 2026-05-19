@@ -200,6 +200,83 @@ def build_geocode_queries(
     return list(_build_geocode_queries_cached(location_phrase, city_hint or "", country_hint or DEFAULT_COUNTRY_HINT))
 
 
+# Match "Quận N" numeric districts (1-12) that Nominatim no longer recognises
+# after HCM administrative restructuring (district → ward merge 2021).
+_NUMERIC_HCM_DISTRICT_RE = re.compile(
+    r",?\s*(?:quận|quan|q\.)\s*\d{1,2}\b",
+    re.IGNORECASE,
+)
+# Specific address: starts with house number (possibly with letter or slash suffix)
+_ADDR_STARTS_WITH_NUMBER_RE = re.compile(
+    r"^\d{1,5}(?:/\d+[A-Za-z]?)?[A-Za-z]?\s+\w",
+    re.IGNORECASE,
+)
+# OSM road subtypes returned for specific address queries.
+# When the query starts with a house number but OSM returns the street itself,
+# we strip the house number before scoring so "Võ Văn Tần" compares cleanly.
+_HIGHWAY_SUBTYPES: frozenset[str] = frozenset({
+    "tertiary", "secondary", "primary", "residential", "service",
+    "unclassified", "living_street", "pedestrian", "trunk", "road",
+})
+_HOUSE_NUMBER_PREFIX_RE = re.compile(
+    r"^\d{1,5}(?:/\d+[A-Za-z]?)?[A-Za-z]?\s+",
+    re.IGNORECASE,
+)
+
+
+def _score_phrase_for_item(score_phrase: str, item: dict[str, Any]) -> str:
+    """Return score_phrase with house number stripped when the OSM result is a road/highway.
+
+    Nominatim often returns the street segment itself for numbered Vietnamese addresses.
+    Comparing "220 Võ Văn Tần" against "Võ Văn Tần" produces a low name-match penalty.
+    Stripping "220 " gives a clean street-name comparison without losing context.
+    """
+    category = geocode_category(item)
+    if normalize_key(category) not in _HIGHWAY_SUBTYPES:
+        return score_phrase
+    m = _HOUSE_NUMBER_PREFIX_RE.match(score_phrase)
+    if not m:
+        return score_phrase
+    stripped = score_phrase[m.end():]
+    return stripped if len(stripped) > 3 else score_phrase
+
+
+_SUB_ADDRESS_SLASH_RE = re.compile(r"^(\d{1,5})/\d+([A-Za-z]?)\s+", re.IGNORECASE)
+
+
+def _strip_sub_address(phrase: str) -> str | None:
+    """Return phrase with '/N' sub-address removed from house number.
+
+    "86/10 Nguyễn Thông, TP. Hồ Chí Minh" → "86 Nguyễn Thông, TP. Hồ Chí Minh".
+    This helps Nominatim match the street segment without the sub-unit.
+    Returns None if the phrase has no slash sub-address.
+    """
+    m = _SUB_ADDRESS_SLASH_RE.match(phrase)
+    if not m:
+        return None
+    return phrase[: m.start(1) + len(m.group(1))] + " " + phrase[m.end():]
+
+
+def _strip_numeric_hcm_district(phrase: str) -> str | None:
+    """
+    For specific address queries containing old HCM numeric district names
+    (e.g. 'Quận 3'), return a variant with the district stripped.
+
+    Nominatim removed these as distinct admin units when HCM districts were
+    merged into TP. Thủ Đức in 2021.  Stripping 'Quận 3' while keeping
+    'TP. Hồ Chí Minh' gives Nominatim enough context to resolve the street.
+    """
+    if not _ADDR_STARTS_WITH_NUMBER_RE.match(phrase):
+        return None
+    if not _NUMERIC_HCM_DISTRICT_RE.search(phrase):
+        return None
+    stripped = _NUMERIC_HCM_DISTRICT_RE.sub("", phrase)
+    stripped = re.sub(r"\s+", " ", stripped).strip(" ,")
+    if not stripped or normalize_key(stripped) == normalize_key(phrase):
+        return None
+    return stripped
+
+
 @lru_cache(maxsize=512)
 def _build_geocode_queries_cached(
     location_phrase: str,
@@ -231,6 +308,24 @@ def _build_geocode_queries_cached(
                 return tuple(queries)
         if "cu chi" in norm or "dia dao" in norm:
             _append_unique_query(queries, f"{variant}, Củ Chi, Hồ Chí Minh, Việt Nam")
+            if len(queries) >= MAX_GEOCODER_QUERIES:
+                return tuple(queries)
+        # If phrase has old numeric HCM district (e.g. "Quận 3"), Nominatim
+        # returns no results.  Add a fallback query with the district stripped
+        # so the street + city alone can be resolved.
+        no_district = _strip_numeric_hcm_district(variant)
+        if no_district:
+            fallback = no_district if _has_context_hint(no_district) else f"{no_district}, {hints[0]}"
+            _append_unique_query(queries, fallback)
+            if len(queries) >= MAX_GEOCODER_QUERIES:
+                return tuple(queries)
+        # For sub-address queries like "86/10 Nguyễn Thông", Nominatim may
+        # return ambiguous street segments.  Add a variant without the slash
+        # sub-unit so a cleaner street-level match is possible.
+        no_sub = _strip_sub_address(no_district or variant)
+        if no_sub:
+            fallback2 = no_sub if _has_context_hint(no_sub) else f"{no_sub}, {hints[0]}"
+            _append_unique_query(queries, fallback2)
             if len(queries) >= MAX_GEOCODER_QUERIES:
                 return tuple(queries)
 
@@ -288,6 +383,13 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
     timing = {"geocode_ms": 0.0, "scoring_ms": 0.0, "filtering_ms": 0.0}
     started_at = time.perf_counter()
     intent = intent or _geocoder_intent_for_phrase(phrase)
+    # When phrase has old HCM numeric district (e.g. "Quận 3"), Nominatim results
+    # use the new admin name ("Thủ Đức") causing name-match penalties.
+    # Score against the district-stripped phrase so the street+city still match.
+    score_phrase = _strip_numeric_hcm_district(phrase) or phrase
+    # For specific address queries (house number + street), any POI at that address
+    # is a valid coordinate anchor — bypass blocked-category filtering.
+    is_address_query = bool(_ADDR_STARTS_WITH_NUMBER_RE.match(score_phrase))
 
     for query in queries:
         try:
@@ -306,8 +408,14 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
                 continue
             seen_raw_candidates.add(identity)
             scoring_started_at = time.perf_counter()
-            validation = validate_geocode_candidate(item, query=phrase, intent=intent)
-            score_payload = score_geocode_candidate(phrase, item, validation=validation)
+            item_score_phrase = _score_phrase_for_item(score_phrase, item)
+            validation = validate_geocode_candidate(
+                item,
+                query=item_score_phrase,
+                intent=intent,
+                explicit_venue=is_address_query,
+            )
+            score_payload = score_geocode_candidate(item_score_phrase, item, validation=validation)
             timing["scoring_ms"] += _elapsed_ms(scoring_started_at)
             score = score_payload.total
             if not validation.accepted:
@@ -361,14 +469,22 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
     scored = _dedupe_osm_scored_candidates(scored)
     timing["filtering_ms"] += _elapsed_ms(filtering_started_at)
     margin = _top_margin(scored)
+    top_item_score_phrase = _score_phrase_for_item(score_phrase, scored[0][2])
+    # For specific address queries, two close-scoring results are typically two
+    # segments of the same street — accept the top one without ambiguity penalty.
+    runner_up = None if is_address_query else (scored[1][0] if len(scored) > 1 else None)
     top_validation = validate_geocode_candidate(
         scored[0][2],
-        query=phrase,
+        query=top_item_score_phrase,
         intent=intent,
         top_score=scored[0][0],
-        runner_up_score=scored[1][0] if len(scored) > 1 else None,
+        runner_up_score=runner_up,
+        explicit_venue=is_address_query,
     )
-    should_accept_top = scored[0][0] >= ACCEPT_SCORE and (len(scored) == 1 or margin >= CLEAR_ACCEPT_MARGIN)
+    # For address queries, two close-scoring candidates are usually two segments
+    # of the same street — accept the highest-scoring one without margin check.
+    accept_margin_ok = is_address_query or len(scored) == 1 or margin >= CLEAR_ACCEPT_MARGIN
+    should_accept_top = scored[0][0] >= ACCEPT_SCORE and accept_margin_ok
     if not should_accept_top or not top_validation.accepted:
         unresolved_reason = "ambiguous_geocoder_match" if margin < CLEAR_ACCEPT_MARGIN else top_validation.reason
         if scored[0][0] < ACCEPT_SCORE:

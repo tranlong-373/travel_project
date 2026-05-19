@@ -184,7 +184,12 @@ def _category_score(category: str) -> float:
         return 1.0
     if key in BLOCKED_POI_CATEGORIES:
         return 0.0
-    if key in {"administrative", "suburb", "city", "district", "road", "highway", "amenity"}:
+    if key in {
+        "administrative", "suburb", "city", "district", "road", "highway", "amenity",
+        # OSM road subtypes — valid geocoding targets for specific addresses
+        "tertiary", "secondary", "primary", "residential", "service",
+        "unclassified", "living_street", "pedestrian", "trunk",
+    }:
         return 0.75
     return 0.55
 
