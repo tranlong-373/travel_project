@@ -5,12 +5,20 @@ import os
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET
 
 from .filter_tree import build_filter_tree, soft_filter_summary
 from .recommendation_bridge import attach_recommendation_action, create_preference_from_parse
 from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .search_origin import build_search_origin
 from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
+from .smart_suggestions import (
+    best_submit_resolution,
+    poi_category_clarification_result,
+    selected_accommodation_result,
+    suggestion_from_payload,
+    suggest_places,
+)
 from .slot_validator import core_missing_slots, validate_slots
 from .text_normalizer import normalize_user_text
 
@@ -30,6 +38,18 @@ def health(request):
             "llm_strategy": os.getenv("CHAT_API_LLM_STRATEGY", "auto"),
             "prompt_example_count": os.getenv("CHAT_API_PROMPT_EXAMPLE_COUNT", "5"),
             "use_ner_fallback": os.getenv("CHAT_API_USE_NER", "0") == "1",
+        }
+    )
+
+
+@require_GET
+def search_suggest(request):
+    query = request.GET.get("q", "")
+    return JsonResponse(
+        {
+            "query": query,
+            "suggestions": suggest_places(query),
+            "external_called": False,
         }
     )
 
@@ -74,6 +94,11 @@ def submit_message(request):
     context_slots = _read_context_slots(body)
     user_location = _read_user_location(body)
     if quick_reply_payload:
+        smart_suggestion = suggestion_from_payload(quick_reply_payload)
+        if smart_suggestion and smart_suggestion.get("kind") == "accommodation":
+            return JsonResponse(selected_accommodation_result(smart_suggestion), status=200)
+        if smart_suggestion and smart_suggestion.get("kind") == "poi_category":
+            return JsonResponse(poi_category_clarification_result("", smart_suggestion), status=200)
         context_slots = _merge_payload(context_slots, quick_reply_payload)
 
     confirmed_slots = body.get("confirmed_slots") or body.get("slots")
@@ -85,6 +110,15 @@ def submit_message(request):
         text = (body.get("text") or "").strip()
         if not text:
             return JsonResponse({"error": "Field 'text' is required"}, status=400)
+
+        smart_resolution = best_submit_resolution(text)
+        if smart_resolution and smart_resolution["type"] == "accommodation":
+            return JsonResponse(selected_accommodation_result(smart_resolution["suggestion"]), status=200)
+        if smart_resolution and smart_resolution["type"] == "poi_category_clarification":
+            return JsonResponse(
+                poi_category_clarification_result(text, smart_resolution["suggestion"]),
+                status=200,
+            )
 
         try:
             result = parse_user_text(text, locale=locale, context_slots=context_slots, include_debug=include_debug)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from ..normalizers import normalize_key
@@ -52,6 +53,15 @@ MAP_ANCHOR_PROXY_CATEGORIES = {
 
 FOOD_INTENT_TOKENS = {"an", "uong", "cafe", "ca phe", "restaurant", "quan an", "food"}
 LODGING_INTENT_TOKENS = {"khach san", "hotel", "can ho", "apartment", "homestay", "hostel", "nha nghi"}
+LODGING_VENUE_CATEGORIES = {"hotel", "hostel", "guest_house"}
+LOCATION_INTENT_PREFIX_PATTERN = re.compile(
+    r"^(?:"
+    r"o\s+gan|gan|quanh|xung\s+quanh|canh|ke|sat|"
+    r"khu\s+di\s+tich|khu\s+du\s+lich|lang\s+du\s+lich|"
+    r"khu\s+vuc|dia\s+diem|cach|near|around|close\s+to|nearby|in|at"
+    r")\s+",
+    re.IGNORECASE,
+)
 PLACE_STOPWORDS = {
     "gan",
     "quanh",
@@ -64,19 +74,10 @@ PLACE_STOPWORDS = {
     "close",
     "to",
     "khu",
+    "vuc",
     "dia",
-    "di",
-    "du",
-    "lich",
-    "tich",
-    "cong",
-    "vien",
-    "bao",
-    "tang",
-    "lang",
+    "diem",
     "tp",
-    "thanh",
-    "pho",
     "ho",
     "chi",
     "minh",
@@ -129,8 +130,9 @@ def validate_geocode_candidate(
     category = geocode_category(item)
     inside_hcm = is_inside_hcm(lat, lon)
     address_matches = address_mentions_hcm(item)
-    coverage = token_coverage(query, _candidate_text(item)) if query else 0.0
-    similarity = name_similarity(query, _candidate_text(item)) if query else 0.0
+    candidate_text = candidate_text_for_matching(item)
+    coverage = token_coverage(query, candidate_text) if query else 0.0
+    similarity = name_similarity(query, candidate_text) if query else 0.0
 
     if lat is None or lon is None:
         return GeocodeValidation(False, "missing_coordinates", False, address_matches, category, lat, lon, coverage, similarity)
@@ -147,10 +149,21 @@ def validate_geocode_candidate(
     return GeocodeValidation(True, "ok", inside_hcm, address_matches, category, lat, lon, coverage, similarity)
 
 
+@lru_cache(maxsize=4096)
 def normalize_vi(text: str | None) -> str:
     value = normalize_key(text or "")
     value = re.sub(r"[^\w\s]", " ", value, flags=re.UNICODE)
     return re.sub(r"\s+", " ", value).strip()
+
+
+@lru_cache(maxsize=4096)
+def normalize_anchor_text(text: str | None) -> str:
+    value = normalize_vi(text)
+    previous = None
+    while previous != value:
+        previous = value
+        value = LOCATION_INTENT_PREFIX_PATTERN.sub("", value).strip()
+    return value
 
 
 def token_coverage(query: str | None, candidate_name: str | None) -> float:
@@ -162,7 +175,7 @@ def token_coverage(query: str | None, candidate_name: str | None) -> float:
 
 
 def name_similarity(query: str | None, candidate_name: str | None) -> float:
-    left = normalize_vi(query)
+    left = normalize_anchor_text(query)
     right = normalize_vi(candidate_name)
     if not left or not right:
         return 0.0
@@ -215,6 +228,8 @@ def is_blocked_category(
     if _has_intent_token(query_key, FOOD_INTENT_TOKENS):
         return False
     if _has_intent_token(query_key, LODGING_INTENT_TOKENS):
+        return False
+    if category in LODGING_VENUE_CATEGORIES and _is_specific_named_venue_match(candidate, query):
         return False
     if is_named_map_anchor_proxy(candidate, query):
         return False
@@ -283,17 +298,53 @@ def _float_or_none(value: Any) -> float | None:
         return None
 
 
-def _meaningful_tokens(text: str | None) -> list[str]:
-    tokens = re.findall(r"\w+", normalize_vi(text))
-    return [token for token in tokens if (token.isdigit() or len(token) > 2) and token not in PLACE_STOPWORDS]
+@lru_cache(maxsize=4096)
+def _meaningful_tokens(text: str | None) -> tuple[str, ...]:
+    tokens = re.findall(r"\w+", normalize_anchor_text(text))
+    return tuple(token for token in tokens if (token.isdigit() or len(token) > 2) and token not in PLACE_STOPWORDS)
 
 
-def _candidate_text(item: dict[str, Any]) -> str:
-    parts = [item.get("name") or "", item.get("canonical_name") or "", item.get("display_name") or ""]
+def candidate_text_for_matching(item: dict[str, Any] | None) -> str:
+    item = item or {}
+    display_name = str(item.get("display_name") or "")
+    parts = [
+        item.get("name") or "",
+        item.get("canonical_name") or "",
+        item.get("display_head") or "",
+        display_name.split(",")[0] if display_name else "",
+        display_name,
+        item.get("official_name") or "",
+        item.get("alt_name") or "",
+        item.get("old_name") or "",
+        item.get("short_name") or "",
+        item.get("brand") or "",
+        item.get("operator") or "",
+        item.get("kind") or "",
+        item.get("place_type") or "",
+        item.get("category") or "",
+        item.get("class") or "",
+        item.get("type") or "",
+    ]
     aliases = item.get("aliases") or []
     if isinstance(aliases, (list, tuple, set)):
         parts.extend(str(alias) for alias in aliases)
+    elif isinstance(aliases, str):
+        parts.append(aliases)
+    for field in ("extratags", "namedetails", "raw_payload", "raw"):
+        nested = item.get(field) or {}
+        if isinstance(nested, dict):
+            for key in ("name", "name:vi", "name:en", "official_name", "alt_name", "old_name", "short_name"):
+                value = nested.get(key)
+                if value:
+                    parts.append(str(value))
+    address = item.get("address") or {}
+    if isinstance(address, dict):
+        parts.extend(str(value) for value in address.values() if value)
     return " ".join(str(part) for part in parts if part)
+
+
+def _candidate_text(item: dict[str, Any]) -> str:
+    return candidate_text_for_matching(item)
 
 
 def _candidate_head_text(item: dict[str, Any]) -> str:
@@ -313,6 +364,18 @@ def _candidate_matches_known_alias(query: str, item: dict[str, Any]) -> bool:
         return candidate_matches_known_alias(query, item)
     except Exception:
         return True
+
+
+def _is_specific_named_venue_match(candidate: dict[str, Any] | None, query: str | None) -> bool:
+    query_tokens = _meaningful_tokens(query)
+    if not query_tokens:
+        return False
+    if len(query_tokens) > 4:
+        return False
+    candidate_text = candidate_text_for_matching(candidate or {})
+    if name_similarity(query, candidate_text) < 0.92:
+        return False
+    return token_coverage(query, candidate_text) >= 0.95
 
 
 def _score_value(value: Any) -> float | None:

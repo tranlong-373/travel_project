@@ -4,14 +4,17 @@ import difflib
 import math
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 from ..normalizers import normalize_key
 from .validator import (
     BLOCKED_POI_CATEGORIES,
     GeocodeValidation,
+    candidate_text_for_matching,
     geocode_category,
     is_named_map_anchor_proxy,
+    normalize_anchor_text,
     name_similarity as validated_name_similarity,
     normalize_vi,
     token_coverage as validated_token_coverage,
@@ -35,18 +38,13 @@ PLACE_STOPWORDS = {
     "close",
     "to",
     "khu",
+    "vuc",
     "dia",
-    "di",
-    "du",
-    "lich",
-    "tich",
-    "pho",
+    "diem",
     "phuong",
     "duong",
     "street",
     "road",
-    "place",
-    "landmark",
     "ho",
     "chi",
     "minh",
@@ -64,15 +62,40 @@ GOOD_PLACE_CATEGORIES = {
     "aeroway",
     "aerodrome",
     "airport",
+    "amenity",
     "attraction",
+    "bank",
+    "cafe",
+    "college",
+    "fast_food",
+    "ferry_terminal",
+    "guest_house",
     "historic",
+    "hospital",
+    "hostel",
+    "hotel",
     "landmark",
+    "leisure",
+    "library",
+    "mall",
+    "market",
+    "marketplace",
     "monument",
     "museum",
+    "park",
     "pedestrian",
+    "place_of_worship",
     "post_office",
+    "railway",
+    "restaurant",
+    "school",
+    "shopping_mall",
+    "station",
+    "temple",
+    "theatre",
     "tourism",
     "university",
+    "zoo",
 }
 
 
@@ -108,9 +131,7 @@ def score_geocode_candidate(
     display = normalize_vi(str(item.get("display_name") or item.get("name") or item.get("canonical_name") or ""))
     name = normalize_vi(str(item.get("name") or item.get("canonical_name") or "").split(",")[0])
     display_head = normalize_vi(str(item.get("display_name") or "").split(",")[0])
-    aliases = item.get("aliases") or []
-    alias_text = " ".join(str(alias) for alias in aliases) if isinstance(aliases, (list, tuple, set)) else ""
-    candidate_text = " ".join(part for part in (display_head, name, display, alias_text) if part)
+    candidate_text = candidate_text_for_matching(item)
     base_similarity = validated_name_similarity(phrase, candidate_text)
     ordered_similarity = max(_ordered_token_score(phrase, name), _ordered_token_score(phrase, display_head))
     name_similarity = (
@@ -122,20 +143,21 @@ def score_geocode_candidate(
     if map_anchor_proxy:
         name_similarity = max(name_similarity, 0.86)
 
-    haystack_parts = [display, name]
+    haystack_parts = [display, name, candidate_text]
     address = item.get("address") or {}
     if isinstance(address, dict):
         haystack_parts.extend(normalize_vi(str(value)) for value in address.values() if value)
     haystack = " ".join(haystack_parts)
 
-    category_score = _category_score(geocode_category(item))
+    category = geocode_category(item)
+    category_score = _category_score(category)
     if map_anchor_proxy:
         category_score = max(category_score, 0.75)
     token_coverage = max(validation.token_coverage, validated_token_coverage(phrase, haystack))
-    if validation.accepted and token_coverage < 0.7 and name_similarity >= 0.9 and category_score >= 0.9:
-        token_coverage = 0.75
+    if validation.accepted and _trusted_poi_match(validation, category, name_similarity, category_score):
+        token_coverage = max(token_coverage, 0.75 if name_similarity >= 0.9 else 0.65)
     city_score = _hcm_context_score(item) if validation.address_matches_hcm else 0.85
-    importance_score = _importance_score(item.get("importance"))
+    importance_score = max(_importance_score(item.get("importance")), _place_rank_score(item.get("place_rank")))
 
     total = (
         name_similarity * 0.32
@@ -144,21 +166,24 @@ def score_geocode_candidate(
         + city_score * 0.12
         + importance_score * 0.08
     )
+    if validation.accepted and _trusted_poi_match(validation, category, name_similarity, category_score):
+        total += 0.08 if name_similarity >= 0.9 else 0.04
     return CandidateScore(min(total, 0.99), name_similarity, token_coverage, category_score, city_score, importance_score)
 
 
-def _meaningful_tokens(text: str | None) -> list[str]:
-    norm = normalize_key(text or "")
+@lru_cache(maxsize=4096)
+def _meaningful_tokens(text: str | None) -> tuple[str, ...]:
+    norm = normalize_anchor_text(text)
     tokens = re.findall(r"\w+", norm)
-    return [token for token in tokens if (token.isdigit() or len(token) > 2) and token not in PLACE_STOPWORDS]
+    return tuple(token for token in tokens if (token.isdigit() or len(token) > 2) and token not in PLACE_STOPWORDS)
 
 
 def _category_score(category: str) -> float:
     key = normalize_key(category)
-    if key in BLOCKED_POI_CATEGORIES:
-        return 0.0
     if any(token in key for token in GOOD_PLACE_CATEGORIES):
         return 1.0
+    if key in BLOCKED_POI_CATEGORIES:
+        return 0.0
     if key in {"administrative", "suburb", "city", "district", "road", "highway", "amenity"}:
         return 0.75
     return 0.55
@@ -169,6 +194,32 @@ def _importance_score(value: Any) -> float:
         return min(max(float(value), 0.0), 1.0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _place_rank_score(value: Any) -> float:
+    try:
+        rank = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if rank <= 0:
+        return 0.0
+    return min(max((30.0 - rank) / 30.0, 0.0), 1.0)
+
+
+def _trusted_poi_match(
+    validation: GeocodeValidation,
+    category: str,
+    name_similarity: float,
+    category_score: float,
+) -> bool:
+    if not (validation.inside_hcm or validation.address_matches_hcm):
+        return False
+    if name_similarity < 0.85:
+        return False
+    if category_score < 0.9:
+        return False
+    category_key = normalize_key(category)
+    return any(token in category_key for token in GOOD_PLACE_CATEGORIES)
 
 
 def _hcm_context_score(item: dict[str, Any]) -> float:

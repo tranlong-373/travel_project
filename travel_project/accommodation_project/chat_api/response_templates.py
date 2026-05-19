@@ -56,6 +56,8 @@ def build_help_message() -> str:
 
 def build_multiple_choice_message(candidates) -> str:
     names = _candidate_names(candidates)
+    if names and _looks_like_area_candidates(candidates):
+        return f"Mình thấy vài khu vực khác nhau: {names}. Bạn muốn chọn khu vực nào?"
     if names:
         return f"Mình thấy vài địa điểm khác nhau: {names}. Bạn chọn đúng địa chỉ giúp mình nhé?"
     return "Mình thấy có nhiều địa điểm gần đúng. Bạn chọn một địa điểm giúp mình nhé?"
@@ -103,6 +105,13 @@ def build_unresolved_place_with_filters_message(slots: dict[str, Any], place_nam
 
 def _area(slots: dict[str, Any]) -> str:
     return slots.get("area") or slots.get("canonical_area") or ""
+
+
+def _looks_like_area_candidates(candidates) -> bool:
+    values = [candidate for candidate in candidates or [] if isinstance(candidate, dict)]
+    if not values:
+        return False
+    return all(candidate.get("source") == "area" or candidate.get("area_id") for candidate in values)
 
 
 def _missing_essential_hint(slots: dict[str, Any]) -> str:
