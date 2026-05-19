@@ -6,7 +6,7 @@ from django.urls import path, include
 from . import admin as custom_admin  # noqa: F401
 from accounts.views import firebase_login, google_callback, google_start
 from accommodations.views import home_view
-from chat_api.views import search_suggest
+from chat_api.views import search_suggest, suggestions
 
 admin.site.site_header = 'Travel Accommodation Admin'
 admin.site.site_title = 'Travel Admin'
@@ -16,6 +16,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home_view, name='home'),
     path('api/auth/firebase-login/', firebase_login, name='api_firebase_login'),
+    path('api/suggestions/', suggestions, name='api_suggestions'),
     path('api/search/suggest/', search_suggest, name='smart_search_suggest'),
     path('auth/google/start', google_start, name='google_start'),
     path('auth/google/callback', google_callback, name='google_callback'),

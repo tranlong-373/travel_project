@@ -8,6 +8,7 @@
     <title>Accommodation Recommendation</title>
     <link rel="stylesheet" href="{% static 'css.css' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="{% static 'js/suggestion_input.js' %}"></script>
 </head>
 
 <body class='body'>
@@ -81,7 +82,7 @@
                 <button type="button" class="chat-icon-btn chat-reset-btn" onclick="resetChat()" aria-label="Làm mới chat" title="Làm mới chat">
                     <i class="fa-solid fa-rotate-left"></i>
                 </button>
-                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" data-smart-suggest="chat" autocomplete="off" />
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" autocomplete="off" />
                 <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
@@ -437,6 +438,82 @@
         }
     }
 
+    function smartSuggestionCandidates(result) {
+        return result.smart_suggestion_candidates || result.smart_suggestions || [];
+    }
+
+    function shouldShowSmartSuggestionTable(result) {
+        return smartSuggestionCandidates(result).length > 0;
+    }
+
+    function smartSuggestionLabel(item) {
+        return item.label || item.title || 'Gợi ý';
+    }
+
+    function smartSuggestionSubtitle(item) {
+        return item.subtitle || item.type || item.kind || '';
+    }
+
+    function addSmartSuggestionTable(result, persist = true) {
+        const candidates = smartSuggestionCandidates(result);
+        if (!candidates.length) return;
+
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card chat-smart-suggestion-card';
+
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = 'Chọn gợi ý';
+        card.appendChild(title);
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.smart_suggestion_question || result.primary_message || result.polite_bot_message || result.bot_message || 'Bạn chọn gợi ý phù hợp giúp mình nhé.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table chat-location-choice-table chat-smart-suggestion-table';
+        candidates.slice(0, 5).forEach((item) => {
+            const row = document.createElement('tr');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.onclick = () => sendSmartSuggestionFromChat(item);
+            row.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    sendSmartSuggestionFromChat(item);
+                }
+            };
+
+            const name = document.createElement('th');
+            name.textContent = smartSuggestionLabel(item);
+            const subtitle = document.createElement('td');
+            subtitle.textContent = smartSuggestionSubtitle(item);
+            row.appendChild(name);
+            row.appendChild(subtitle);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+        box.appendChild(card);
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'smart_suggestions',
+                result: {
+                    smart_suggestion_question: result.smart_suggestion_question || null,
+                    primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                    smart_suggestion_candidates: candidates
+                }
+            });
+            persistChatState();
+        }
+    }
+
     async function selectLocationCandidate(candidate) {
         if (chatIsBusy) return;
         const payload = candidate.payload || { area: candidate.canonical_area || candidate.name };
@@ -513,6 +590,8 @@
                         addConfirmationTable(entry.result || {}, false);
                     } else if (entry.kind === 'location_candidates') {
                         addLocationCandidateTable(entry.result || {}, false);
+                    } else if (entry.kind === 'smart_suggestions') {
+                        addSmartSuggestionTable(entry.result || {}, false);
                     } else {
                         addMessage(entry.text || '', entry.type || 'bot', false);
                     }
@@ -673,6 +752,11 @@
         result.primary_message = primaryMessage || null;
 
         const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+        if (shouldShowSmartSuggestionTable(result)) {
+            addSmartSuggestionTable(result);
+            return;
+        }
+
         if (shouldShowLocationCandidateTable(result)) {
             addLocationCandidateTable(result);
             return;
@@ -819,51 +903,21 @@
     }
 
     function initSmartSuggestInputs() {
+        const helper = window.TravelSuggestion && window.TravelSuggestion.initSuggestionInput;
+        if (!helper) return;
         document.querySelectorAll('[data-smart-suggest]').forEach((input) => {
-            if (input.dataset.smartSuggestReady === '1') return;
-            input.dataset.smartSuggestReady = '1';
             const mode = input.dataset.smartSuggest;
-            const anchor = input.parentElement;
-            if (!anchor) return;
-            anchor.classList.add('smart-suggest-anchor');
-
-            const panel = document.createElement('div');
-            panel.className = 'smart-suggest-panel';
-            panel.style.display = 'none';
-            anchor.appendChild(panel);
-
-            let timer = null;
-            let activeRequest = 0;
-
-            input.addEventListener('input', () => {
-                window.clearTimeout(timer);
-                const value = input.value.trim();
-                if (value.replace(/\s+/g, '').length < 2) {
-                    hideSmartSuggest(panel);
-                    return;
-                }
-                timer = window.setTimeout(async () => {
-                    const requestId = ++activeRequest;
-                    try {
-                        const res = await fetch('/api/search/suggest/?q=' + encodeURIComponent(value));
-                        const data = await res.json();
-                        if (requestId !== activeRequest) return;
-                        renderSmartSuggestPanel(panel, data.suggestions || [], (item) => {
-                            hideSmartSuggest(panel);
-                            if (mode === 'chat') {
-                                sendSmartSuggestionFromChat(item);
-                            } else {
-                                applySmartSuggestionToForm(input, item);
-                            }
-                        });
-                    } catch (err) {
-                        hideSmartSuggest(panel);
+            const context = mode === 'destination' ? 'find_recommendation' : (mode || 'chat');
+            helper(input, {
+                context: context,
+                placement: input.closest('.chat-input-wrap') ? 'above' : 'below',
+                onSelect: (item) => {
+                    if (mode === 'chat' && input.id === 'chatInput') {
+                        sendSmartSuggestionFromChat(item);
+                    } else {
+                        applySmartSuggestionToForm(input, item);
                     }
-                }, 220);
-            });
-
-            input.addEventListener('blur', () => {
-                window.setTimeout(() => hideSmartSuggest(panel), 150);
+                }
             });
         });
     }
@@ -897,7 +951,8 @@
     function applySmartSuggestionToForm(input, item) {
         const form = input.closest('form');
         const payload = item.payload || {};
-        if (item.kind === 'accommodation_type' && payload.accommodation_type && form) {
+        const kind = item.kind || item.type;
+        if (kind === 'accommodation_type' && payload.accommodation_type && form) {
             const typeInput = form.querySelector(`input[name="type"][value="${payload.accommodation_type}"]`);
             if (typeInput) {
                 typeInput.checked = true;
@@ -907,17 +962,22 @@
             }
         }
 
-        input.value = payload.destination || payload.area || item.title || '';
-        if (form && ['accommodation', 'area'].includes(item.kind)) {
-            form.submit();
+        if (kind === 'amenity' && form) {
+            const amenity = payload.amenity_key || (payload.required_amenities || [])[0];
+            const amenityInput = amenity ? form.querySelector(`input[name="required_amenities"][value="${amenity}"]`) : null;
+            if (amenityInput) {
+                amenityInput.checked = true;
+            }
         }
+
+        input.value = payload.destination || payload.area || payload.name || item.label || item.title || '';
     }
 
     async function sendSmartSuggestionFromChat(item) {
         if (chatIsBusy) return;
         const input = document.getElementById('chatInput');
         if (input) input.value = '';
-        addMessage('Chọn: ' + (item.title || 'gợi ý'), 'user');
+        addMessage('Chọn: ' + (item.label || item.title || 'gợi ý'), 'user');
         setChatBusy(true);
         try {
             const res = await fetch('/chat_api/submit/', {

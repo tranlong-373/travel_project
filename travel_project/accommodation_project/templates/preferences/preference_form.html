@@ -24,7 +24,7 @@
 
                 <div class="pref-field">
                     <label>Khu vực</label>
-                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." />
+                    <input type="text" name="area" placeholder="Vd: Quận 1, Thủ Đức..." autocomplete="off" />
                 </div>
 
                 <div class="pref-field">
@@ -406,6 +406,111 @@ function addPrefLocationCandidateTable(result, persist = true) {
     }
 }
 
+function prefSmartSuggestionCandidates(result) {
+    return result.smart_suggestion_candidates || result.smart_suggestions || [];
+}
+
+function shouldShowPrefSmartSuggestionTable(result) {
+    return prefSmartSuggestionCandidates(result).length > 0;
+}
+
+function prefSmartSuggestionLabel(item) {
+    return item.label || item.title || 'Gợi ý';
+}
+
+function prefSmartSuggestionSubtitle(item) {
+    return item.subtitle || item.type || item.kind || '';
+}
+
+function addPrefSmartSuggestionTable(result, persist = true) {
+    const candidates = prefSmartSuggestionCandidates(result);
+    if (!candidates.length) return;
+
+    const box = prefChatBody();
+    const shouldScroll = shouldAutoScrollPrefChat(box);
+    const card = document.createElement('div');
+    card.className = 'ai-msg bot chat-confirm-card chat-smart-suggestion-card';
+
+    const title = document.createElement('p');
+    title.className = 'chat-confirm-title';
+    title.textContent = 'Chọn gợi ý';
+    card.appendChild(title);
+
+    const question = document.createElement('p');
+    question.className = 'chat-confirm-question';
+    question.textContent = result.smart_suggestion_question || result.primary_message || result.polite_bot_message || result.bot_message || 'Bạn chọn gợi ý phù hợp giúp mình nhé.';
+    card.appendChild(question);
+
+    const table = document.createElement('table');
+    table.className = 'chat-confirm-table chat-location-choice-table chat-smart-suggestion-table';
+    candidates.slice(0, 5).forEach((item) => {
+        const row = document.createElement('tr');
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.onclick = () => sendPrefSmartSuggestion(item);
+        row.onkeydown = (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                sendPrefSmartSuggestion(item);
+            }
+        };
+
+        const name = document.createElement('th');
+        name.textContent = prefSmartSuggestionLabel(item);
+        const subtitle = document.createElement('td');
+        subtitle.textContent = prefSmartSuggestionSubtitle(item);
+        row.appendChild(name);
+        row.appendChild(subtitle);
+        table.appendChild(row);
+    });
+    card.appendChild(table);
+    box.appendChild(card);
+    if (shouldScroll) {
+        box.scrollTop = box.scrollHeight;
+    }
+
+    if (persist) {
+        prefChatHistory.push({
+            kind: 'smart_suggestions',
+            result: {
+                smart_suggestion_question: result.smart_suggestion_question || null,
+                primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                smart_suggestion_candidates: candidates
+            }
+        });
+        persistPrefChatState();
+    }
+}
+
+async function sendPrefSmartSuggestion(item) {
+    if (prefIsBusy) return;
+    addMsg('Chọn: ' + prefSmartSuggestionLabel(item), 'user');
+    setPrefBusy(true);
+    const loading = addPrefLoading();
+    try {
+        const res = await fetch('/chat_api/submit/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({
+                locale: 'vi',
+                context_slots: prefContextSlots,
+                quick_reply_payload: item.payload || {}
+            })
+        });
+        loading.remove();
+        const data = await res.json();
+        handlePrefChatResult(data);
+    } catch (err) {
+        loading.remove();
+        addMsg('Mình chưa dùng được gợi ý này, bạn thử nhập lại giúp mình nhé.', 'bot error');
+    } finally {
+        setPrefBusy(false);
+    }
+}
+
 async function selectPrefLocationCandidate(candidate) {
     if (prefIsBusy) return;
     const payload = candidate.payload || { area: candidate.canonical_area || candidate.name };
@@ -491,6 +596,8 @@ function restorePrefChatState() {
                 addPrefConfirmationTable(entry.result || {}, false);
             } else if (entry.kind === 'location_candidates') {
                 addPrefLocationCandidateTable(entry.result || {}, false);
+            } else if (entry.kind === 'smart_suggestions') {
+                addPrefSmartSuggestionTable(entry.result || {}, false);
             } else {
                 addMsg(entry.text || '', entry.type || 'bot', false);
             }
@@ -573,6 +680,11 @@ function handlePrefChatResult(data) {
     result.primary_message = primaryMessage || null;
 
     const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+    if (shouldShowPrefSmartSuggestionTable(result)) {
+        addPrefSmartSuggestionTable(result);
+        return;
+    }
+
     if (shouldShowPrefLocationCandidateTable(result)) {
         addPrefLocationCandidateTable(result);
         return;

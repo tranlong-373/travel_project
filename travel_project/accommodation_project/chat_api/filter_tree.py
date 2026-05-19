@@ -315,6 +315,26 @@ def build_location_branch(
             )
         )
         return branch
+    nearby_place = location_result.get("nearby_place") or slots.get("nearby_place")
+    if nearby_place and not (slots.get("area") or location_result.get("canonical_area")):
+        label = str(nearby_place)
+        branch.update(
+            {
+                "mode": "nearby_place",
+                "location_phrase": label,
+                "nearby_place": label,
+                "location_display_label": f"gần {label}",
+                "location_source": location_result.get("location_source") or "catalog_poi",
+                "confidence": float(location_result.get("location_confidence") or 0.72),
+                "geocoder_called": False,
+                "geocoder_reason": location_result.get("geocoder_reason") or "poi_category_needs_area",
+                "unresolved_location": False,
+                "ambiguous_location": True,
+                "ambiguous_location_question": location_result.get("ambiguous_location_question")
+                or f"Bạn muốn gần {label} ở khu vực nào?",
+            }
+        )
+        return branch
     if debug_metadata.get("geocoder_reason"):
         branch["geocoder_reason"] = debug_metadata["geocoder_reason"]
     if has_explicit_anywhere(text):
@@ -917,6 +937,7 @@ def _empty_location_branch() -> dict[str, Any]:
         "anchor_radius_km": None,
         "search_radius_km": None,
         "location_display_label": None,
+        "nearby_place": None,
         "location_source": "none",
         "provider": None,
         "cache_hit": False,

@@ -1,0 +1,191 @@
+{
+  "locations": [
+    {
+      "key": "ho_chi_minh",
+      "name": "Thành phố Hồ Chí Minh",
+      "type": "city",
+      "aliases": ["tp hcm", "tphcm", "sai gon", "sài gòn", "ho chi minh", "hồ chí minh", "hcm"]
+    },
+    {
+      "key": "ha_noi",
+      "name": "Hà Nội",
+      "type": "city",
+      "aliases": ["ha noi", "hanoi", "hn", "thủ đô"]
+    },
+    {
+      "key": "thu_duc",
+      "name": "Thủ Đức",
+      "type": "district",
+      "parent": "Thành phố Hồ Chí Minh",
+      "aliases": ["thu duc", "tp thu duc", "thành phố thủ đức", "quận thủ đức"]
+    },
+    {
+      "key": "quan_1",
+      "name": "Quận 1",
+      "type": "district",
+      "parent": "Thành phố Hồ Chí Minh",
+      "aliases": ["q1", "q.1", "quan 1", "quận 1", "district 1"]
+    },
+    {
+      "key": "quan_2",
+      "name": "Quận 2",
+      "type": "district",
+      "parent": "Thành phố Hồ Chí Minh",
+      "aliases": ["q2", "q.2", "quan 2", "quận 2", "district 2"]
+    },
+    {
+      "key": "quan_7",
+      "name": "Quận 7",
+      "type": "district",
+      "parent": "Thành phố Hồ Chí Minh",
+      "aliases": ["q7", "q.7", "quan 7", "quận 7", "district 7"]
+    },
+    {
+      "key": "binh_thanh",
+      "name": "Bình Thạnh",
+      "type": "district",
+      "parent": "Thành phố Hồ Chí Minh",
+      "aliases": ["binh thanh", "quận bình thạnh", "quan binh thanh"]
+    }
+  ],
+  "amenities": [
+    {
+      "key": "parking",
+      "name": "Đỗ xe",
+      "type": "amenity",
+      "aliases": ["parking", "bãi xe", "bãi đỗ xe", "đậu xe", "đỗ xe", "chỗ đỗ xe", "chỗ đậu xe", "chỗ để xe", "gửi xe", "có parking", "có chỗ đỗ xe", "có chỗ đậu xe", "có bãi đỗ xe"]
+    },
+    {
+      "key": "air_conditioner",
+      "name": "Máy lạnh",
+      "type": "amenity",
+      "aliases": ["máy lạnh", "điều hòa", "air conditioner", "aircon", "ac", "có máy lạnh", "có điều hòa"]
+    },
+    {
+      "key": "pool",
+      "name": "Hồ bơi",
+      "type": "amenity",
+      "aliases": ["hồ bơi", "bể bơi", "swimming pool", "pool", "có hồ bơi", "có bể bơi"]
+    },
+    {
+      "key": "wifi",
+      "name": "Wifi",
+      "type": "amenity",
+      "aliases": ["wifi", "wi-fi", "internet", "mạng", "có wifi", "wifi mạnh"]
+    },
+    {
+      "key": "kitchen",
+      "name": "Bếp",
+      "type": "amenity",
+      "aliases": ["bếp", "kitchen", "có bếp", "nấu ăn"]
+    },
+    {
+      "key": "washing_machine",
+      "name": "Máy giặt",
+      "type": "amenity",
+      "aliases": ["máy giặt", "washing machine", "có máy giặt"]
+    }
+  ],
+  "poi_keywords": [
+    {
+      "key": "cafe",
+      "name": "Quán cafe",
+      "type": "poi",
+      "aliases": ["cafe", "cà phê", "ca phe", "coffee", "quán cafe", "quán cà phê", "gần quán cafe", "gần quán cà phê"]
+    },
+    {
+      "key": "atm",
+      "name": "ATM",
+      "type": "poi",
+      "aliases": ["atm", "cây atm", "gần cây atm", "máy rút tiền", "rút tiền"]
+    },
+    {
+      "key": "cinema",
+      "name": "Rạp chiếu phim",
+      "type": "poi",
+      "aliases": ["rạp phim", "rạp chiếu phim", "cinema", "cgv", "lotte cinema", "bhd cinema", "gần rạp chiếu phim"]
+    },
+    {
+      "key": "restaurant",
+      "name": "Nhà hàng",
+      "type": "poi",
+      "aliases": ["nhà hàng", "nha hang", "quán ăn", "quan an", "restaurant", "food"]
+    },
+    {
+      "key": "supermarket",
+      "name": "Siêu thị",
+      "type": "poi",
+      "aliases": ["siêu thị", "sieu thi", "supermarket", "mart", "mini mart"]
+    },
+    {
+      "key": "park",
+      "name": "Công viên",
+      "type": "poi",
+      "aliases": ["công viên", "cong vien", "park"]
+    }
+  ],
+  "accommodation_types": [
+    {
+      "key": "hotel",
+      "name": "Khách sạn",
+      "type": "accommodation_type",
+      "aliases": ["khach san", "khách sạn", "ks", "hotel"]
+    },
+    {
+      "key": "homestay",
+      "name": "Homestay",
+      "type": "accommodation_type",
+      "aliases": ["homestay", "home stay", "homstay", "homestate", "honestay"]
+    },
+    {
+      "key": "hostel",
+      "name": "Hostel",
+      "type": "accommodation_type",
+      "aliases": ["hostel", "nhà trọ", "nha tro", "trọ", "tro"]
+    },
+    {
+      "key": "apartment",
+      "name": "Căn hộ",
+      "type": "accommodation_type",
+      "aliases": ["căn hộ", "can ho", "chung cư", "chung cu", "apartment", "studio", "serviced apartment"]
+    }
+  ],
+  "search_stopwords": [
+    "tìm",
+    "kiếm",
+    "gợi",
+    "ý",
+    "cho",
+    "ở",
+    "gần",
+    "quanh",
+    "xung quanh",
+    "cạnh",
+    "kế",
+    "sát",
+    "near",
+    "around",
+    "mình",
+    "tôi",
+    "tui",
+    "em",
+    "anh",
+    "chị",
+    "muốn",
+    "cần",
+    "thuê",
+    "đặt",
+    "book",
+    "booking",
+    "khách",
+    "sạn",
+    "hotel",
+    "homestay",
+    "hostel",
+    "căn",
+    "hộ",
+    "nhà",
+    "chỗ",
+    "lưu trú"
+  ]
+}

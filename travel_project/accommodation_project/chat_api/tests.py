@@ -54,6 +54,18 @@ class SmartSuggestionResolverTests(TestCase):
             latitude=10.79,
             longitude=106.72,
         )
+        Accommodation.objects.create(
+            name="Thủ Đức Home",
+            accommodation_type="homestay",
+            area="Thủ Đức",
+            address="2 Võ Văn Ngân",
+            price_per_night=700_000,
+            capacity=2,
+            rating=4.0,
+            review_count=10,
+            latitude=10.85,
+            longitude=106.76,
+        )
         PlaceReference.objects.create(
             query_text="Landmark",
             normalized_query="landmark",
@@ -87,6 +99,28 @@ class SmartSuggestionResolverTests(TestCase):
         self.assertEqual(cafe[0]["payload"]["poi_type"], "cafe")
         self.assertEqual(atm[0]["payload"]["poi_type"], "atm")
 
+    def test_catalog_amenities_are_ranked_before_places(self):
+        parking = suggest_places("parking")
+        air_conditioner = suggest_places("có máy lạnh")
+
+        self.assertEqual(parking[0]["type"], "amenity")
+        self.assertEqual(parking[0]["label"], "Đỗ xe")
+        self.assertEqual(parking[0]["payload"]["required_amenities"], ["parking"])
+        self.assertEqual(air_conditioner[0]["type"], "amenity")
+        self.assertEqual(air_conditioner[0]["label"], "Máy lạnh")
+
+    def test_catalog_location_ranks_before_accommodation_fuzzy_match(self):
+        suggestions = suggest_places("thu duc")
+
+        self.assertEqual(suggestions[0]["type"], "location")
+        self.assertEqual(suggestions[0]["label"], "Thủ Đức")
+
+    def test_no_smart_suggestion_label_is_returned(self):
+        suggestions = suggest_places("parking")
+
+        labels = {item.get("label") or item.get("title") for item in suggestions}
+        self.assertNotIn("Smart suggestion", labels)
+
     def test_ambiguous_landmark_does_not_auto_pick_accommodation(self):
         suggestions = suggest_places("landmark")
         kinds = {item["kind"] for item in suggestions}
@@ -102,6 +136,15 @@ class SmartSuggestionResolverTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(data["external_called"])
         self.assertEqual(data["suggestions"][0]["kind"], "accommodation")
+
+    def test_unified_suggestions_endpoint_shape(self):
+        response = self.client.get("/api/suggestions/", {"q": "cafe", "context": "chat"})
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["query"], "cafe")
+        self.assertEqual(data["suggestions"][0]["type"], "poi")
 
     def test_submit_accommodation_name_uses_smart_result(self):
         response = self.client.post(
@@ -143,6 +186,28 @@ class SmartSuggestionResolverTests(TestCase):
         self.assertEqual(data["parser_mode"], "smart_suggestion_poi_category")
         self.assertFalse(data["can_show_recommendations"])
         self.assertIn("khu vực", data["follow_up_question"].lower())
+        self.assertEqual(data["nearby_place"], "Quán cafe")
+        self.assertFalse(data["geocoder_called"])
+
+    def test_submit_generic_nearby_poi_asks_for_area_without_geocoder(self):
+        for text, nearby_place in [
+            ("gần quán cafe", "Quán cafe"),
+            ("gần cây ATM", "ATM"),
+            ("gần rạp chiếu phim", "Rạp chiếu phim"),
+        ]:
+            with self.subTest(text=text):
+                response = self.client.post(
+                    "/chat_api/submit/",
+                    data=json.dumps({"text": text, "locale": "vi"}),
+                    content_type="application/json",
+                )
+                data = response.json()
+
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(data["can_show_recommendations"])
+                self.assertEqual(data["nearby_place"], nearby_place)
+                self.assertFalse(data["geocoder_called"])
+                self.assertIn("khu vực", data["follow_up_question"].lower())
 
 
 class DeterministicParserTests(SimpleTestCase):

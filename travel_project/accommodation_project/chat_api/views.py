@@ -13,6 +13,7 @@ from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .search_origin import build_search_origin
 from .services import _finalize_convenience_response, has_recommendation_signal, parse_user_text
 from .smart_suggestions import (
+    attach_ambiguous_suggestions,
     best_submit_resolution,
     poi_category_clarification_result,
     selected_accommodation_result,
@@ -43,15 +44,40 @@ def health(request):
 
 
 @require_GET
+def suggestions(request):
+    return _suggestion_response(request)
+
+
+@require_GET
 def search_suggest(request):
+    response = _suggestion_response(request, include_legacy_fields=True)
+    return response
+
+
+def _suggestion_response(request, *, include_legacy_fields: bool = False):
     query = request.GET.get("q", "")
-    return JsonResponse(
-        {
+    context = request.GET.get("context") or "chat"
+    try:
+        suggestions = suggest_places(query, context=context)
+        payload = {
+            "ok": True,
             "query": query,
-            "suggestions": suggest_places(query),
-            "external_called": False,
+            "suggestions": suggestions,
         }
-    )
+        if include_legacy_fields:
+            payload["external_called"] = False
+        return JsonResponse(payload)
+    except Exception as exc:
+        logger.exception("suggestion endpoint failed")
+        payload = {
+            "ok": False,
+            "query": query,
+            "suggestions": [],
+            "error": str(exc),
+        }
+        if include_legacy_fields:
+            payload["external_called"] = False
+        return JsonResponse(payload, status=200)
 
 
 @csrf_exempt
@@ -96,7 +122,9 @@ def submit_message(request):
     if quick_reply_payload:
         smart_suggestion = suggestion_from_payload(quick_reply_payload)
         if smart_suggestion and smart_suggestion.get("kind") == "accommodation":
-            return JsonResponse(selected_accommodation_result(smart_suggestion), status=200)
+            selected_result = selected_accommodation_result(smart_suggestion)
+            selected_result["slots"] = _merge_payload(context_slots, selected_result.get("slots") or {})
+            return JsonResponse(selected_result, status=200)
         if smart_suggestion and smart_suggestion.get("kind") == "poi_category":
             return JsonResponse(poi_category_clarification_result("", smart_suggestion), status=200)
         context_slots = _merge_payload(context_slots, quick_reply_payload)
@@ -125,6 +153,7 @@ def submit_message(request):
         except Exception:
             logger.exception("chat_api submit endpoint failed")
             return JsonResponse({"error": "Parser temporarily unavailable"}, status=503)
+        attach_ambiguous_suggestions(result, text)
 
     _attach_user_location(result, user_location)
 
