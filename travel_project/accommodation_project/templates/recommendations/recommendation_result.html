@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
 
 {% block content %}
 
@@ -47,7 +48,7 @@
                     <div class="fcard-field">
                         <i class="fa-solid fa-magnifying-glass fcard-field-icon"></i>
                         <input type="text" name="destination" value="{{ current_destination }}"
-                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" />
+                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" data-smart-suggest="destination" autocomplete="off" />
                     </div>
                     <div class="fcard-field">
                         <i class="fa-solid fa-user fcard-field-icon"></i>
@@ -380,7 +381,7 @@
                                 {% endfor %}
                             </div>
                             <div class="acc-price-wrap">
-                                <p class="acc-price"><span>{{ item.price_per_night|floatformat:0 }}₫</span> /đêm</p>
+                                <p class="acc-price"><span>{{ item.price_per_night|floatformat:0|intcomma }}₫</span> /đêm</p>
                                 <span class="hotel-book-btn">Xem chi tiết</span>
                             </div>
                         </div>

@@ -306,7 +306,7 @@ def build_location_branch(
 
     branch = _empty_location_branch()
     selected_place = _selected_place_payload(slots, location_result)
-    if selected_place and not _has_current_turn_location_signal(location_result):
+       if selected_place and not _has_current_turn_location_signal(location_result):
         branch.update(
             _branch_from_selected_place(
                 selected_place,
@@ -739,6 +739,8 @@ def resolve_local_location_reference(text: str | None) -> LocationReference | No
 
     for alias_key, reference in _reference_alias_index():
         if re.search(rf"(?<!\w){re.escape(alias_key)}(?!\w)", norm):
+            if reference.kind == "city" and norm != alias_key and has_concrete_place_noun(norm):
+                continue
             return reference
     return None
 
@@ -766,6 +768,10 @@ def _reference_alias_index() -> tuple[tuple[str, LocationReference], ...]:
 
 @lru_cache(maxsize=128)
 def geocode_anchor(anchor_name: str | None) -> dict[str, Any] | None:
+    return resolve_place_reference(anchor_name)
+
+
+def resolve_place_reference(anchor_name: str | None, *, default_radius_km: float = 5.0) -> dict[str, Any] | None:
     if not anchor_name:
         return None
 
@@ -794,7 +800,7 @@ def geocode_anchor(anchor_name: str | None) -> dict[str, Any] | None:
             "geocoder_queries": payload.get("geocoder_queries") or [],
             "unresolved_reason": payload.get("unresolved_reason"),
         }
-    return {
+    result_payload = {
         "name": payload.get("canonical_name") or payload.get("display_name") or anchor_name,
         "lat": payload.get("lat"),
         "lon": payload.get("lon"),
@@ -810,6 +816,9 @@ def geocode_anchor(anchor_name: str | None) -> dict[str, Any] | None:
         "query": payload.get("query_used"),
         "geocoder_queries": payload.get("geocoder_queries") or [],
     }
+    if default_radius_km != 5.0:
+        result_payload["default_radius_km"] = default_radius_km
+    return result_payload
 
 
 def soft_filter_summary(tree: dict[str, Any] | FilterTree | None) -> str:

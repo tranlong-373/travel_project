@@ -81,7 +81,7 @@
                 <button type="button" class="chat-icon-btn chat-reset-btn" onclick="resetChat()" aria-label="Làm mới chat" title="Làm mới chat">
                     <i class="fa-solid fa-rotate-left"></i>
                 </button>
-                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" />
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" data-smart-suggest="chat" autocomplete="off" />
                 <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
@@ -370,11 +370,11 @@
     }
 
     function candidateLocationName(candidate) {
-        return candidate.name || candidate.canonical_area || candidate.display_name || 'Địa điểm';
+        return candidate.title || candidate.name || candidate.canonical_area || candidate.display_name || 'Địa điểm';
     }
 
     function candidateLocationAddress(candidate) {
-        return candidate.address || candidate.display_address || candidate.display_name || '';
+        return candidate.subtitle || candidate.address || candidate.display_address || candidate.display_name || '';
     }
 
     function addLocationCandidateTable(result, persist = true) {
@@ -818,7 +818,136 @@
         }
     }
 
+    function initSmartSuggestInputs() {
+        document.querySelectorAll('[data-smart-suggest]').forEach((input) => {
+            if (input.dataset.smartSuggestReady === '1') return;
+            input.dataset.smartSuggestReady = '1';
+            const mode = input.dataset.smartSuggest;
+            const anchor = input.parentElement;
+            if (!anchor) return;
+            anchor.classList.add('smart-suggest-anchor');
+
+            const panel = document.createElement('div');
+            panel.className = 'smart-suggest-panel';
+            panel.style.display = 'none';
+            anchor.appendChild(panel);
+
+            let timer = null;
+            let activeRequest = 0;
+
+            input.addEventListener('input', () => {
+                window.clearTimeout(timer);
+                const value = input.value.trim();
+                if (value.replace(/\s+/g, '').length < 2) {
+                    hideSmartSuggest(panel);
+                    return;
+                }
+                timer = window.setTimeout(async () => {
+                    const requestId = ++activeRequest;
+                    try {
+                        const res = await fetch('/api/search/suggest/?q=' + encodeURIComponent(value));
+                        const data = await res.json();
+                        if (requestId !== activeRequest) return;
+                        renderSmartSuggestPanel(panel, data.suggestions || [], (item) => {
+                            hideSmartSuggest(panel);
+                            if (mode === 'chat') {
+                                sendSmartSuggestionFromChat(item);
+                            } else {
+                                applySmartSuggestionToForm(input, item);
+                            }
+                        });
+                    } catch (err) {
+                        hideSmartSuggest(panel);
+                    }
+                }, 220);
+            });
+
+            input.addEventListener('blur', () => {
+                window.setTimeout(() => hideSmartSuggest(panel), 150);
+            });
+        });
+    }
+
+    function renderSmartSuggestPanel(panel, suggestions, onSelect) {
+        panel.innerHTML = '';
+        if (!suggestions.length) {
+            hideSmartSuggest(panel);
+            return;
+        }
+        suggestions.slice(0, 8).forEach((item) => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'smart-suggest-item';
+            row.onmousedown = (event) => event.preventDefault();
+            row.onclick = () => onSelect(item);
+            row.innerHTML = `
+                <span class="smart-suggest-title">${smartEscape(item.title || 'Gợi ý')}</span>
+                <span class="smart-suggest-subtitle">${smartEscape(item.subtitle || item.kind || '')}</span>
+            `;
+            panel.appendChild(row);
+        });
+        panel.style.display = 'block';
+    }
+
+    function hideSmartSuggest(panel) {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+    }
+
+    function applySmartSuggestionToForm(input, item) {
+        const form = input.closest('form');
+        const payload = item.payload || {};
+        if (item.kind === 'accommodation_type' && payload.accommodation_type && form) {
+            const typeInput = form.querySelector(`input[name="type"][value="${payload.accommodation_type}"]`);
+            if (typeInput) {
+                typeInput.checked = true;
+                input.value = '';
+                form.submit();
+                return;
+            }
+        }
+
+        input.value = payload.destination || payload.area || item.title || '';
+        if (form && ['accommodation', 'area'].includes(item.kind)) {
+            form.submit();
+        }
+    }
+
+    async function sendSmartSuggestionFromChat(item) {
+        if (chatIsBusy) return;
+        const input = document.getElementById('chatInput');
+        if (input) input.value = '';
+        addMessage('Chọn: ' + (item.title || 'gợi ý'), 'user');
+        setChatBusy(true);
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    locale: 'vi',
+                    context_slots: contextSlots,
+                    quick_reply_payload: item.payload || {}
+                })
+            });
+            const data = await res.json();
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Mình chưa dùng được gợi ý này, bạn thử nhập lại giúp mình nhé.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
+    function smartEscape(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
     window.addEventListener('beforeunload', saveChatScrollState);
+    initSmartSuggestInputs();
     restoreChatState();
 </script>
 </html>

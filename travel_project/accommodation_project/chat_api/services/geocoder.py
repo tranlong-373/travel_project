@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import logging
+import time
+from collections import OrderedDict
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from typing import Any
 
 from ..geocoder.providers.base import GeocoderQuery
@@ -26,6 +30,17 @@ DEFAULT_CITY_HINTS = (
 DEFAULT_OSM_URL = "https://nominatim.openstreetmap.org/search"
 DEFAULT_USER_AGENT = "travel_project_dev_contact_email"
 OSM_SAME_PLACE_CLUSTER_KM = 1.0
+ACCEPT_SCORE = 0.70
+SUGGESTION_SCORE = 0.55
+HIGH_CONFIDENCE_SCORE = 0.88
+CLEAR_ACCEPT_MARGIN = 0.08
+EARLY_EXIT_MARGIN = 0.10
+MAX_GEOCODER_QUERIES = 4
+MAX_RAW_GEOCODER_CANDIDATES = 30
+MAX_LOCATION_SUGGESTIONS = 10
+OSM_RESULT_LIMIT = 8
+logger = logging.getLogger(__name__)
+_OSM_FETCH_CACHE: OrderedDict[str, tuple[dict[str, Any], ...]] = OrderedDict()
 TRANSIT_PLACE_PREFIXES = (
     "ga ",
     "metro station ",
@@ -120,7 +135,9 @@ def geocode_place(
     city_hint: str | None = None,
     country_hint: str = DEFAULT_COUNTRY_HINT,
 ) -> GeocodeResult:
+    started_at = time.perf_counter()
     phrase = clean_location_phrase(location_phrase)
+    normalize_ms = _elapsed_ms(started_at)
     if not phrase:
         return GeocodeResult(
             success=False,
@@ -128,7 +145,9 @@ def geocode_place(
             unresolved_reason="empty_location_phrase",
         )
 
+    query_started_at = time.perf_counter()
     queries = tuple(build_geocode_queries(phrase, city_hint=city_hint, country_hint=country_hint))
+    query_ms = _elapsed_ms(query_started_at)
     intent = _geocoder_intent_for_phrase(phrase)
     if _cache_enabled():
         cached = get_cached_place_reference(phrase)
@@ -153,6 +172,18 @@ def geocode_place(
 
     if result.success and _cache_enabled():
         save_place_reference(result)
+    _log_geocoder_timing(
+        "geocode_place",
+        phrase=phrase,
+        timings={
+            "normalize_ms": normalize_ms,
+            "query_build_ms": query_ms,
+            "total_ms": _elapsed_ms(started_at),
+        },
+        query_count=len(queries),
+        success=result.success,
+        unresolved_reason=result.unresolved_reason,
+    )
     return result
 
 
@@ -166,26 +197,44 @@ def build_geocode_queries(
     city_hint: str | None = None,
     country_hint: str = DEFAULT_COUNTRY_HINT,
 ) -> list[str]:
+    return list(_build_geocode_queries_cached(location_phrase, city_hint or "", country_hint or DEFAULT_COUNTRY_HINT))
+
+
+@lru_cache(maxsize=512)
+def _build_geocode_queries_cached(
+    location_phrase: str,
+    city_hint: str,
+    country_hint: str,
+) -> tuple[str, ...]:
     phrase = clean_location_phrase(location_phrase)
     if not phrase:
-        return []
+        return ()
 
     queries: list[str] = []
-    phrase_variants = cleaned_location_variants(phrase) or [phrase]
+    phrase_variants: list[str] = []
+    for variant in cleaned_location_variants(phrase) or [phrase]:
+        cleaned = clean_location_phrase(variant)
+        if cleaned:
+            _append_unique(phrase_variants, cleaned)
+    phrase_variants = phrase_variants[:2]
+    hints = _query_context_hints(city_hint, country_hint)
     for variant in phrase_variants:
-        if city_hint:
-            _append_unique(queries, f"{variant}, {city_hint}")
-        for hint in DEFAULT_CITY_HINTS:
-            _append_unique(queries, f"{variant}, {hint}")
-
         norm = normalize_key(variant)
-        if "cu chi" in norm or "dia dao" in norm:
-            _append_unique(queries, f"{variant}, Củ Chi, Hồ Chí Minh, Việt Nam")
-
         for alias in _english_aliases(norm):
-            _append_unique(queries, alias)
+            _append_unique_query(queries, alias)
+            if len(queries) >= MAX_GEOCODER_QUERIES:
+                return tuple(queries)
+        for hint in hints:
+            query = variant if _has_context_hint(variant) else f"{variant}, {hint}"
+            _append_unique_query(queries, query)
+            if len(queries) >= MAX_GEOCODER_QUERIES:
+                return tuple(queries)
+        if "cu chi" in norm or "dia dao" in norm:
+            _append_unique_query(queries, f"{variant}, Củ Chi, Hồ Chí Minh, Việt Nam")
+            if len(queries) >= MAX_GEOCODER_QUERIES:
+                return tuple(queries)
 
-    return queries
+    return tuple(queries)
 
 
 def get_cached_place_reference(location_phrase: str | None) -> dict[str, Any] | None:
@@ -235,18 +284,31 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
     scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]] = []
     raw_attempts: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
+    seen_raw_candidates: set[str] = set()
+    timing = {"geocode_ms": 0.0, "scoring_ms": 0.0, "filtering_ms": 0.0}
+    started_at = time.perf_counter()
     intent = intent or _geocoder_intent_for_phrase(phrase)
 
     for query in queries:
         try:
+            fetch_started_at = time.perf_counter()
             rows = _fetch_osm(query)
+            timing["geocode_ms"] += _elapsed_ms(fetch_started_at)
         except Exception as exc:
             raw_attempts.append({"query": query, "error": str(exc)})
             continue
         raw_attempts.append({"query": query, "results": rows or []})
         for item in rows or []:
+            if len(seen_raw_candidates) >= MAX_RAW_GEOCODER_CANDIDATES:
+                break
+            identity = _osm_candidate_identity(item)
+            if identity in seen_raw_candidates:
+                continue
+            seen_raw_candidates.add(identity)
+            scoring_started_at = time.perf_counter()
             validation = validate_geocode_candidate(item, query=phrase, intent=intent)
             score_payload = score_geocode_candidate(phrase, item, validation=validation)
+            timing["scoring_ms"] += _elapsed_ms(scoring_started_at)
             score = score_payload.total
             if not validation.accepted:
                 rejected.append(
@@ -258,7 +320,7 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
                     )
                 )
                 continue
-            if score < 0.70:
+            if score < SUGGESTION_SCORE and not _keep_low_score_candidate(score_payload.to_dict(), validation, item):
                 rejected.append(
                     rejected_geocoder_payload(
                         item,
@@ -269,11 +331,23 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
                 )
                 continue
             scored.append((score, query, item, score_payload.to_dict()))
+        filtering_started_at = time.perf_counter()
         scored = _dedupe_osm_scored_candidates(scored)
-        if scored and scored[0][0] >= 0.82 and _top_margin(scored) >= 0.08:
+        timing["filtering_ms"] += _elapsed_ms(filtering_started_at)
+        if scored and scored[0][0] >= HIGH_CONFIDENCE_SCORE and _top_margin(scored) >= EARLY_EXIT_MARGIN:
+            break
+        if len(seen_raw_candidates) >= MAX_RAW_GEOCODER_CANDIDATES:
             break
 
     if not scored:
+        _log_geocoder_timing(
+            "osm",
+            phrase=phrase,
+            timings={**timing, "total_ms": _elapsed_ms(started_at)},
+            query_count=len(raw_attempts),
+            success=False,
+            unresolved_reason="no_geocoder_match",
+        )
         return GeocodeResult(
             success=False,
             provider="osm",
@@ -283,7 +357,9 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
             rejected_candidates=tuple(rejected[:10]),
         )
 
+    filtering_started_at = time.perf_counter()
     scored = _dedupe_osm_scored_candidates(scored)
+    timing["filtering_ms"] += _elapsed_ms(filtering_started_at)
     margin = _top_margin(scored)
     top_validation = validate_geocode_candidate(
         scored[0][2],
@@ -292,23 +368,45 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
         top_score=scored[0][0],
         runner_up_score=scored[1][0] if len(scored) > 1 else None,
     )
-    if len(scored) > 1 and (margin < 0.08 or not top_validation.accepted):
+    should_accept_top = scored[0][0] >= ACCEPT_SCORE and (len(scored) == 1 or margin >= CLEAR_ACCEPT_MARGIN)
+    if not should_accept_top or not top_validation.accepted:
+        unresolved_reason = "ambiguous_geocoder_match" if margin < CLEAR_ACCEPT_MARGIN else top_validation.reason
+        if scored[0][0] < ACCEPT_SCORE:
+            unresolved_reason = "low_confidence_geocoder_match"
+        _log_geocoder_timing(
+            "osm",
+            phrase=phrase,
+            timings={**timing, "total_ms": _elapsed_ms(started_at)},
+            query_count=len(raw_attempts),
+            success=False,
+            unresolved_reason=unresolved_reason,
+        )
         return GeocodeResult(
             success=False,
             provider="osm",
             raw_payload=raw_attempts,
             geocoder_queries=queries,
-            unresolved_reason="ambiguous_geocoder_match" if margin < 0.08 else top_validation.reason,
+            unresolved_reason=unresolved_reason,
             rejected_candidates=tuple(
                 [
                     *rejected[:8],
-                    rejected_geocoder_payload(scored[0][2], reason=top_validation.reason, validation=top_validation, score=scored[0][0]),
-                    rejected_geocoder_payload(scored[1][2], reason="top1_top2_margin_too_small", score=scored[1][0])
-                    if len(scored) > 1
-                    else {},
+                    rejected_geocoder_payload(
+                        scored[0][2],
+                        reason=unresolved_reason if top_validation.accepted else top_validation.reason,
+                        validation=top_validation,
+                        score=scored[0][0],
+                    ),
+                    *(
+                        [rejected_geocoder_payload(scored[1][2], reason="top1_top2_margin_too_small", score=scored[1][0])]
+                        if len(scored) > 1
+                        else []
+                    ),
                 ]
             ),
-            location_candidates=tuple(_location_candidate_payload(candidate, index + 1) for index, candidate in enumerate(scored[:5])),
+            location_candidates=tuple(
+                _location_candidate_payload(candidate, index + 1)
+                for index, candidate in enumerate(scored[:MAX_LOCATION_SUGGESTIONS])
+            ),
             result_margin=round(margin, 3) if margin is not None else None,
         )
 
@@ -316,6 +414,14 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
     lat = _float_or_none(item.get("lat"))
     lon = _float_or_none(item.get("lon"))
     if lat is None or lon is None:
+        _log_geocoder_timing(
+            "osm",
+            phrase=phrase,
+            timings={**timing, "total_ms": _elapsed_ms(started_at)},
+            query_count=len(raw_attempts),
+            success=False,
+            unresolved_reason="missing_coordinates",
+        )
         return GeocodeResult(
             success=False,
             provider="osm",
@@ -331,6 +437,14 @@ def _geocode_with_osm(phrase: str, queries: tuple[str, ...], *, intent: str | No
     normalized_name = _normalized_place_name(phrase)
     aliases = _aliases_for_cache(phrase, canonical_name)
 
+    _log_geocoder_timing(
+        "osm",
+        phrase=phrase,
+        timings={**timing, "total_ms": _elapsed_ms(started_at)},
+        query_count=len(raw_attempts),
+        success=True,
+        unresolved_reason="",
+    )
     return GeocodeResult(
         success=True,
         query_used=query,
@@ -435,6 +549,10 @@ def _location_candidate_payload(
         "address": _candidate_address_label(item),
         "display_name": display_name,
         "confidence": round(min(score, 0.99), 3),
+        "score": round(min(score, 0.99), 3),
+        "importance": _float_or_none(item.get("importance")),
+        "reason": _candidate_reason(score_breakdown, item),
+        "reasons": _candidate_reasons(score_breakdown, item),
         "source": "osm",
         "payload": {
             "location_mode": "near_anchor",
@@ -460,6 +578,24 @@ def _candidate_address_label(item: dict[str, Any]) -> str:
             return label
     display_parts = [part.strip() for part in str(item.get("display_name") or "").split(",")]
     return ", ".join(display_parts[1:]) if len(display_parts) > 1 else str(item.get("display_name") or "")
+
+
+def _candidate_reasons(score_breakdown: dict[str, Any], item: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    if float(score_breakdown.get("name_similarity") or 0.0) >= 0.85:
+        reasons.append("Tên gần giống")
+    if float(score_breakdown.get("category_score") or 0.0) >= 0.9:
+        category = geocode_category(item)
+        reasons.append(f"Khớp loại {category}" if category and category != "unknown" else "Khớp loại địa điểm")
+    if float(score_breakdown.get("city_score") or 0.0) >= 0.75:
+        reasons.append("Đúng khu vực TP HCM")
+    if float(score_breakdown.get("importance_score") or 0.0) >= 0.2:
+        reasons.append("Địa danh nổi bật")
+    return reasons or ["Địa điểm gần đúng trên bản đồ"]
+
+
+def _candidate_reason(score_breakdown: dict[str, Any], item: dict[str, Any]) -> str:
+    return "; ".join(_candidate_reasons(score_breakdown, item)[:3])
 
 
 def _osm_candidate_identity(item: dict[str, Any]) -> str:
@@ -534,14 +670,25 @@ def _approx_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> f
 
 
 def _fetch_osm(query: str) -> list[dict[str, Any]]:
-    return NominatimProvider().search(
+    cache_key = _fetch_cache_key(query)
+    cached = _OSM_FETCH_CACHE.get(cache_key)
+    if cached is not None:
+        _OSM_FETCH_CACHE.move_to_end(cache_key)
+        return list(cached)
+    rows = NominatimProvider().search(
         GeocoderQuery(
             text=query,
             viewbox=HCM_VIEWBOX,
             bounded=True,
-            limit=5,
+            limit=OSM_RESULT_LIMIT,
         )
     )
+    cached_rows = tuple(rows or ())
+    _OSM_FETCH_CACHE[cache_key] = cached_rows
+    _OSM_FETCH_CACHE.move_to_end(cache_key)
+    if len(_OSM_FETCH_CACHE) > 256:
+        _OSM_FETCH_CACHE.popitem(last=False)
+    return list(cached_rows)
 
 
 def _provider_searches():
@@ -641,6 +788,24 @@ def _score_candidate(phrase: str, query: str, item: dict[str, Any]) -> float:
     return score_geocode_candidate(_strip_context_from_query(query) or phrase, item, validation=validation).total
 
 
+def _keep_low_score_candidate(
+    score_breakdown: dict[str, Any],
+    validation,
+    item: dict[str, Any],
+) -> bool:
+    if not validation.accepted:
+        return False
+    name_similarity = float(score_breakdown.get("name_similarity") or 0.0)
+    importance = _float_or_none(item.get("importance")) or 0.0
+    category_score = float(score_breakdown.get("category_score") or 0.0)
+    return (
+        name_similarity >= 0.9
+        and category_score >= 0.9
+        and (validation.inside_hcm or validation.address_matches_hcm)
+        and importance >= 0.15
+    )
+
+
 def _top_margin(scored: list[tuple[float, str, dict[str, Any], dict[str, Any]]]) -> float:
     if not scored:
         return 0.0
@@ -655,6 +820,34 @@ def _top_margin_provider(scored: list[tuple[float, dict[str, Any], dict[str, Any
     if len(scored) == 1:
         return 1.0
     return round(scored[0][0] - scored[1][0], 3)
+
+
+def _query_context_hints(city_hint: str | None, country_hint: str | None) -> tuple[str, ...]:
+    hints: list[str] = []
+    if city_hint:
+        _append_unique(hints, city_hint)
+    for hint in (DEFAULT_CITY_HINTS[0], DEFAULT_CITY_HINTS[-1], DEFAULT_CITY_HINTS[1]):
+        _append_unique(hints, hint)
+    if country_hint and normalize_key(country_hint) not in {"viet nam", "vietnam"}:
+        _append_unique(hints, country_hint)
+    return tuple(hints)
+
+
+def _has_context_hint(value: str) -> bool:
+    norm = normalize_key(value)
+    return any(token in norm for token in ("ho chi minh", "hcm", "tphcm", "sai gon", "saigon"))
+
+
+def _append_unique_query(values: list[str], value: str) -> None:
+    if not value:
+        return
+    key = _fetch_cache_key(value)
+    if key and all(_fetch_cache_key(existing) != key for existing in values):
+        values.append(value)
+
+
+def _fetch_cache_key(query: str | None) -> str:
+    return normalize_key(query or "")
 
 
 def _english_aliases(norm_phrase: str) -> list[str]:
@@ -809,6 +1002,32 @@ def _normalized_place_name(place_name: str | None) -> str:
 def _append_unique(values: list[str], value: str) -> None:
     if value and value not in values:
         values.append(value)
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((time.perf_counter() - started_at) * 1000, 3)
+
+
+def _log_geocoder_timing(
+    stage: str,
+    *,
+    phrase: str,
+    timings: dict[str, float],
+    query_count: int,
+    success: bool,
+    unresolved_reason: str,
+) -> None:
+    logger.debug(
+        "geocoder_timing",
+        extra={
+            "geocoder_stage": stage,
+            "geocoder_phrase": phrase,
+            "geocoder_timing": timings,
+            "geocoder_query_count": query_count,
+            "geocoder_success": success,
+            "geocoder_unresolved_reason": unresolved_reason,
+        },
+    )
 
 
 def _provider() -> str:

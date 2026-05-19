@@ -20,9 +20,129 @@ from .normalizers import normalize_key
 from .place_geocoder import resolve_place_reference
 from .services.geocoder import build_geocode_queries, geocode_place
 from .services import parse_user_text
+from .smart_suggestions import best_submit_resolution, clear_suggestion_cache, suggest_places
 from .text_normalizer import normalize_user_text
 from .geocoder.validator import validate_geocode_candidate
 from recommendations.services import get_candidate_accommodations
+
+
+class SmartSuggestionResolverTests(TestCase):
+    def setUp(self):
+        clear_suggestion_cache()
+        self.addCleanup(clear_suggestion_cache)
+        self.apartment = Accommodation.objects.create(
+            name="Thien Nam apartment",
+            accommodation_type="apartment",
+            area="Quận 1",
+            address="1 Nguyễn Huệ",
+            price_per_night=900_000,
+            capacity=2,
+            rating=4.6,
+            review_count=80,
+            latitude=10.77,
+            longitude=106.70,
+        )
+        Accommodation.objects.create(
+            name="Landmark Apartment",
+            accommodation_type="apartment",
+            area="Bình Thạnh",
+            address="720 Điện Biên Phủ",
+            price_per_night=1_300_000,
+            capacity=3,
+            rating=4.2,
+            review_count=20,
+            latitude=10.79,
+            longitude=106.72,
+        )
+        PlaceReference.objects.create(
+            query_text="Landmark",
+            normalized_query="landmark",
+            canonical_name="Landmark 81",
+            normalized_name="landmark 81",
+            aliases=["landmark", "landmark81"],
+            kind="Địa điểm",
+            latitude=10.795,
+            longitude=106.721,
+            confidence=0.92,
+            provider="osm",
+            source="cache",
+        )
+        clear_suggestion_cache()
+
+    def test_accommodation_name_typo_is_suggested_before_location(self):
+        suggestions = suggest_places("thien nam apartmen")
+
+        self.assertGreaterEqual(len(suggestions), 1)
+        self.assertEqual(suggestions[0]["kind"], "accommodation")
+        self.assertEqual(suggestions[0]["title"], "Thien Nam apartment")
+
+    def test_area_and_poi_aliases_are_suggested(self):
+        area = suggest_places("q1")
+        cafe = suggest_places("ca phe")
+        atm = suggest_places("cay atm")
+
+        self.assertEqual(area[0]["kind"], "area")
+        self.assertEqual(area[0]["title"], "Quận 1")
+        self.assertEqual(cafe[0]["kind"], "poi_category")
+        self.assertEqual(cafe[0]["payload"]["poi_type"], "cafe")
+        self.assertEqual(atm[0]["payload"]["poi_type"], "atm")
+
+    def test_ambiguous_landmark_does_not_auto_pick_accommodation(self):
+        suggestions = suggest_places("landmark")
+        kinds = {item["kind"] for item in suggestions}
+
+        self.assertIn("accommodation", kinds)
+        self.assertIn("cached_poi", kinds)
+        self.assertIsNone(best_submit_resolution("landmark"))
+
+    def test_suggest_endpoint_is_local_only(self):
+        response = self.client.get("/api/search/suggest/", {"q": "thien"})
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(data["external_called"])
+        self.assertEqual(data["suggestions"][0]["kind"], "accommodation")
+
+    def test_submit_accommodation_name_uses_smart_result(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"text": "Gợi ý căn hộ Thien Nam apartment", "locale": "vi"}),
+            content_type="application/json",
+        )
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data["parser_mode"], "smart_suggestion_accommodation")
+        self.assertTrue(data["can_show_recommendations"])
+        self.assertIn("/accommodations/", data["recommendation_action"]["url"])
+
+    def test_submit_selected_suggestion_payload_preserves_metadata(self):
+        suggestion = suggest_places("thien nam")[0]
+
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"quick_reply_payload": suggestion["payload"], "locale": "vi"}),
+            content_type="application/json",
+        )
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data["parser_mode"], "smart_suggestion_accommodation")
+        self.assertEqual(data["slots"]["area"], "Quận 1")
+        self.assertEqual(data["slots"]["accommodation_type"], "apartment")
+
+    def test_submit_poi_category_without_anchor_asks_for_location(self):
+        response = self.client.post(
+            "/chat_api/submit/",
+            data=json.dumps({"text": "Tìm homestay gần cafe", "locale": "vi"}),
+            content_type="application/json",
+        )
+        data = response.json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(data["parser_mode"], "smart_suggestion_poi_category")
+        self.assertFalse(data["can_show_recommendations"])
+        self.assertIn("khu vực", data["follow_up_question"].lower())
 
 
 class DeterministicParserTests(SimpleTestCase):
@@ -713,6 +833,47 @@ class ConveniencePipelineTests(SimpleTestCase):
         data.update(overrides)
         return data
 
+    @staticmethod
+    def _osm_row(name: str, **overrides):
+        place_type = overrides.pop("type", "museum")
+        place_class = overrides.pop("class", "tourism")
+        place_id = overrides.pop("place_id", abs(hash((name, place_type))) % 1_000_000)
+        lat = overrides.pop("lat", "10.7879719")
+        lon = overrides.pop("lon", "106.7049563")
+        address = {
+            place_class: name,
+            "city": "Thành phố Hồ Chí Minh",
+            "country": "Việt Nam",
+            "country_code": "vn",
+        }
+        address.update(overrides.pop("address", {}))
+        data = {
+            "place_id": place_id,
+            "osm_type": "way",
+            "osm_id": place_id + 1000,
+            "lat": lat,
+            "lon": lon,
+            "class": place_class,
+            "type": place_type,
+            "name": name,
+            "display_name": f"{name}, Thành phố Hồ Chí Minh, Việt Nam",
+            "address": address,
+            "importance": overrides.pop("importance", 0.35),
+        }
+        data.update(overrides)
+        return data
+
+    def _assert_anchor_or_candidate(self, result, expected_name: str):
+        if result["location_status"] == "ok":
+            self.assertIn(expected_name, result["anchor_name"])
+            return
+        self.assertEqual(result["location_status"], "multiple_choice")
+        candidate_names = [candidate.get("name") or candidate.get("display_name") for candidate in result["location_candidates"]]
+        self.assertTrue(
+            any(expected_name in str(name or "") for name in candidate_names),
+            f"{expected_name!r} not found in {candidate_names!r}",
+        )
+
     def test_thu_duc_compact_recommends_partially_without_user_action(self):
         result = parse_user_text("tôi muốn ở gần thuduc")
 
@@ -1391,6 +1552,165 @@ class ConveniencePipelineTests(SimpleTestCase):
         self.assertFalse(result["unresolved_location"])
         self.assertEqual(result["slots"]["budget_min"], 2_000_000)
         self.assertEqual(result["slots"]["budget_max"], 5_000_000)
+        geocode_anchor.cache_clear()
+
+    def test_ambiguous_generic_museum_returns_map_suggestions(self):
+        geocode_anchor.cache_clear()
+        rows = [
+            self._osm_row("Bảo tàng Lịch sử Thành phố Hồ Chí Minh", place_id=5101, lat="10.7879719", lon="106.7049563"),
+            self._osm_row("Bảo tàng Mỹ thuật Thành phố Hồ Chí Minh", place_id=5102, lat="10.7703030", lon="106.6990830"),
+            self._osm_row("Bảo tàng Thành phố Hồ Chí Minh", place_id=5103, lat="10.7764580", lon="106.6991860"),
+            self._osm_row("Bảo tàng Chứng tích Chiến tranh", place_id=5104, lat="10.7794750", lon="106.6920950"),
+            self._osm_row("Bảo tàng Phụ nữ Nam Bộ", place_id=5105, lat="10.7872710", lon="106.6905140"),
+            self._osm_row("Bảo tàng Áo Dài", place_id=5106, lat="10.8230180", lon="106.7812840"),
+        ]
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._provider_searches",
+            return_value=[],
+        ), patch("chat_api.services.geocoder._fetch_osm", return_value=rows):
+            result = parse_user_text("ở gần Bảo Tàng", include_debug=True)
+
+        self.assertEqual(result["location_status"], "multiple_choice")
+        self.assertTrue(result["ambiguous_location"])
+        self.assertGreaterEqual(len(result["location_candidates"]), 5)
+        self.assertLessEqual(len(result["location_candidates"]), 10)
+        self.assertIn("Mình thấy vài địa điểm", result["polite_bot_message"])
+        geocode_anchor.cache_clear()
+
+    def test_near_tao_dan_park_accepts_osm_result(self):
+        geocode_anchor.cache_clear()
+        row = self._osm_row(
+            "Công viên Tao Đàn",
+            place_id=5201,
+            lat="10.7756580",
+            lon="106.6921050",
+            type="park",
+            importance=0.42,
+            address={"leisure": "Công viên Tao Đàn"},
+            **{"class": "leisure"},
+        )
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._provider_searches",
+            return_value=[],
+        ), patch("chat_api.services.geocoder._fetch_osm", return_value=[row]):
+            result = parse_user_text("gần công viên Tao Đàn", include_debug=True)
+
+        self.assertEqual(result["location_status"], "ok")
+        self.assertEqual(result["location_mode"], "near_anchor")
+        self.assertEqual(result["anchor_name"], "Công viên Tao Đàn")
+        self.assertEqual(result["anchor_kind"], "park")
+        geocode_anchor.cache_clear()
+
+    def test_common_local_pois_still_resolve_without_map_call(self):
+        for text, expected in (("gần chợ bến thành", "Bến Thành"), ("gần landmark 81", "Landmark 81")):
+            with self.subTest(text=text):
+                geocode_anchor.cache_clear()
+                with patch("chat_api.filter_tree.resolve_place_reference") as mock_resolve:
+                    result = parse_user_text(text, include_debug=True)
+                self.assertEqual(result["location_status"], "ok")
+                self.assertEqual(result["location_mode"], "near_anchor")
+                self.assertEqual(result["anchor_name"], expected)
+                self.assertFalse(result["geocoder_called"])
+                mock_resolve.assert_not_called()
+        geocode_anchor.cache_clear()
+
+    def test_near_rex_hotel_accepts_lodging_poi_from_osm(self):
+        geocode_anchor.cache_clear()
+        row = self._osm_row(
+            "Rex Hotel",
+            place_id=5301,
+            lat="10.7752230",
+            lon="106.7011870",
+            type="hotel",
+            importance=0.45,
+            address={"tourism": "Rex Hotel", "road": "Nguyễn Huệ"},
+            **{"class": "tourism"},
+        )
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._provider_searches",
+            return_value=[],
+        ), patch("chat_api.services.geocoder._fetch_osm", return_value=[row]):
+            result = parse_user_text("gần khách sạn Rex", include_debug=True)
+
+        self._assert_anchor_or_candidate(result, "Rex Hotel")
+        geocode_anchor.cache_clear()
+
+    def test_unaccented_and_light_typo_place_queries_still_resolve_or_suggest(self):
+        cases = [
+            (
+                "gan bao tang lich su thanh pho",
+                "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+                self._osm_row(
+                    "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+                    place_id=5401,
+                    lat="10.7879719",
+                    lon="106.7049563",
+                    type="museum",
+                    **{"class": "tourism"},
+                ),
+            ),
+            (
+                "gan bao tang lich su hcm",
+                "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+                self._osm_row(
+                    "Bảo tàng Lịch sử Thành phố Hồ Chí Minh",
+                    place_id=5402,
+                    lat="10.7879719",
+                    lon="106.7049563",
+                    type="museum",
+                    **{"class": "tourism"},
+                ),
+            ),
+            (
+                "gan cong vien tao dan",
+                "Công viên Tao Đàn",
+                self._osm_row(
+                    "Công viên Tao Đàn",
+                    place_id=5403,
+                    lat="10.7756580",
+                    lon="106.6921050",
+                    type="park",
+                    **{"class": "leisure"},
+                ),
+            ),
+        ]
+        for text, expected, row in cases:
+            with self.subTest(text=text):
+                geocode_anchor.cache_clear()
+                with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+                    "chat_api.services.geocoder._provider_searches",
+                    return_value=[],
+                ), patch("chat_api.services.geocoder._fetch_osm", return_value=[row]):
+                    result = parse_user_text(text, include_debug=True)
+                self._assert_anchor_or_candidate(result, expected)
+        geocode_anchor.cache_clear()
+
+    def test_geocode_query_variants_are_deduped_and_capped(self):
+        queries = build_geocode_queries("Gần bảo tàng lịch sử thành phố")
+
+        self.assertLessEqual(len(queries), 4)
+        self.assertEqual(len({normalize_key(query) for query in queries}), len(queries))
+
+    def test_osm_fetch_does_not_repeat_duplicate_query_variants(self):
+        geocode_anchor.cache_clear()
+        seen_queries = []
+
+        def fake_fetch(query):
+            seen_queries.append(query)
+            return []
+
+        with patch.dict(os.environ, {"GEOCODER_CACHE_ENABLED": "false"}), patch(
+            "chat_api.services.geocoder._provider_searches",
+            return_value=[],
+        ), patch("chat_api.services.geocoder._fetch_osm", side_effect=fake_fetch):
+            result = geocode_place("Gần bảo tàng lịch sử thành phố", city_hint="Hồ Chí Minh, Việt Nam")
+
+        self.assertFalse(result.success)
+        self.assertLessEqual(len(seen_queries), 4)
+        self.assertEqual(len({normalize_key(query) for query in seen_queries}), len(seen_queries))
         geocode_anchor.cache_clear()
 
     def test_soft_filter_unknown_landmark_uses_osm_geocoder(self):
