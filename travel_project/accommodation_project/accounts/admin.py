@@ -7,7 +7,7 @@ from .models import Favorite, Profile
 
 @admin.register(Profile)
 class ProfileAdmin(admin.ModelAdmin):
-    list_display = ('avatar_preview', 'user', 'full_name', 'phone', 'address', 'favorite_count', 'firebase_uid')
+    list_display = ('avatar_preview', 'user', 'get_full_name', 'get_phone', 'get_address', 'favorite_count', 'get_firebase_uid')
     search_fields = ('user__username', 'user__email', 'full_name', 'phone', 'firebase_uid')
     list_select_related = ('user',)
     readonly_fields = ('avatar_preview_large', 'favorite_hotels')
@@ -35,7 +35,6 @@ class ProfileAdmin(admin.ModelAdmin):
             'align-items:center;justify-content:center;color:#1565c0;font-weight:700;">{}</span>',
             obj.user.username[:1].upper(),
         )
-
     avatar_preview.short_description = 'Avatar'
 
     def avatar_preview_large(self, obj):
@@ -48,12 +47,26 @@ class ProfileAdmin(admin.ModelAdmin):
                 image_url,
             )
         return 'No avatar'
-
     avatar_preview_large.short_description = 'Avatar preview'
+
+    def get_full_name(self, obj):
+        return obj.full_name if obj.full_name else format_html('<span style="color:#000000;">NULL</span>')
+    get_full_name.short_description = 'Full Name'
+
+    def get_phone(self, obj):
+        return obj.phone if obj.phone else format_html('<span style="color:#000000;">NULL</span>')
+    get_phone.short_description = 'Phone'
+
+    def get_address(self, obj):
+        return obj.address if obj.address else format_html('<span style="color:#000000;">NULL</span>')
+    get_address.short_description = 'Address'
+
+    def get_firebase_uid(self, obj):
+        return obj.firebase_uid if obj.firebase_uid else format_html('<span style="color:#000000;">NULL</span>')
+    get_firebase_uid.short_description = 'Firebase UID'
 
     def favorite_count(self, obj):
         return Favorite.objects.filter(user=obj.user).count()
-
     favorite_count.short_description = 'Favorites'
 
     def favorite_hotels(self, obj):
@@ -69,7 +82,6 @@ class ProfileAdmin(admin.ModelAdmin):
             ),
         )
         return format_html('<ul style="margin:0;padding-left:18px;">{}</ul>', items)
-
     favorite_hotels.short_description = 'Favorite hotels'
 
 
