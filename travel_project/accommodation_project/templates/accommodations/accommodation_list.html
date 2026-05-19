@@ -103,16 +103,15 @@
                     </div>
 
                     <div class="fs-range-vals">
-
                         <div class="fs-range-val-box">
-                            <span id="fsMinDisplay">0</span>
+                            <input type="text" id="fsMinDisplay" value="0"
+                                class="fs-val-input" inputmode="numeric" />
                             <span class="fs-currency">VND</span>
                         </div>
 
-                        <span class="fs-range-dash">—</span>
-
                         <div class="fs-range-val-box">
-                            <span id="fsMaxDisplay">24.000.000</span>
+                            <input type="text" id="fsMaxDisplay" value="24.000.000"
+                                class="fs-val-input" inputmode="numeric" />
                             <span class="fs-currency">VND</span>
                         </div>
 
@@ -243,17 +242,13 @@
         }
 
         (function () {
-
-            const rMin = document.getElementById('fsRangeMin');
-            const rMax = document.getElementById('fsRangeMax');
-
-            const fill = document.getElementById('fsRangeFill');
-
+            const rMin   = document.getElementById('fsRangeMin');
+            const rMax   = document.getElementById('fsRangeMax');
+            const fill   = document.getElementById('fsRangeFill');
             const minTxt = document.getElementById('fsMinDisplay');
             const maxTxt = document.getElementById('fsMaxDisplay');
-
-            const hMin = document.getElementById('fsPriceMin');
-            const hMax = document.getElementById('fsPriceMax');
+            const hMin   = document.getElementById('fsPriceMin');
+            const hMax   = document.getElementById('fsPriceMax');
 
             if (!rMin || !rMax) return;
 
@@ -263,41 +258,72 @@
                 return Number(v).toLocaleString('vi-VN');
             }
 
-            function updateSlider() {
-
-                let minVal = parseInt(rMin.value);
-                let maxVal = parseInt(rMax.value);
-
-                // tránh min > max
-                if (minVal > maxVal) {
-                    [minVal, maxVal] = [maxVal, minVal];
-                }
-
-                // fill line
-                const percentMin = (minVal / MAX) * 100;
-                const percentMax = (maxVal / MAX) * 100;
-
-                fill.style.left = percentMin + '%';
-                fill.style.width = (percentMax - percentMin) + '%';
-
-                // display
-                minTxt.textContent = formatVND(minVal);
-                maxTxt.textContent = formatVND(maxVal);
-
-                // hidden submit input
-                hMin.value = minVal;
-                hMax.value = maxVal;
+            function parseVND(str) {
+                // bỏ dấu chấm/phẩy, lấy số nguyên
+                return parseInt(str.replace(/[^\d]/g, ''), 10) || 0;
             }
 
-            // load lại state cũ
+            function clamp(v, lo, hi) {
+                return Math.min(Math.max(v, lo), hi);
+            }
+
+            function updateFill(minVal, maxVal) {
+                fill.style.left  = (minVal / MAX * 100) + '%';
+                fill.style.width = ((maxVal - minVal) / MAX * 100) + '%';
+            }
+
+            // Slider → input + hidden
+            function onSliderChange() {
+                let lo = parseInt(rMin.value);
+                let hi = parseInt(rMax.value);
+                if (lo > hi) [lo, hi] = [hi, lo];
+
+                minTxt.value = formatVND(lo);
+                maxTxt.value = formatVND(hi);
+                hMin.value   = lo;
+                hMax.value   = hi;
+                updateFill(lo, hi);
+            }
+
+            // Input → slider + hidden
+            function onMinInput() {
+                let lo = clamp(parseVND(minTxt.value), 0, MAX);
+                let hi = parseInt(hMax.value);
+                if (lo > hi) lo = hi;
+                rMin.value = lo;
+                hMin.value = lo;
+                updateFill(lo, hi);
+            }
+
+            function onMaxInput() {
+                let hi = clamp(parseVND(maxTxt.value), 0, MAX);
+                let lo = parseInt(hMin.value);
+                if (hi < lo) hi = lo;
+                rMax.value = hi;
+                hMax.value = hi;
+                updateFill(lo, hi);
+            }
+
+            // Format lại khi rời ô input
+            function onMinBlur() {
+                minTxt.value = formatVND(hMin.value);
+            }
+            function onMaxBlur() {
+                maxTxt.value = formatVND(hMax.value);
+            }
+
+            rMin.addEventListener('input', onSliderChange);
+            rMax.addEventListener('input', onSliderChange);
+
+            minTxt.addEventListener('input', onMinInput);
+            maxTxt.addEventListener('input', onMaxInput);
+            minTxt.addEventListener('blur',  onMinBlur);
+            maxTxt.addEventListener('blur',  onMaxBlur);
+
+            // Khởi tạo từ giá trị server
             rMin.value = hMin.value || 0;
             rMax.value = hMax.value || MAX;
-
-            rMin.addEventListener('input', updateSlider);
-            rMax.addEventListener('input', updateSlider);
-
-            updateSlider();
-
+            onSliderChange();
         })();
 
         function togglePromo(e) {

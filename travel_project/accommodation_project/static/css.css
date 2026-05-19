@@ -3877,7 +3877,6 @@
         }
     }
 
-
 }
 
 @media (max-width: 1300px) {
@@ -3893,3 +3892,10 @@
     }
 }
 
+
+.fs-val-input {
+    max-width: 60px;
+    border: none;
+    font-size: 12px;
+    outline: none;
+}
