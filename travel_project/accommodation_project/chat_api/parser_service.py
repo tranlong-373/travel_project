@@ -493,6 +493,7 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["ambiguous_location"] = bool(location.get("ambiguous_location"))
     result["ambiguous_location_question"] = location.get("ambiguous_location_question")
     result["nearby_place"] = location.get("nearby_place") or result.get("nearby_place")
+    result["nearby_poi_key"] = location.get("nearby_poi_key") or result.get("nearby_poi_key")
     result["location_candidates"] = location.get("location_candidates") or result.get("location_candidates") or []
     result["area_match"] = bool(location.get("area_match"))
     result["unresolved_location"] = unresolved_location
@@ -502,6 +503,8 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         slots["location_phrase"] = location.get("location_phrase")
     if result.get("nearby_place"):
         slots["nearby_place"] = result.get("nearby_place")
+    if result.get("nearby_poi_key"):
+        slots["nearby_poi_key"] = result.get("nearby_poi_key")
     if result.get("search_radius_km") is not None:
         slots["search_radius_km"] = result.get("search_radius_km")
     if slots.get("preferred_type") and not slots.get("accommodation_type"):
@@ -875,6 +878,7 @@ def _generic_nearby_poi_location(poi: dict[str, Any]) -> dict[str, Any]:
         "location_mode": "nearby_place",
         "location_phrase": label,
         "nearby_place": label,
+        "nearby_poi_key": poi.get("key"),
         "ambiguous_location": True,
         "ambiguous_location_question": f"Bạn muốn gần {label} ở khu vực nào?",
         "geocoder_called": False,

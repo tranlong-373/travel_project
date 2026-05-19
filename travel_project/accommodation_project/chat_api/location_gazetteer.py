@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from .text_normalizer import strip_vietnamese_accents
+
+_DVHCVN_PATH = Path(__file__).parent / "data" / "vietnamese_admin_units.json"
 
 
 _FALLBACK_LOCATION_SPECS: tuple[tuple[str, str | None, str | None], ...] = (
@@ -129,6 +133,42 @@ def _fallback_locations() -> list[dict]:
     return [_location_entry(name, city, location_type) for name, city, location_type in _FALLBACK_LOCATION_SPECS]
 
 
+def _load_dvhcvn_units() -> list[dict]:
+    """Load phường/xã/thị trấn từ dvhcvn dataset và tạo alias entries."""
+    try:
+        raw = json.loads(_DVHCVN_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    entries: list[dict] = []
+    for province in raw.get("provinces", []):
+        province_name: str = province.get("name", "")
+        for district in province.get("districts", []):
+            district_name: str = district.get("name", "")
+            district_type: str = district.get("type", "district")
+            entries.append(_location_entry(district_name, province_name, district_type))
+            for ward in district.get("wards", []):
+                ward_name: str = ward.get("name", "")
+                if not ward_name:
+                    continue
+                # Alias cả có prefix (Phường Bến Nghé) lẫn không (Bến Nghé)
+                short_name = re.sub(
+                    r"^(?:phường|xã|thị trấn|thi tran)\s+",
+                    "",
+                    ward_name,
+                    flags=re.IGNORECASE,
+                )
+                extra_aliases: set[str] = set()
+                if short_name and short_name.lower() != ward_name.lower():
+                    _add_alias_forms(extra_aliases, short_name)
+                    _add_alias_forms(extra_aliases, f"{short_name} {district_name}")
+                entry = _location_entry(ward_name, district_name, "ward")
+                if extra_aliases:
+                    entry["aliases"] = sorted(set(entry["aliases"]) | extra_aliases)
+                entries.append(entry)
+    return entries
+
+
 def _model_location_type(model_name: str) -> str | None:
     if "district" in model_name:
         return "district"
@@ -221,7 +261,8 @@ def _location_merge_key(canonical_name: str) -> str:
 @lru_cache(maxsize=1)
 def _load_supported_locations_cached() -> tuple[dict, ...]:
     db_locations = _locations_from_database()
-    locations = _merge_locations(_fallback_locations(), db_locations)
+    dvhcvn_locations = _load_dvhcvn_units()
+    locations = _merge_locations(_fallback_locations(), dvhcvn_locations, db_locations)
     return tuple(locations)
 
 

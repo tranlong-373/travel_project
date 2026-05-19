@@ -316,6 +316,7 @@ def build_location_branch(
         )
         return branch
     nearby_place = location_result.get("nearby_place") or slots.get("nearby_place")
+    nearby_poi_key = location_result.get("nearby_poi_key") or slots.get("nearby_poi_key")
     if nearby_place and not (slots.get("area") or location_result.get("canonical_area")):
         label = str(nearby_place)
         branch.update(
@@ -323,6 +324,7 @@ def build_location_branch(
                 "mode": "nearby_place",
                 "location_phrase": label,
                 "nearby_place": label,
+                "nearby_poi_key": nearby_poi_key,
                 "location_display_label": f"gần {label}",
                 "location_source": location_result.get("location_source") or "catalog_poi",
                 "confidence": float(location_result.get("location_confidence") or 0.72),
@@ -698,6 +700,8 @@ def build_location_branch(
         return branch
 
     if canonical_area:
+        _nearby_place = location_result.get("nearby_place") or slots.get("nearby_place")
+        _nearby_poi_key = location_result.get("nearby_poi_key") or slots.get("nearby_poi_key")
         reference = resolve_local_location_reference(str(canonical_area))
         if reference and reference.kind in {"district", "city"}:
             branch.update(_branch_from_reference(reference, near=False, location_phrase=canonical_area))
@@ -708,6 +712,9 @@ def build_location_branch(
             branch["anchor_lon"] = None
             branch["anchor_radius_km"] = None
             branch["location_display_label"] = reference.canonical_area or reference.canonical_name
+            if _nearby_place:
+                branch["nearby_place"] = _nearby_place
+                branch["nearby_poi_key"] = _nearby_poi_key
             return branch
 
         branch.update(
@@ -723,6 +730,9 @@ def build_location_branch(
                 "area_match": True,
             }
         )
+        if _nearby_place:
+            branch["nearby_place"] = _nearby_place
+            branch["nearby_poi_key"] = _nearby_poi_key
         return branch
 
     return branch

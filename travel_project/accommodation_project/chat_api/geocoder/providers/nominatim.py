@@ -11,7 +11,7 @@ from ...normalizers import normalize_key
 
 
 DEFAULT_OSM_URL = "https://nominatim.openstreetmap.org/search"
-DEFAULT_USER_AGENT = "travel_project_dev_contact_email"
+DEFAULT_USER_AGENT = "TravelProjectAccommodation/1.0"
 HCM_VIEWBOX = GeocoderViewbox(
     min_lon=106.30,
     min_lat=10.30,

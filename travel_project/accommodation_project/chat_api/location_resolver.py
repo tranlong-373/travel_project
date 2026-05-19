@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from .normalizers import normalize_key
 
-LocationStatus = Literal["ok", "multiple_choice", "conflict", "unsupported", "unresolved"]
+LocationStatus = Literal["ok", "multiple_choice", "conflict", "unsupported", "unresolved", "geocoded"]
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -177,9 +177,36 @@ def _question(locale: str, vi: str, en: str) -> str:
     return en if locale == "en" else vi
 
 
+def _try_geocode_fallback(text: str) -> dict[str, Any] | None:
+    """Thử resolve tên đường/địa chỉ cụ thể bằng Nominatim khi gazetteer không nhận ra."""
+    try:
+        from .nominatim_geocoder import geocode_street_address
+
+        coords = geocode_street_address(text)
+        if coords is None:
+            return None
+        lat, lon = coords
+        return {
+            "location_status": "geocoded",
+            "location_candidates": [],
+            "canonical_area": None,
+            "anchor_latitude": lat,
+            "anchor_longitude": lon,
+            "location_mode": "near_anchor",
+            "geocoded_phrase": text,
+            "follow_up_question": None,
+            "debug": {"geocoded": True, "lat": lat, "lon": lon},
+        }
+    except Exception:
+        return None
+
+
 def resolve_location(text: str, *, locale: str = "vi") -> dict[str, Any]:
     mentions = extract_location_mentions(text)
     if not mentions:
+        geocoded = _try_geocode_fallback(text)
+        if geocoded:
+            return geocoded
         return {
             "location_status": "unresolved",
             "location_candidates": [],

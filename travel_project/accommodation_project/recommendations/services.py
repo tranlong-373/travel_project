@@ -142,9 +142,9 @@ def calculate_area_score(accommodation_area: str, requested_area: str) -> float:
         return 1.0
 
     accom_area = normalize_text(accommodation_area)
-    for adjacent_area in get_adjacent_areas(requested_area):
+    for idx, adjacent_area in enumerate(get_adjacent_areas(requested_area)):
         if adjacent_area in accom_area:
-            return 0.5
+            return max(0.4, 0.8 - idx * 0.2)
 
     return 0.0
 
@@ -326,8 +326,8 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
     price = accom.price_per_night
     budget = req.budget
 
-    # Ràng buộc cứng: Vượt budget quá mức cho phép (300,000đ) -> rớt ngay khi có budget.
-    if has_budget_filter and budget and budget > 0 and price > budget + 300_000:
+    # Ràng buộc cứng: Vượt budget quá 15% -> rớt ngay khi có budget.
+    if has_budget_filter and budget and budget > 0 and price > budget * BUDGET_RELAXATION_MULTIPLIER:
         return 0.0
 
     # Trọng số các tiêu chí (tổng = 5.0)
@@ -368,9 +368,10 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
             # Gần sát ngân sách (80% - 100%) -> Hơi đắt nhưng vẫn trong ngân sách
             scores["price"] = 1.0 - ((ratio - 0.8) / 0.2) * 0.2
         else:
-            # Vượt ngân sách (nhưng chưa quá 300k) -> Giảm dần từ 0.8 về 0.4
+            # Vượt ngân sách (nhưng chưa quá 15%) -> Giảm dần từ 0.8 về 0.4
             excess = price - budget
-            scores["price"] = max(0.4, 0.8 - 0.4 * (excess / 300_000))
+            max_allowed_excess = budget * (BUDGET_RELAXATION_MULTIPLIER - 1.0)
+            scores["price"] = max(0.4, 0.8 - 0.4 * (excess / max_allowed_excess))
     else:
         # Rational Decay cho người không nhập budget
         scores["price"] = 1.0 / (1.0 + (price / 2_000_000))
@@ -400,6 +401,8 @@ def calculate_matching_score(accom: Accommodation, req) -> float:
         latent_amenities = set()
         if is_group_trip:
             latent_amenities = {"kitchen", "pool"}
+        elif has_guest_filter and req.guest_count == 2:
+            latent_amenities = {"wifi", "air_conditioner"}
         elif has_guest_filter and req.guest_count == 1:
             latent_amenities = {"wifi", "air_conditioner"}
             
@@ -584,9 +587,9 @@ def _radius_steps_from_base(base_radius: float) -> list[float]:
 
 
 def _unique_accommodations(items) -> list[Accommodation]:
-    unique_items: dict[str, Accommodation] = {}
+    unique_items: dict[int, Accommodation] = {}
     for item in items:
-        unique_items.setdefault(item.name, item)
+        unique_items.setdefault(item.id, item)
     return list(unique_items.values())
 
 

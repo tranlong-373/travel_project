@@ -24,6 +24,11 @@ from .constants import (
 
 logger = logging.getLogger(__name__)
 
+
+class OverpassUnavailableError(Exception):
+    """Raised when all Overpass mirrors fail to respond."""
+
+
 # ── shared session (reuse connections) ───────────────────────────────────────
 _session = requests.Session()
 _session.headers.update({"User-Agent": NOMINATIM_USER_AGENT})
@@ -228,7 +233,7 @@ def _query_overpass(query: str) -> dict | None:
         except requests.RequestException as exc:
             last_detail = f"{url}: {exc}"
     logger.warning("Overpass query failed on all mirrors: %s", last_detail)
-    return None
+    raise OverpassUnavailableError("Không thể kết nối đến dịch vụ bản đồ. Vui lòng thử lại sau.")
 
 
 def search_pois(
@@ -247,22 +252,31 @@ def search_pois(
     poi_types  : list   – subset of POI_TYPES keys; None means all types
 
     Returns list of POI dicts ready for JSON serialisation.
+    Raises OverpassUnavailableError if all Overpass mirrors are unreachable.
     """
-    # Clamp radius
+    if lat is None or lon is None:
+        raise ValueError("Tọa độ không hợp lệ: lat/lon không được để trống.")
+
+    # Clamp radius to nearest valid choice
     if radius not in RADIUS_CHOICES:
         radius = min(RADIUS_CHOICES, key=lambda r: abs(r - radius))
 
     types_to_query = poi_types if poi_types else list(POI_TYPES.keys())
 
-    query = _build_overpass_query(lat, lon, radius, types_to_query)
-    if not query:
-        return []
+    # Auto-expand radius when specific types requested but nothing found
+    radii_to_try = [radius] + [r for r in RADIUS_CHOICES if r > radius]
 
-    raw = _query_overpass(query)
-    if raw is None:
-        return []
-
-    elements = raw.get("elements", [])
+    elements = []
+    used_radius = radius
+    for attempt_radius in radii_to_try:
+        query = _build_overpass_query(lat, lon, attempt_radius, types_to_query)
+        if not query:
+            return []
+        raw = _query_overpass(query)  # raises OverpassUnavailableError if all mirrors fail
+        elements = raw.get("elements", [])
+        if elements:
+            used_radius = attempt_radius
+            break
     pois = []
     seen = set()
 
@@ -332,6 +346,41 @@ def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlambda = math.radians(lon2 - lon1)
     a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def get_poi_centroid(
+    poi_type: str,
+    lat: float,
+    lon: float,
+    radius: int = 3000,
+) -> tuple[float, float] | None:
+    """
+    Fetch all POIs of a given type around (lat, lon) and return their centroid.
+
+    Used to resolve "gần cafe" intent: find the dense cluster of cafes and use
+    its centre as the anchor for accommodation search — one Overpass call total.
+    Returns None if no POIs found or Overpass is unavailable.
+    """
+    if lat is None or lon is None or poi_type not in POI_TYPES:
+        return None
+    try:
+        query = _build_overpass_query(lat, lon, radius, [poi_type])
+        if not query:
+            return None
+        raw = _query_overpass(query)
+        elements = raw.get("elements", []) if raw else []
+        lats, lons = [], []
+        for el in elements:
+            el_lat = el.get("lat") or (el.get("center") or {}).get("lat")
+            el_lon = el.get("lon") or (el.get("center") or {}).get("lon")
+            if el_lat is not None and el_lon is not None:
+                lats.append(float(el_lat))
+                lons.append(float(el_lon))
+        if not lats:
+            return None
+        return sum(lats) / len(lats), sum(lons) / len(lons)
+    except Exception:
+        return None
 
 
 def get_poi_types_metadata() -> list[dict]:
