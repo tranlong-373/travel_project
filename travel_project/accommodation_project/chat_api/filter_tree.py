@@ -6,6 +6,7 @@ from enum import Enum
 from functools import lru_cache
 from typing import Any
 
+from .geocoder.validator import validate_geocode_candidate
 from .location_phrase_cleaner import clean_location_candidate_phrase, has_concrete_place_noun
 from .normalizers import normalize_key
 from .place_geocoder import (
@@ -1345,6 +1346,64 @@ def _location_phrase_for_reference(text: str | None, reference: LocationReferenc
     return phrase or reference.canonical_name
 
 
+_FT_NUMERIC_HCM_DISTRICT_RE = re.compile(
+    r",?\s*(?:quận|quan|q\.)\s*\d{1,2}\b",
+    re.IGNORECASE,
+)
+_FT_ADDR_STARTS_WITH_NUMBER_RE = re.compile(
+    r"^\d{1,5}(?:/\d+[A-Za-z]?)?[A-Za-z]?\s+\w",
+    re.IGNORECASE,
+)
+
+
+_FT_HOUSE_NUMBER_PREFIX_RE = re.compile(r"^\d{1,5}(?:/\d+[A-Za-z]?)?[A-Za-z]?\s+", re.IGNORECASE)
+_FT_CONFIDENCE_ACCEPT = 0.70   # mirrors geocoder ACCEPT_SCORE
+
+
+def _validation_phrase_for_geocoded(phrase: str | None) -> str | None:
+    """Strip old numeric HCM district from phrase for geocode validation.
+
+    Nominatim returns results using the new admin name (Thủ Đức) not the old
+    'Quận 3' label, so validation against the full phrase fails name-match.
+    """
+    if not phrase:
+        return phrase
+    if not _FT_ADDR_STARTS_WITH_NUMBER_RE.match(phrase):
+        return phrase
+    if not _FT_NUMERIC_HCM_DISTRICT_RE.search(phrase):
+        return phrase
+    stripped = _FT_NUMERIC_HCM_DISTRICT_RE.sub("", phrase)
+    stripped = re.sub(r"\s+", " ", stripped).strip(" ,")
+    return stripped if stripped else phrase
+
+
+def _street_validation_phrase(phrase: str) -> str:
+    """For address queries, strip house number prefix so street-only results match."""
+    m = _FT_HOUSE_NUMBER_PREFIX_RE.match(phrase)
+    if not m:
+        return phrase
+    street_part = phrase[m.end():]
+    return street_part if len(street_part) > 3 else phrase
+
+
+def _accept_address_geocode(geocoded: dict[str, Any], phrase: str) -> bool:
+    """Permissive acceptance for specific address geocoding.
+
+    When a street address (house number + street name) is geocoded, OSM may
+    return a POI at that address (café, apartment) or the street segment itself.
+    Both are valid coordinate anchors.  We only require:
+      - coordinates present and inside HCM
+      - confidence >= ACCEPT_SCORE
+      - basic name-match using street-name-only phrase (no house number)
+    """
+    confidence = geocoded.get("confidence")
+    if confidence is not None and float(confidence) < _FT_CONFIDENCE_ACCEPT:
+        return False
+    street_phrase = _street_validation_phrase(_validation_phrase_for_geocoded(phrase) or phrase)
+    validation = validate_geocode_candidate(geocoded, query=street_phrase, intent="near_anchor", explicit_venue=True)
+    return validation.accepted
+
+
 def _validated_geocoded_anchor(
     branch: dict[str, Any],
     geocoded: dict[str, Any] | None,
@@ -1356,7 +1415,13 @@ def _validated_geocoded_anchor(
         _apply_map_candidate_choice(branch, geocoded, phrase)
         return None
     intent = _geocoder_intent_for_phrase(phrase)
-    if validate_geocoded_place(geocoded, intent=intent, query=phrase):
+    validation_phrase = _validation_phrase_for_geocoded(phrase)
+    if validate_geocoded_place(geocoded, intent=intent, query=validation_phrase):
+        return geocoded
+    # For specific address queries, fall back to a more permissive check: if the
+    # OSM result's lat/lon are inside HCM and confidence is high enough, accept
+    # regardless of POI category (café, apartment) or street-vs-address mismatch.
+    if phrase and _FT_ADDR_STARTS_WITH_NUMBER_RE.match(phrase) and _accept_address_geocode(geocoded, phrase):
         return geocoded
     branch["rejected_geocoder_results"] = [
         *branch.get("rejected_geocoder_results", []),

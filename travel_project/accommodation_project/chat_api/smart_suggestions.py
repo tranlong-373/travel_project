@@ -217,7 +217,24 @@ def attach_ambiguous_suggestions(
     *,
     limit: int = 5,
 ) -> bool:
-    suggestions = _clarification_candidates(result, text, suggest_places(text, limit=limit))
+    # When a spatial anchor is already resolved to coordinates, the user's
+    # intent is clear — show results near that point.  Do not override with
+    # hotel-name suggestions regardless of can_show_recommendations, because
+    # geocoded coordinates supersede any prior "multiple_choice" ambiguity.
+    if (
+        result.get("location_mode") in {"near_anchor", "city_center"}
+        and result.get("anchor_lat") is not None
+    ):
+        return False
+
+    # For specific street addresses, never show hotel-name/amenity disambiguation.
+    # If geocoding succeeded we proceed above; if it failed, the parser will
+    # ask the user to clarify the area separately.
+    if result.get("input_type") == "address" and result.get("location_mode") == "near_anchor":
+        return False
+
+    search_text = _ambiguous_search_text(result, text)
+    suggestions = _clarification_candidates(result, text, suggest_places(search_text, limit=limit))
     if not suggestions:
         return False
 
@@ -253,6 +270,27 @@ def attach_ambiguous_suggestions(
         "reason": "smart_suggestion_needs_choice",
     }
     return True
+
+
+def _ambiguous_search_text(result: dict[str, Any], text: str | None) -> str | None:
+    """Return the most specific fragment to search for suggestions.
+
+    When the parser already resolved accommodation type and only the location
+    is ambiguous (near_anchor / city_center mode), search on the raw location
+    phrase instead of the full sentence.  This prevents spurious token matches
+    between accommodation keywords (e.g. "ho" from "căn hộ") and unrelated
+    catalog items (e.g. "Hồ bơi").
+    """
+    location_mode = result.get("location_mode")
+    if location_mode in {"near_anchor", "city_center"}:
+        phrase = (
+            result.get("location_phrase")
+            or result.get("anchor_name")
+            or result.get("matched_text")
+        )
+        if phrase:
+            return str(phrase)
+    return text
 
 
 def _is_poi_category_clarification(
@@ -292,10 +330,25 @@ def _clarification_candidates(
 ) -> list[dict[str, Any]]:
     output: list[dict[str, Any]] = []
     seen: set[str] = set()
+    location_mode = result.get("location_mode")
+    location_status = result.get("location_status")
+    # When location is already the only unresolved part, only surface location-type
+    # candidates — skip amenities and accommodation types to avoid false matches
+    # caused by tokens in the accommodation phrase (e.g. "ho" from "căn hộ").
+    location_focused = (
+        location_mode in {"near_anchor", "city_center"}
+        and location_status in {"unresolved", "ambiguous"}
+    )
     for item in suggestions:
         if _score_percent(item) < 80:
             continue
         if item.get("kind") == "poi_category" and not detect_nearby_poi(text):
+            continue
+        # Amenities are never useful for disambiguation — users type them
+        # naturally and the parser extracts them directly.
+        if item.get("kind") == "amenity":
+            continue
+        if location_focused and item.get("kind") == "accommodation_type":
             continue
         label = str(item.get("label") or item.get("title") or "").strip()
         if not label or normalize_text(label) == "smart suggestion":
@@ -319,7 +372,14 @@ def _suggestion_already_in_result(item: dict[str, Any], result: dict[str, Any]) 
         return bool(amenity and amenity in (slots.get("required_amenities") or []))
     if kind == "accommodation_type":
         accommodation_type = payload.get("accommodation_type")
-        return bool(accommodation_type and accommodation_type in (slots.get("accommodation_types") or []))
+        if not accommodation_type:
+            return False
+        # Skip if the accommodation type was already extracted by the parser
+        return bool(
+            accommodation_type in (slots.get("accommodation_types") or [])
+            or accommodation_type == slots.get("accommodation_type")
+            or accommodation_type == slots.get("preferred_type")
+        )
     if kind == "area":
         area = payload.get("area") or payload.get("name")
         current_area = result.get("canonical_area") or slots.get("area")

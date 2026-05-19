@@ -389,3 +389,169 @@ def get_poi_types_metadata() -> list[dict]:
         {"key": k, "label": v["label"], "icon": v["icon"], "color": v["color"]}
         for k, v in POI_TYPES.items()
     ]
+
+
+# OSM tags that map to accommodation types
+_LODGING_TAGS: list[tuple[str, str]] = [
+    ("tourism", "hotel"),
+    ("tourism", "hostel"),
+    ("tourism", "guest_house"),
+    ("tourism", "motel"),
+    ("tourism", "apartment"),
+    ("building", "hotel"),
+    ("amenity", "hotel"),
+]
+
+_LODGING_TYPE_MAP: dict[tuple[str, str], str] = {
+    ("tourism", "hotel"): "hotel",
+    ("tourism", "hostel"): "hostel",
+    ("tourism", "guest_house"): "hotel",
+    ("tourism", "motel"): "hotel",
+    ("tourism", "apartment"): "apartment",
+    ("building", "hotel"): "hotel",
+    ("amenity", "hotel"): "hotel",
+}
+
+
+def _build_lodging_overpass_query(lat: float, lon: float, radius: int) -> str:
+    parts = []
+    for key, value in _LODGING_TAGS:
+        parts.append(f'node["{key}"="{value}"](around:{radius},{lat},{lon});')
+        parts.append(f'way["{key}"="{value}"](around:{radius},{lat},{lon});')
+    parts_str = "\n  ".join(parts)
+    return f"""[out:json][timeout:25];
+(
+  {parts_str}
+);
+out center tags;""".strip()
+
+
+def search_accommodations_near_coords(
+    lat: float,
+    lon: float,
+    radius_m: int = 3000,
+) -> list[dict]:
+    """
+    Find accommodations (hotels/hostels/…) near (lat, lon) via Overpass,
+    then fuzzy-match them against DB Accommodation records.
+
+    Returns a list of dicts:
+        osm_name        : str   – name from OSM
+        osm_type        : str   – hotel | hostel | apartment
+        lat, lon        : float
+        distance_m      : int
+        db_match        : dict | None  – matched DB accommodation (id, name, area)
+        db_match_score  : float | None
+    """
+    if lat is None or lon is None:
+        return []
+
+    query = _build_lodging_overpass_query(lat, lon, radius_m)
+    try:
+        raw = _query_overpass(query)
+    except OverpassUnavailableError:
+        logger.warning("search_accommodations_near_coords: Overpass unavailable")
+        return []
+
+    elements = (raw or {}).get("elements", [])
+    osm_items: list[dict] = []
+    seen: set[tuple] = set()
+
+    for el in elements:
+        tags = el.get("tags", {})
+        name = tags.get("name") or tags.get("name:vi") or tags.get("name:en")
+        if not name:
+            continue
+        el_lat = el.get("lat") or (el.get("center") or {}).get("lat")
+        el_lon = el.get("lon") or (el.get("center") or {}).get("lon")
+        if el_lat is None or el_lon is None:
+            continue
+        uid = (name.lower(), round(float(el_lat), 5), round(float(el_lon), 5))
+        if uid in seen:
+            continue
+        seen.add(uid)
+
+        acc_type = "hotel"
+        for key, value in _LODGING_TAGS:
+            if tags.get(key) == value:
+                acc_type = _LODGING_TYPE_MAP.get((key, value), "hotel")
+                break
+
+        osm_items.append({
+            "osm_name": name,
+            "osm_type": acc_type,
+            "lat": float(el_lat),
+            "lon": float(el_lon),
+            "distance_m": round(_haversine(lat, lon, float(el_lat), float(el_lon))),
+        })
+
+    osm_items.sort(key=lambda x: x["distance_m"])
+
+    # Fuzzy-match against DB accommodations
+    db_accommodations = _load_db_accommodations()
+    for item in osm_items:
+        item["db_match"] = None
+        item["db_match_score"] = None
+        if db_accommodations:
+            match, score = _best_db_match(item["osm_name"], db_accommodations)
+            if match and score >= 72.0:
+                item["db_match"] = {"id": match["id"], "name": match["name"], "area": match["area"]}
+                item["db_match_score"] = round(score, 1)
+                # Backfill lat/lon on DB record if missing (fire-and-forget)
+                _backfill_db_coords(match["id"], item["lat"], item["lon"])
+
+    return osm_items
+
+
+def _load_db_accommodations() -> list[dict]:
+    try:
+        from accommodations.models import Accommodation
+        return list(
+            Accommodation.objects.only("id", "name", "area", "latitude", "longitude")
+            .values("id", "name", "area", "latitude", "longitude")
+        )
+    except Exception:
+        return []
+
+
+def _best_db_match(osm_name: str, db_accommodations: list[dict]) -> tuple[dict | None, float]:
+    try:
+        from rapidfuzz import fuzz
+        _use_rf = True
+    except ImportError:
+        from difflib import SequenceMatcher
+        _use_rf = False
+
+    osm_key = osm_name.lower()
+    best_score = 0.0
+    best_acc = None
+
+    for acc in db_accommodations:
+        db_key = (acc.get("name") or "").lower()
+        if not db_key:
+            continue
+        if _use_rf:
+            score = max(
+                fuzz.WRatio(osm_key, db_key),
+                fuzz.token_set_ratio(osm_key, db_key) * 0.95,
+            )
+        else:
+            score = SequenceMatcher(None, osm_key, db_key).ratio() * 100
+        if score > best_score:
+            best_score = score
+            best_acc = acc
+
+    return best_acc, best_score
+
+
+def _backfill_db_coords(accommodation_id: int, lat: float, lon: float) -> None:
+    """Save OSM lat/lon back to the DB record if coordinates are missing."""
+    try:
+        from accommodations.models import Accommodation
+        acc = Accommodation.objects.filter(pk=accommodation_id, latitude__isnull=True).first()
+        if acc:
+            acc.latitude = lat
+            acc.longitude = lon
+            acc.save(update_fields=["latitude", "longitude"])
+    except Exception:
+        pass

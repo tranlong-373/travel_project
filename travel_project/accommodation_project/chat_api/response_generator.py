@@ -3,13 +3,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .response_templates import (
+    build_address_search_message,
     build_conflict_message,
     build_explicit_confirmation_message,
     build_full_message,
     build_goodbye_message,
     build_greeting_message,
     build_help_message,
+    build_hotel_name_message,
     build_implicit_confirmation_message,
+    build_landmark_search_message,
     build_multiple_choice_message,
     build_off_topic_message,
     build_partial_message,
@@ -34,7 +37,13 @@ class ResponseGenerator:
         self.message_slots_with_location = message_slots_with_location
         self.format_vnd = format_vnd
 
-    def generate(self, result: dict[str, Any], policy: dict[str, Any]) -> str:
+    def generate(
+        self,
+        result: dict[str, Any],
+        policy: dict[str, Any],
+        *,
+        input_classification: dict[str, Any] | None = None,
+    ) -> str:
         intent = result.get("conversation_intent") or result.get("intent")
         status = result.get("location_status")
 
@@ -77,7 +86,25 @@ class ResponseGenerator:
             and not result.get("unresolved_location")
             and result.get("anchor_name")
         ):
+            # Dùng input-type-aware message nếu có
+            if input_classification:
+                itype = input_classification.get("type")
+                if itype == "address":
+                    return build_address_search_message(input_classification.get("address_phrase"))
+                if itype == "landmark":
+                    return build_landmark_search_message(result["anchor_name"], resolved=True)
             return f"Được nhé, mình sẽ gợi ý chỗ ở gần {result['anchor_name']}."
+
+        # Khi user tìm theo tên khách sạn cụ thể và đã match được
+        if (
+            input_classification
+            and input_classification.get("type") == "hotel_name"
+            and input_classification.get("hotel_match")
+            and result.get("can_show_recommendations")
+        ):
+            match = input_classification["hotel_match"]
+            return build_hotel_name_message(match.get("name"), match.get("area"))
+
         if result.get("ambiguous_location") and result.get("can_show_recommendations"):
             base_message = build_partial_message(
                 self.message_slots_with_location(result),

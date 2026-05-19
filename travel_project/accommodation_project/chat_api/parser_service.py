@@ -28,14 +28,18 @@ from .normalizers import normalize_key, normalize_text
 from .protected_spans import public_protected_spans
 from .questions import build_suggested_questions
 from .response_generator import ResponseGenerator
+from .input_classifier import classify_input_type
 from .response_templates import (
+    build_address_search_message,
     build_conflict_message,
     build_explicit_confirmation_message,
     build_full_message,
     build_goodbye_message,
     build_greeting_message,
     build_help_message,
+    build_hotel_name_message,
     build_implicit_confirmation_message,
+    build_landmark_search_message,
     build_multiple_choice_message,
     build_off_topic_message,
     build_partial_message,
@@ -442,7 +446,19 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         location.get("anchor_lat") is None or location.get("anchor_lon") is None
     ):
         unresolved_location = True
-    if location.get("mode") == "multiple_choice":
+    geocoder_resolved = (
+        location.get("mode") in {"near_anchor", "city_center"}
+        and location.get("anchor_lat") is not None
+        and location.get("anchor_lon") is not None
+    )
+    if geocoder_resolved:
+        # Geocoder resolved the address to coordinates — this overrides any
+        # prior ambiguity (multiple_choice) from the alias resolver, but NOT
+        # an explicit conflict (user gave contradictory locations).
+        if result.get("location_status") != "conflict":
+            result["location_status"] = "ok"
+        unresolved_location = False
+    elif location.get("mode") == "multiple_choice":
         slots["area"] = None
         result["canonical_area"] = None
         result["location_status"] = "multiple_choice"
@@ -451,13 +467,6 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         slots["area"] = None
         result["canonical_area"] = None
         result["location_status"] = "ambiguous" if location.get("needs_city_clarification") else "unresolved"
-    elif (
-        location.get("mode") in {"near_anchor", "city_center"}
-        and location.get("anchor_lat") is not None
-        and location.get("anchor_lon") is not None
-        and result.get("location_status") not in {"conflict", "multiple_choice"}
-    ):
-        result["location_status"] = "ok"
 
     result["slots"] = slots
     result["filter_tree"] = tree_dict
@@ -695,7 +704,29 @@ def parse_user_text_rule_based(
 ) -> dict[str, Any]:
     normalized = normalize_user_text(text)
     raw = normalized["normalized_text"]
+    input_classification = classify_input_type(text, context_slots=context_slots)
     slot_parse_context = build_slot_parse_context(text)
+
+    # When classify_input_type identifies a street-level address (house number +
+    # street name + district) and the slot pipeline resolved it only as an "area"
+    # match, override the location intent so the geocoder receives the full
+    # original address string instead of just the district alias.
+    if (
+        input_classification.get("type") == "address"
+        and re.match(r"^\d{1,5}(?:[/\-]\d+)?[A-Za-z]?\s+\w", text.strip())
+    ):
+        loc_intent = slot_parse_context.get("location_intent") or {}
+        if loc_intent.get("should_resolve") and not loc_intent.get("is_address"):
+            slot_parse_context = {
+                **slot_parse_context,
+                "location_intent": {
+                    **loc_intent,
+                    "is_address": True,
+                    "mode_hint": "near_anchor",
+                    "reason": "address_classified",
+                },
+            }
+
     router = classify_message(text, context_slots=context_slots, locale=locale)
     if (
         router.get("intent") == "unknown"
@@ -792,6 +823,8 @@ def parse_user_text_rule_based(
         "llm_called": False,
         "router": router,
         "protected_spans": public_protected_spans(slot_parse_context),
+        "input_type": input_classification["type"],
+        "input_classification": input_classification,
     }
     for key in (
         "location_mode",
@@ -986,6 +1019,29 @@ def _resolve_location_pipeline(
             return _sanitize_location_result(original_text, context_location)
 
     if location_intent.get("should_resolve") and location_intent.get("mode_hint") == "near_anchor":
+        # For specific street addresses, use the original (accented) text as the
+        # geocode phrase so Nominatim can match it accurately.  Skip alias
+        # matching entirely to avoid street-name tokens clashing with ward names.
+        if location_intent.get("is_address"):
+            address_phrase = original_text.strip() or location_intent.get("candidate") or location_text
+            return {
+                "location_status": "unresolved",
+                "location_candidates": [],
+                "canonical_area": None,
+                "location_confidence": location_intent.get("confidence") or 0.95,
+                "location_source": "location_intent_gate",
+                "matched_text": address_phrase,
+                "needs_confirmation": False,
+                "confirmation_type": "none",
+                "debug": {"location_intent": location_intent},
+                "location_mode": "near_anchor",
+                "location_phrase": address_phrase,
+                "geocoder_called": False,
+                "geocoder_reason": "street_address_geocoding",
+                "area_match": False,
+                "_from_text": True,
+                "_from_context": False,
+            }
         candidate = location_intent.get("candidate") or location_text
         legacy_location = resolve_location(normalize_text(str(location_text or candidate or "")), locale=locale)
         if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
@@ -1285,7 +1341,7 @@ def _build_polite_message(result: dict[str, Any], policy: dict[str, Any]) -> str
         terminal_intents=TERMINAL_INTENTS,
         message_slots_with_location=_message_slots_with_location,
         format_vnd=_format_vnd,
-    ).generate(result, policy)
+    ).generate(result, policy, input_classification=result.get("input_classification"))
 
 
 def _attach_api_contract_metadata(result: dict[str, Any], policy: dict[str, Any]) -> None:
@@ -1499,6 +1555,9 @@ def parse_user_text(
     )
     fast_result = fallback_result
 
+    # Groq: chạy khi GROQ_API_KEY được set và rule-based chưa giải quyết đủ
+    fast_result = _try_enrich_with_groq(fast_result, text, context_slots=context_slots)
+
     strategy = _llm_strategy()
     if strategy == "never":
         return fast_result
@@ -1527,3 +1586,53 @@ def parse_user_text(
 
         fallback_result["llm_called"] = True
         return fallback_result
+
+
+def _try_enrich_with_groq(
+    result: dict[str, Any],
+    text: str,
+    *,
+    context_slots: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Nếu Groq khả dụng và result chưa có đủ thông tin cốt lõi,
+    dùng Groq để bổ sung slots còn thiếu.
+    Không làm thay đổi kết quả nếu Groq unavailable hoặc báo lỗi.
+    """
+    try:
+        from .groq_llm import groq_extract_slots, is_groq_enabled, merge_groq_slots
+    except ImportError:
+        return result
+
+    if not is_groq_enabled():
+        return result
+
+    # Chỉ gọi Groq khi còn thiếu slot quan trọng (area hoặc guest_count hoặc budget)
+    slots = result.get("slots") or {}
+    has_area = bool(
+        result.get("canonical_area")
+        or slots.get("area")
+        or result.get("anchor_lat") is not None
+    )
+    has_guest = bool(slots.get("guest_count"))
+    has_budget = bool(slots.get("budget") or slots.get("budget_max"))
+
+    if has_area and has_guest and has_budget:
+        return result  # đã đủ, không cần Groq
+
+    groq_slots = groq_extract_slots(text, context_slots=context_slots)
+    if not groq_slots:
+        return result
+
+    enriched_slots = merge_groq_slots(slots, groq_slots)
+    result = dict(result)
+    result["slots"] = enriched_slots
+    result["groq_called"] = True
+
+    # Nếu Groq cho biết nearby_place mà rule-based chưa có → set location hint
+    if groq_slots.get("nearby_place") and not slots.get("nearby_place"):
+        result["slots"]["nearby_place"] = groq_slots["nearby_place"]
+        if not result.get("location_mode"):
+            result["location_mode"] = "near_anchor"
+
+    return result

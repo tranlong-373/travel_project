@@ -216,6 +216,13 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
 
     preference = UserPreference.objects.create(**preference_kwargs)
 
+    # Nếu tìm gần địa danh cụ thể → dùng Overpass backfill lat/lon cho các KS chưa có tọa độ
+    if location_mode in {"near_anchor", "near_user"} and has_anchor_location:
+        try:
+            enrich_near_anchor_with_overpass(parse_result)
+        except Exception:
+            pass
+
     return {
         "pref_id": preference.id,
         "recommendation_url": reverse("recommendation_result", kwargs={"pref_id": preference.id}),
@@ -296,6 +303,36 @@ def _resolve_poi_centroid(area: str, poi_type_key: str) -> tuple[float, float] |
         return get_poi_centroid(poi_type_key, area_lat, area_lon, radius=3000)
     except Exception:
         return None
+
+
+def enrich_near_anchor_with_overpass(
+    parse_result: dict[str, Any],
+    *,
+    radius_m: int = 3000,
+) -> list[dict]:
+    """
+    Khi location_mode == "near_anchor" (user tìm gần một địa danh cụ thể),
+    gọi Overpass tìm các khách sạn OSM quanh tọa độ đó rồi match với DB.
+
+    Trả về list các kết quả (có thể rỗng nếu Overpass unavailable hoặc không tìm thấy).
+    Kết quả được đính vào parse_result["overpass_nearby_hotels"].
+    """
+    if parse_result.get("location_mode") not in {"near_anchor", "near_user"}:
+        return []
+
+    anchor_lat = parse_result.get("anchor_lat")
+    anchor_lon = parse_result.get("anchor_lon")
+    if anchor_lat is None or anchor_lon is None:
+        return []
+
+    try:
+        from OpenStreetMap_API.services import search_accommodations_near_coords
+        results = search_accommodations_near_coords(anchor_lat, anchor_lon, radius_m=radius_m)
+    except Exception:
+        results = []
+
+    parse_result["overpass_nearby_hotels"] = results
+    return results
 
 
 def _read_search_origin_location(search_origin: dict[str, Any]) -> dict[str, float] | None:

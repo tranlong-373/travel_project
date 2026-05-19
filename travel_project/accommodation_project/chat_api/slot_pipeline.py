@@ -255,6 +255,20 @@ DISTRICT_WORD_PATTERN = (
     r"one|two|three|four|five|six|seven|eight|nine|ten"
 )
 
+# Pattern nhận diện địa chỉ cụ thể cần geocode (không dùng alias matching).
+# Bao gồm: "[số]/[số] đường..." | "hẻm [số]/[số] [tên]" | "[số] ... street"
+_STREET_ADDRESS_RE = re.compile(
+    r"^(?:"
+    r"(?:so\s+)?\d{1,5}(?:/\d+[a-z]?)?\s+(?:duong|pho|hem|ngo|ngach|alley|street)\s+\w"
+    r"|(?:hem|ngo|ngach)\s+\d{1,5}(?:/\d+[a-z]?)?\s+\w"
+    r"|\d{1,5}/\d+[a-z]?\s+\w[\w\s]{2,40},\s*(?:quan|phuong|q\.|p\.)"
+    r"|\d{1,5}[a-z]\s+\w[\w\s]{2,40},\s*\w[\w\s]{1,30},\s*\w"
+    r"|\d{1,5}(?:/\d+[a-z]?)?\s+\w[\w\s]{1,40}(?:street|road|lane|alley)"
+    r"|\d{1,5}(?:/\d+[a-z]?)?[a-z]?\s+\w[\w\s]{4,50},\s*(?:quan|phuong|q\.|p\.)\s*\d"
+    r")",
+    re.IGNORECASE,
+)
+
 STRONG_PLACE_PATTERNS = (
     r"\bsan bay\b",
     r"\bdinh doc lap\b",
@@ -390,6 +404,19 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
         return _blocked_location_intent("blocked_by_protected_span")
     if ANYWHERE_INTENT_PATTERN.search(norm):
         return _blocked_location_intent("explicit_anywhere")
+
+    # Địa chỉ cụ thể dạng "[số] đường/phố/hẻm [tên]" → geocode thẳng,
+    # không cần alias matching (tránh nhầm tên đường với tên phường/quận).
+    if _STREET_ADDRESS_RE.match(stripped_without_filler):
+        return {
+            "should_resolve": True,
+            "candidate": text,
+            "resolve_text": text,
+            "confidence": 0.95,
+            "reason": "street_address_phrase",
+            "mode_hint": "near_anchor",
+            "is_address": True,
+        }
 
     ambiguous = ambiguous_location_intent(text)
     if ambiguous:
