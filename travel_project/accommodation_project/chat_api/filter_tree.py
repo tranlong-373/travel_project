@@ -306,7 +306,7 @@ def build_location_branch(
 
     branch = _empty_location_branch()
     selected_place = _selected_place_payload(slots, location_result)
-       if selected_place and not _has_current_turn_location_signal(location_result):
+    if selected_place and not _has_current_turn_location_signal(location_result):
         branch.update(
             _branch_from_selected_place(
                 selected_place,
