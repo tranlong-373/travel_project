@@ -114,6 +114,19 @@ def decide_user_effort_policy(parse_result: dict) -> dict:
         base["quick_replies"] = _popular_location_replies()
         return base
 
+    nearby_place = parse_result.get("nearby_place") or slots.get("nearby_place")
+    if location_mode == "nearby_place" and nearby_place and not canonical_area:
+        base.update(
+            {
+                "needs_user_action": True,
+                "needs_confirmation": True,
+                "confirmation_type": "explicit",
+                "next_best_question": parse_result.get("ambiguous_location_question")
+                or f"Bạn muốn gần {nearby_place} ở khu vực nào?",
+            }
+        )
+        return base
+
     if parse_result.get("unresolved_location") and has_non_location_filter:
         base.update(
             {

@@ -49,6 +49,7 @@ from .schema import CORE_SLOTS, INTENT_DEFAULT, SCHEMA_VERSION
 from .search_origin import build_search_origin
 from .slot_pipeline import build_slot_parse_context
 from .slot_validator import core_missing_slots, extract_slots_from_text, merge_slot_context, validate_slots
+from .suggestion_catalog import detect_nearby_poi
 from .text_normalizer import normalize_user_text
 from .validators import validate_and_normalize_slots
 
@@ -73,6 +74,7 @@ CONFIRM_SKIP_KEYS = {
     "search_intent",
     "type_choice_multiple",
     "search_radius_km",
+    "nearby_place",
 }
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
@@ -490,6 +492,7 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["needs_city_clarification"] = bool(location.get("needs_city_clarification"))
     result["ambiguous_location"] = bool(location.get("ambiguous_location"))
     result["ambiguous_location_question"] = location.get("ambiguous_location_question")
+    result["nearby_place"] = location.get("nearby_place") or result.get("nearby_place")
     result["location_candidates"] = location.get("location_candidates") or result.get("location_candidates") or []
     result["area_match"] = bool(location.get("area_match"))
     result["unresolved_location"] = unresolved_location
@@ -497,6 +500,8 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         slots["location_mode"] = location.get("mode")
     if location.get("location_phrase"):
         slots["location_phrase"] = location.get("location_phrase")
+    if result.get("nearby_place"):
+        slots["nearby_place"] = result.get("nearby_place")
     if result.get("search_radius_km") is not None:
         slots["search_radius_km"] = result.get("search_radius_km")
     if slots.get("preferred_type") and not slots.get("accommodation_type"):
@@ -702,13 +707,17 @@ def parse_user_text_rule_based(
             _attach_parse_debug_metadata(response, slot_parse_context=slot_parse_context)
         return _finalize_convenience_response(response, text, router=router, normalized=normalized)
 
-    location = _resolve_location_pipeline(
-        text,
-        locale=locale,
-        context_slots=context_slots,
-        prefer_context=router["intent"] == "clarify_slot",
-        slot_parse_context=slot_parse_context,
-    )
+    generic_nearby_poi = detect_nearby_poi(text)
+    if generic_nearby_poi:
+        location = _generic_nearby_poi_location(generic_nearby_poi)
+    else:
+        location = _resolve_location_pipeline(
+            text,
+            locale=locale,
+            context_slots=context_slots,
+            prefer_context=router["intent"] == "clarify_slot",
+            slot_parse_context=slot_parse_context,
+        )
     slots_partial = extract_slots_from_text(
         text,
         canonical_area=location.get("canonical_area"),
@@ -797,6 +806,7 @@ def parse_user_text_rule_based(
         "needs_city_clarification",
         "ambiguous_location",
         "ambiguous_location_question",
+        "nearby_place",
     ):
         if key in location:
             response[key] = location.get(key)
@@ -848,6 +858,30 @@ def _terminal_response(
         "used_default_slots": {},
         "llm_called": False,
         "router": router,
+    }
+
+
+def _generic_nearby_poi_location(poi: dict[str, Any]) -> dict[str, Any]:
+    label = str(poi.get("name") or "địa điểm")
+    return {
+        "location_status": "ambiguous",
+        "location_candidates": [],
+        "canonical_area": None,
+        "location_confidence": 0.72,
+        "location_source": "catalog_poi",
+        "matched_text": poi.get("matched_alias") or label,
+        "needs_confirmation": True,
+        "confirmation_type": "explicit",
+        "location_mode": "nearby_place",
+        "location_phrase": label,
+        "nearby_place": label,
+        "ambiguous_location": True,
+        "ambiguous_location_question": f"Bạn muốn gần {label} ở khu vực nào?",
+        "geocoder_called": False,
+        "geocoder_reason": "poi_category_needs_area",
+        "debug": {"generic_nearby_poi": poi},
+        "_from_text": True,
+        "_from_context": False,
     }
 
 

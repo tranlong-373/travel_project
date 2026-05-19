@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .suggestion_service import display_amenity_label
+
 
 def build_partial_message(slots, assumptions=None, next_best_question=None) -> str:
     area = _area(slots)
@@ -150,7 +152,7 @@ def _filter_phrase(slots: dict[str, Any]) -> str:
         parts.append("loại " + ", ".join(str(item) for item in types))
     amenities = slots.get("required_amenities") or slots.get("amenities") or []
     if amenities:
-        parts.append("tiện nghi " + ", ".join(str(item) for item in amenities))
+        parts.append("tiện nghi " + ", ".join(display_amenity_label(item) for item in amenities))
     if slots.get("budget") or slots.get("budget_max") or slots.get("budget_min"):
         parts.append("ngân sách")
     if slots.get("guest_count"):
