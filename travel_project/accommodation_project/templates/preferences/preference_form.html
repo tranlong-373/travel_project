@@ -7,7 +7,6 @@
 
     <div class="section-title" style="margin-bottom: 40px;">
         <h1 class="section-heading">Find Recommendation</h1>
-        <p class="section-subtitle">Enter your details manually or let AI help you find results faster.</p>
     </div>
 
     <div class="pref-columns">
@@ -544,6 +543,13 @@ async function submitVoiceChat(audioBlob, mimeType, audioDuration) {
         setPrefBusy(false);
     }
 }
+
+document.addEventListener('DOMContentLoaded', function () {
+    const chatWidget = document.getElementById('chatWidget');
+    if (chatWidget && !chatWidget.classList.contains('open')) {
+        chatWidget.classList.add('open');
+    }
+});
 </script>
 
 {% endblock %}
