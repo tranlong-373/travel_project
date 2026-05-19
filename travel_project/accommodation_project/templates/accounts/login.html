@@ -34,7 +34,7 @@
         </form>
 
         <div class="login-divider">or</div>
-        <button type="button" class="google-login-btn" onclick="window.location.href='{{ google_login_url }}?next=/'">
+        <button type="button" class="google-login-btn" onclick="window.location.href='{% url 'google_start' %}?next=/'">
             <i class="fa-brands fa-google"></i>
             Login with Google
         </button>

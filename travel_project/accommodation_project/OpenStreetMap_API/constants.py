@@ -4,24 +4,45 @@ Constants for OpenStreetMap_API:
 - Overpass API tag mappings
 """
 
+import os
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
 # Nominatim base URL (no API key required)
-NOMINATIM_BASE_URL = "https://nominatim.openstreetmap.org"
-NOMINATIM_SEARCH_URL = f"{NOMINATIM_BASE_URL}/search"
-NOMINATIM_REVERSE_URL = f"{NOMINATIM_BASE_URL}/reverse"
+NOMINATIM_BASE_URL = os.getenv("OSM_NOMINATIM_BASE_URL", "https://nominatim.openstreetmap.org").rstrip("/")
+NOMINATIM_SEARCH_URL = os.getenv("OSM_NOMINATIM_URL", f"{NOMINATIM_BASE_URL}/search")
+NOMINATIM_REVERSE_URL = os.getenv("OSM_NOMINATIM_REVERSE_URL", f"{NOMINATIM_BASE_URL}/reverse")
 
 # Overpass API interpreters — tried in order (public instances may block some client IPs)
-OVERPASS_API_URLS = (
+DEFAULT_OVERPASS_API_URLS = (
+    "https://z.overpass-api.de/api/interpreter",
+    "https://lz4.overpass-api.de/api/interpreter",
+    "https://overpass.osm.ch/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
     "https://overpass.openstreetmap.fr/api/interpreter",
     "https://overpass-api.de/api/interpreter",
-    "https://overpass.kumi.systems/api/interpreter",
+)
+OVERPASS_API_URLS = tuple(
+    url.strip()
+    for url in os.getenv("OVERPASS_API_URLS", ",".join(DEFAULT_OVERPASS_API_URLS)).split(",")
+    if url.strip()
 )
 OVERPASS_API_URL = OVERPASS_API_URLS[0]
 
 # Default request timeout (seconds)
-REQUEST_TIMEOUT = 10
+REQUEST_TIMEOUT = _env_int("OSM_REQUEST_TIMEOUT_SECONDS", 10)
 
 # User-Agent required by Nominatim ToS
-NOMINATIM_USER_AGENT = "TravelProjectOSM/1.0 (travel_project_osm@example.com)"
+DEFAULT_NOMINATIM_USER_AGENT = "TravelProjectAccommodation/1.0"
+NOMINATIM_USER_AGENT = os.getenv("GEOCODER_USER_AGENT", DEFAULT_NOMINATIM_USER_AGENT).strip()
+if not NOMINATIM_USER_AGENT:
+    NOMINATIM_USER_AGENT = DEFAULT_NOMINATIM_USER_AGENT
 
 # ── POI type registry ────────────────────────────────────────────────────────
 # Each entry: label, icon emoji, hex color, overpass tag(s)

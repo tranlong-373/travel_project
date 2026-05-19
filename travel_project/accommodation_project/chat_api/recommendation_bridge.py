@@ -44,8 +44,13 @@ def usable_filters_from_parse(parse_result: dict[str, Any]) -> list[str]:
         filters.append("location_anywhere")
     elif location_mode == "area" and (parse_result.get("canonical_area") or slots.get("area") or location.get("canonical_area")):
         filters.append("location")
+        if location.get("nearby_place"):
+            filters.append("nearby_poi")
     elif location_mode in {"near_anchor", "near_user", "city_center"} and has_anchor_coordinates:
         filters.append("location")
+    elif location_mode == "nearby_place" and location.get("nearby_place"):
+        # POI category detected but no area yet — intent is valid, area clarification needed
+        filters.append("nearby_poi_intent")
 
     return list(dict.fromkeys(filters))
 
@@ -138,6 +143,19 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
         area = parse_result.get("location_display_label") or parse_result.get("anchor_name") or area
     elif location_mode == "city_center":
         area = parse_result.get("canonical_area") or area
+
+    # POI centroid: khi user nói "gần cafe" + cung cấp khu vực,
+    # geocode khu vực → gọi Overpass lấy tất cả POI loại đó → dùng centroid làm anchor.
+    # Fallback về area mode nếu Overpass fail hoặc không có kết quả.
+    if location_mode == "area" and area and not has_anchor_location:
+        nearby_poi_key = filter_tree.get("location", {}).get("nearby_poi_key")
+        if nearby_poi_key:
+            centroid = _resolve_poi_centroid(area, nearby_poi_key)
+            if centroid:
+                anchor_lat, anchor_lon = centroid
+                location_mode = "near_anchor"
+                anchor_location = {"lat": anchor_lat, "lon": anchor_lon, "radius_km": 2.0}
+                has_anchor_location = True
 
     accommodation_types = slots.get("accommodation_types") or []
     if isinstance(accommodation_types, str):
@@ -260,6 +278,24 @@ def _read_anchor_location(parse_result: dict[str, Any]) -> dict[str, float] | No
 
     radius_km = min(max(radius_km, 1.0), 50.0)
     return {"lat": lat, "lon": lon, "radius_km": radius_km}
+
+
+def _resolve_poi_centroid(area: str, poi_type_key: str) -> tuple[float, float] | None:
+    """
+    Geocode an area name, then fetch POIs of poi_type_key in that area from Overpass.
+    Returns the centroid of all found POIs, or None on any failure.
+    """
+    try:
+        from .nominatim_geocoder import geocode_street_address
+        from OpenStreetMap_API.services import get_poi_centroid
+
+        coords = geocode_street_address(f"{area}, Việt Nam")
+        if not coords:
+            return None
+        area_lat, area_lon = coords
+        return get_poi_centroid(poi_type_key, area_lat, area_lon, radius=3000)
+    except Exception:
+        return None
 
 
 def _read_search_origin_location(search_origin: dict[str, Any]) -> dict[str, float] | None:

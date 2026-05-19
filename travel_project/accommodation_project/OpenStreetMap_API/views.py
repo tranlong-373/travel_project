@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404
 from accommodations.models import Accommodation
 from .constants import POI_TYPES, RADIUS_CHOICES, DEFAULT_RADIUS
 from . import services
+from .services import OverpassUnavailableError
 
 
 # -- 1. Accommodation coordinates --------------------------------------------
@@ -94,12 +95,17 @@ def search_pois(request, pk):
     else:
         poi_types = None
 
-    pois = services.search_pois(
-        lat=coord_data["lat"],
-        lon=coord_data["lon"],
-        radius=radius,
-        poi_types=poi_types,
-    )
+    try:
+        pois = services.search_pois(
+            lat=coord_data["lat"],
+            lon=coord_data["lon"],
+            radius=radius,
+            poi_types=poi_types,
+        )
+    except OverpassUnavailableError as exc:
+        return JsonResponse({"success": False, "error": str(exc)}, status=503)
+    except ValueError as exc:
+        return JsonResponse({"success": False, "error": str(exc)}, status=400)
 
     return JsonResponse(
         {

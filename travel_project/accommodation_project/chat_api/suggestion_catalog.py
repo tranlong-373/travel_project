@@ -72,6 +72,36 @@ _FALLBACK_CATALOG: dict[str, Any] = {
             "type": "poi",
             "aliases": ["rạp phim", "rạp chiếu phim", "cinema", "cgv", "lotte cinema"],
         },
+        {
+            "key": "hospital",
+            "name": "Bệnh viện",
+            "type": "poi",
+            "aliases": ["bệnh viện", "benh vien", "bv", "nhà thương", "cấp cứu"],
+        },
+        {
+            "key": "pharmacy",
+            "name": "Nhà thuốc",
+            "type": "poi",
+            "aliases": ["nhà thuốc", "nha thuoc", "tiệm thuốc", "quầy thuốc", "pharmacy", "drugstore"],
+        },
+        {
+            "key": "bar",
+            "name": "Quán bar",
+            "type": "poi",
+            "aliases": ["quán bar", "quan bar", "bar", "pub", "beer club", "quán bia"],
+        },
+        {
+            "key": "bank",
+            "name": "Ngân hàng",
+            "type": "poi",
+            "aliases": ["ngân hàng", "ngan hang", "nh", "vietcombank", "vietinbank", "agribank", "bidv", "techcombank", "mbbank"],
+        },
+        {
+            "key": "gas_station",
+            "name": "Trạm xăng",
+            "type": "poi",
+            "aliases": ["trạm xăng", "tram xang", "cây xăng", "cay xang", "đổ xăng", "xăng dầu", "petrolimex"],
+        },
     ],
     "accommodation_types": [
         {
