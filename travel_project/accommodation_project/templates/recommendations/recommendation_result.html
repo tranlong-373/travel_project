@@ -1,5 +1,7 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load humanize %}
+
 
 {% block content %}
 
@@ -102,16 +104,16 @@
                         <p class="acc-price">
                             {% if item.has_discount %}
                             <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{
-                                item.price_per_night|floatformat:0 }}₫</span>
+                                item.price_per_night|floatformat:0|intcomma }}₫</span>
                             <span
                                 style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
                                 {% if item.amenities.discount_percent %}-{{ item.amenities.discount_percent }}%{% else
                                 %}Giảm giá{% endif %}
                             </span><br>
-                            <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0
+                            <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0|intcomma
                                 }}₫</span>
                             {% else %}
-                            <span>{{ item.price_per_night|floatformat:0 }}₫</span>
+                            <span>{{ item.price_per_night|floatformat:0|intcomma }}₫</span>
                             {% endif %}
                             /đêm
                         </p>
