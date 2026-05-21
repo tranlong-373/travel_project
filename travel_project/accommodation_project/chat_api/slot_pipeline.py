@@ -269,6 +269,24 @@ _STREET_ADDRESS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Bổ sung: house# + tên đường + phường/quận (không cần dấu phẩy hay từ khoá "đường").
+# VD: "86 nguyen thong phuong 9 quan 3", "10/5a le lai phuong 1 quan 1"
+_SPECIFIC_ADDRESS_PHRASE_RE = re.compile(
+    r"^\d{1,5}(?:/\d+)?[a-z]?\s+\w+(?:\s+\w+){1,5}\s+(?:phuong|p\.|quan|q\.)\s*\d",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_specific_address(norm: str) -> bool:
+    """True khi norm trông như địa chỉ cụ thể (có số nhà / hẻm / phường-quận chi tiết)."""
+    if not norm:
+        return False
+    if _STREET_ADDRESS_RE.match(norm):
+        return True
+    if _SPECIFIC_ADDRESS_PHRASE_RE.match(norm):
+        return True
+    return False
+
 STRONG_PLACE_PATTERNS = (
     r"\bsan bay\b",
     r"\bdinh doc lap\b",
@@ -407,7 +425,7 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
 
     # Địa chỉ cụ thể dạng "[số] đường/phố/hẻm [tên]" → geocode thẳng,
     # không cần alias matching (tránh nhầm tên đường với tên phường/quận).
-    if _STREET_ADDRESS_RE.match(stripped_without_filler):
+    if _looks_like_specific_address(stripped_without_filler):
         return {
             "should_resolve": True,
             "candidate": text,
@@ -435,6 +453,20 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
             return ambiguous
         if is_blocked_location_phrase(cue_candidate):
             return _blocked_location_intent("blocked_by_protected_span")
+        # Specific address inside a "gần X" / "ở X" phrase: send the full address
+        # to the geocoder instead of falling back to district-center fuzzy match,
+        # so house number / alley / ward precision is preserved.
+        cue_candidate_norm = normalize_key(cue_candidate)
+        if _looks_like_specific_address(cue_candidate_norm):
+            return {
+                "should_resolve": True,
+                "candidate": cue_candidate,
+                "resolve_text": cue_candidate,
+                "confidence": 0.95,
+                "reason": "street_address_phrase",
+                "mode_hint": "near_anchor",
+                "is_address": True,
+            }
         if cue in {"o", "tai", "in", "at", "khu vuc"}:
             resolve_text = text if cue_prefix and _is_strong_place_phrase(cue_prefix) else cue_candidate
             if _has_poi_noun(cue_candidate):
@@ -485,11 +517,16 @@ def detect_location_intent(remaining_text: str | None) -> dict[str, Any]:
                 "mode_hint": "near_anchor",
             }
 
-    if _has_clear_area_hint(norm):
+    area_phrase = _extract_area_phrase_from_norm(norm)
+    if area_phrase is not None:
+        # If another area phrase exists after removing the first match, preserve
+        # full text so resolve_location_fuzzy can return multiple_choice correctly.
+        remaining = norm.replace(area_phrase, "", 1).strip()
+        resolve = area_phrase if _extract_area_phrase_from_norm(remaining) is None else text
         return {
             "should_resolve": True,
-            "candidate": text,
-            "resolve_text": text,
+            "candidate": resolve,
+            "resolve_text": resolve,
             "confidence": 0.9,
             "reason": "clear_area_match",
             "mode_hint": "area",
@@ -850,6 +887,25 @@ def _has_clear_area_hint(norm: str) -> bool:
         if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", norm):
             return True
     return False
+
+
+def _extract_area_phrase_from_norm(norm: str) -> str | None:
+    """
+    Return the minimal area-identifying substring that triggered _has_clear_area_hint.
+    Used instead of the full text as resolve_text so that prefix words like "đi",
+    "nghỉ dưỡng", "and 1" don't cause spurious multi-match in resolve_location_fuzzy.
+    Returns None if no area phrase can be isolated (caller falls back to full text).
+    """
+    m = re.search(r"\b(?:quan|q\.?|district|dist)\s*\d{1,2}(?!\d)\b", norm)
+    if m:
+        return m.group(0)
+    m = re.search(rf"\b(?:quan|q\.?|district|dist)\s+(?:{DISTRICT_WORD_PATTERN})(?!\w)\b", norm)
+    if m:
+        return m.group(0)
+    for alias in _clear_area_aliases():
+        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", norm):
+            return alias
+    return None
 
 
 def _is_strong_place_phrase(text: str) -> bool:

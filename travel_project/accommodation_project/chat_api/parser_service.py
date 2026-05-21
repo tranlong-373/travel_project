@@ -1023,7 +1023,14 @@ def _resolve_location_pipeline(
         # geocode phrase so Nominatim can match it accurately.  Skip alias
         # matching entirely to avoid street-name tokens clashing with ward names.
         if location_intent.get("is_address"):
-            address_phrase = original_text.strip() or location_intent.get("candidate") or location_text
+            # Prefer the cue_candidate (address only, no "gần"/"ở" prefix) so
+            # Nominatim receives a clean address.  Fall back to original_text when
+            # there was no cue (candidate equals text).
+            address_phrase = (
+                location_intent.get("candidate")
+                or original_text.strip()
+                or location_text
+            )
             return {
                 "location_status": "unresolved",
                 "location_candidates": [],
@@ -1128,6 +1135,38 @@ def _resolve_location_pipeline(
 
     fuzzy_location = resolve_location_fuzzy(str(location_text), supported_locations)
     legacy_location = resolve_location(normalize_text(str(location_text or "")), locale=locale)
+
+    # Specific street/alley address: external geocoder produced coordinates and
+    # fuzzy gazetteer found nothing → use the geocoded point so house number /
+    # alley precision survives instead of being thrown away.
+    if (
+        legacy_location.get("location_status") == "geocoded"
+        and legacy_location.get("anchor_lat") is not None
+        and legacy_location.get("anchor_lon") is not None
+        and fuzzy_location.get("location_status") == "unresolved"
+        and bool(location_intent.get("is_address"))
+    ):
+        return _sanitize_location_result(original_text, {
+            "location_status": "ok",
+            "canonical_area": None,
+            "location_mode": "near_anchor",
+            "location_phrase": legacy_location.get("geocoded_phrase") or location_text,
+            "anchor_lat": legacy_location.get("anchor_lat"),
+            "anchor_lon": legacy_location.get("anchor_lon"),
+            "anchor_name": legacy_location.get("geocoded_phrase") or location_text,
+            "anchor_kind": "geocoded",
+            "location_confidence": 0.9,
+            "location_source": "legacy_geocoder_fallback",
+            "geocoder_called": True,
+            "geocoder_reason": "legacy_geocoder_fallback",
+            "needs_confirmation": False,
+            "confirmation_type": "none",
+            "location_candidates": [],
+            "matched_text": legacy_location.get("geocoded_phrase") or location_text,
+            "debug": legacy_location.get("debug", {}),
+            "_from_text": True,
+            "_from_context": False,
+        })
 
     if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
         converted = _convert_legacy_location(legacy_location, supported_locations)
@@ -1538,6 +1577,156 @@ def _finalize_parse_result(
     return _finalize_convenience_response(result, text, router=router, normalized=normalized, llm_called=result.get("llm_called"))
 
 
+def _finalize_v2_result(
+    partial: dict[str, Any],
+    text: str,
+    *,
+    locale: str,
+    context_slots: dict[str, Any] | None,
+    include_debug: bool | None,
+) -> dict[str, Any]:
+    """Attach missing v1-compat fields to a v2 partial parse_result, then finalize."""
+    router = classify_message(text, context_slots=context_slots, locale=locale)
+    normalized = normalize_user_text(text)
+    slot_parse_context = build_slot_parse_context(text)
+
+    # Reuse v1's parser_mode label so external clients/tests that branch on
+    # the value see a stable string.  v2 provenance is still available via
+    # `search_intent_v2` and `debug_metadata` for callers that need it.
+    if partial.get("parser_mode") == "v2_pipeline":
+        partial["parser_mode"] = "deterministic_fuzzy_fast"
+
+    # v1 parity: generic POI categories ("đại học", "sân bay", "làng đại học")
+    # are ambiguous — must NOT auto-geocode, must ask for clarification.
+    try:
+        from .slot_pipeline import ambiguous_location_intent as _amb_intent
+        amb = _amb_intent(text)
+    except Exception:
+        amb = None
+    if amb and not (context_slots or {}).get("area"):
+        # Override location to ambiguous so filter_tree doesn't reach geocoder.
+        partial["location_status"] = "ambiguous"
+        partial["location_mode"] = "unknown"
+        partial["ambiguous_location"] = True
+        partial["ambiguous_location_question"] = amb.get("ambiguous_location_question")
+        partial["location_phrase"] = amb.get("candidate")
+        partial["location_candidates"] = amb.get("suggested_places") or []
+        partial["canonical_area"] = None
+        partial["anchor_lat"] = None
+        partial["anchor_lon"] = None
+        partial["geocoder_called"] = False
+        partial["geocoder_reason"] = "ambiguous_location"
+
+    # v1 parity: bare "2" / "ba" follow-up replies should fill the first
+    # missing core slot (guest_count, trip_days, ...).  v1 does this inline in
+    # parse_user_text_rule_based — call the same helper here.
+    _slots_partial = partial.get("slots") or {}
+    _apply_bare_count_follow_up(_slots_partial, text, context_slots)
+
+    # v1 parity: extract priorities ("yên tĩnh" → "quiet") and special
+    # requirements ("có trẻ em" → "baby_friendly") from the raw text.  v2's
+    # SearchIntentBuilder doesn't run these extractors, so call them here.
+    try:
+        from .extractors import extract_priorities, extract_special_requirements
+        if not _slots_partial.get("priorities"):
+            _slots_partial["priorities"] = list(extract_priorities(text) or [])
+        if not _slots_partial.get("special_requirements"):
+            _slots_partial["special_requirements"] = list(extract_special_requirements(text) or [])
+    except Exception:
+        logger.debug("v2 finalize: priorities/special_req extraction failed", exc_info=True)
+    partial["slots"] = _slots_partial
+
+    slots = validate_slots(merge_slot_context(partial.get("slots") or {}, context_slots))
+
+    # Canonicalize the area to its gazetteer display form so "đà lạt" from
+    # an external client's current_slots becomes "Đà Lạt" in the response.
+    from .location_gazetteer import canonicalize_area_name as _canon_area
+    if slots.get("area"):
+        slots["area"] = _canon_area(slots["area"]) or slots["area"]
+    if slots.get("canonical_area"):
+        slots["canonical_area"] = _canon_area(slots["canonical_area"]) or slots["canonical_area"]
+
+    # v1 parity: parse endpoint reports the domain router's intent
+    # ("recommend_accommodation" / "clarify_slot" / ...), not the v2-internal
+    # "search" placeholder.
+    if (
+        partial.get("conversation_intent") in {"search", None}
+        and router.get("intent") and router["intent"] != "unknown"
+    ):
+        partial["conversation_intent"] = router["intent"]
+        partial["intent"] = router["intent"]
+
+    # v1 parity: when current message has no location but context carries an
+    # area (e.g. "900k 2 ngày" after "Khách sạn ở Hà Nội cho 2 người"), inherit
+    # the area so location_status becomes "ok" instead of "unresolved".  v1
+    # does this through _resolve_location_pipeline's _from_context branch.
+    has_context_area = bool(slots.get("area"))
+    v2_location_status = partial.get("location_status")
+    if (
+        has_context_area
+        and v2_location_status in {"unresolved", "ambiguous", None}
+        and not partial.get("anchor_lat")
+    ):
+        partial["location_status"] = "ok"
+        partial["canonical_area"] = slots["area"]
+        partial.setdefault("location_mode", "area")
+        partial.setdefault("location_source", "context")
+        partial["location_confidence"] = max(
+            float(partial.get("location_confidence") or 0.0), 1.0
+        )
+
+    # v1 parity: surface unsupported accommodation types (resort, villa, ...)
+    # so downstream UI can show "we don't support resort" instead of silently
+    # dropping it.  v1 sets these in extract_slots_from_text; v2 doesn't call
+    # that path, so do it here from the raw text.
+    unsupported_types = find_unsupported_type_candidates(text)
+    if unsupported_types and not slots.get("unsupported_preferred_type"):
+        slots["unsupported_preferred_type"] = unsupported_types[0]
+        slots.setdefault("raw_preferred_type", unsupported_types[0])
+
+    # When the user offered multiple lodging types in a choice ("hotel or
+    # apartment"), v1 nulls preferred_type so we don't force one.  v2 was
+    # picking the first item.  Mirror v1 behaviour.
+    from .extractors import has_type_choice_connector
+    if (
+        slots.get("preferred_type")
+        and len(slots.get("accommodation_types") or []) > 1
+        and has_type_choice_connector(text)
+    ):
+        slots["preferred_type"] = None
+        slots["accommodation_type"] = None
+        slots["type_choice_multiple"] = True
+
+    partial["slots"] = slots
+
+    partial.setdefault("schema_version", SCHEMA_VERSION)
+    partial.setdefault("intent", partial.get("conversation_intent", "recommend_accommodation"))
+    partial.setdefault("missing_slots", core_missing_slots(slots))
+    partial.setdefault("suggested_questions", [])
+    partial.setdefault("ready_for_recommendation", False)
+    partial.setdefault("should_ask_optional", False)
+    partial.setdefault("assumptions", [])
+    partial.setdefault("used_default_slots", {})
+    partial.setdefault("llm_called", False)
+    partial.setdefault("router", router)
+    partial.setdefault("protected_spans", public_protected_spans(slot_parse_context))
+    partial.setdefault("input_type", partial.get("input_kind", "unknown"))
+    partial.setdefault("input_classification", {"type": partial.get("input_kind", "unknown")})
+    partial.setdefault("location_confidence", 0.0)
+    partial.setdefault("location_source", "v2_pipeline")
+    partial.setdefault("matched_text", None)
+    partial.setdefault("location_candidates", [])
+
+    if _include_debug_metadata(include_debug):
+        _attach_parse_debug_metadata(partial, slot_parse_context=slot_parse_context)
+
+    result = _finalize_convenience_response(partial, text, router=router, normalized=normalized)
+    # Keep search_intent_v2 in the result: it's a JSON-safe dict, and the
+    # recommendation bridge uses it to take the typed v2 path instead of
+    # falling back to legacy slot/filter_tree parsing.
+    return result
+
+
 def parse_user_text(
     text: str,
     *,
@@ -1546,6 +1735,45 @@ def parse_user_text(
     include_debug: bool | None = None,
 ) -> dict[str, Any]:
     """Public parser entrypoint kept backward-compatible for existing callers."""
+
+    if getattr(settings, "CHAT_PIPELINE_V2_ENABLED", False):
+        # v1 parity: short-circuit greetings, off-topic, thanks, etc. via the
+        # domain router BEFORE running the v2 NLU pipeline.  v2 would otherwise
+        # try to extract slots from "chào cậu" or "hôm nay trời mưa không" and
+        # incorrectly mark ready_for_recommendation/create a preference.
+        try:
+            router_early = classify_message(text, context_slots=context_slots, locale=locale)
+            normalized_early = normalize_user_text(text)
+            slot_parse_context_early = build_slot_parse_context(text)
+            if router_early["intent"] in TERMINAL_INTENTS and router_early["intent"] != "unknown":
+                response = _terminal_response(
+                    router_early, normalized_early, context_slots=context_slots
+                )
+                response["protected_spans"] = public_protected_spans(slot_parse_context_early)
+                if _include_debug_metadata(include_debug):
+                    _attach_parse_debug_metadata(response, slot_parse_context=slot_parse_context_early)
+                return _finalize_convenience_response(
+                    response, text, router=router_early, normalized=normalized_early
+                )
+        except Exception:
+            logger.exception("chat_pipeline_v2: terminal-intent gate failed, continuing to v2")
+
+        try:
+            from .application.chat_pipeline import ChatPipeline
+            partial = ChatPipeline().run(
+                text,
+                locale=locale,
+                context_slots=context_slots,
+                include_debug=bool(include_debug),
+            )
+            return _finalize_v2_result(
+                partial, text,
+                locale=locale,
+                context_slots=context_slots,
+                include_debug=include_debug,
+            )
+        except Exception:
+            logger.exception("chat_pipeline_v2 failed, falling back to v1")
 
     fallback_result = parse_user_text_rule_based(
         text,

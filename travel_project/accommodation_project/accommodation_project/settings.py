@@ -206,6 +206,14 @@ GOOGLE_LOGIN = {
 }
 
 
+# ── V2 pipeline feature flags (all OFF by default) ────────────────────────────
+# Set CHAT_PIPELINE_V2_ENABLED=True to route parse_user_text() through v2.
+# V2 failures always fall back to v1 — no request will crash.
+CHAT_PIPELINE_V2_ENABLED = os.getenv("CHAT_PIPELINE_V2_ENABLED", "0") == "1"
+CHAT_PIPELINE_V2_SHADOW_MODE = os.getenv("CHAT_PIPELINE_V2_SHADOW_MODE", "0") == "1"
+CHAT_PIPELINE_V2_COMPARE_LOG = os.getenv("CHAT_PIPELINE_V2_COMPARE_LOG", "0") == "1"
+
+
 try:
     from . import settings_local as local_settings
 

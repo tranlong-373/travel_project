@@ -1,0 +1,121 @@
+# =============================================================================
+# sample_queries.txt — Input thực tế để so sánh pipeline v1/v2
+# Định dạng: 1 câu / dòng. Dòng bắt đầu bằng # bị bỏ qua.
+# Chạy: python manage.py compare_chat_pipeline --input-file docs/claude/sample_queries.txt --verbose
+# =============================================================================
+
+# ── 1. SPECIFIC ADDRESS ───────────────────────────────────────────────────────
+1 Sư Vạn Hạnh, Phường 9, Quận 5, TP HCM
+227 Nguyễn Văn Cừ, Quận 5
+280 An Dương Vương, Quận 5
+gần 280 An Dương Vương quận 5
+12 Lê Thánh Tôn, Quận 1
+45 Bùi Viện, Phường Phạm Ngũ Lão, Quận 1
+cho tôi chỗ ở quanh đường Cách Mạng Tháng 8 quận 3
+tim phong gan duong Nguyen Hue quan 1
+
+# ── 2. LANDMARK / POI ─────────────────────────────────────────────────────────
+gần Landmark 81
+gan Landmark 81
+gần Dinh Độc Lập
+gần chợ Bến Thành
+khách sạn quanh Nhà thờ Đức Bà
+gần Hồ Con Rùa
+ở gần Bến Nhà Rồng
+xung quanh cầu Ánh Sao
+gan nha tho Duc Ba
+gần sân bay Tân Sơn Nhất
+tìm phòng sát công viên Tao Đàn
+
+# ── 3. GENERIC POI IN AREA ───────────────────────────────────────────────────
+gần quán cafe ở Quận 5
+gần bệnh viện ở Bình Thạnh
+gần trường đại học ở Quận 10
+gần bến xe ở Thủ Đức
+gan truong hoc o quan 10
+gần chợ ở Gò Vấp
+gần siêu thị ở Phú Nhuận
+gần gym ở quận Tân Bình
+chỗ ở gần công viên ở quận 7
+gần ngân hàng ở Bình Dương
+
+# ── 4. HOTEL NAME ─────────────────────────────────────────────────────────────
+Rex Hotel
+Hotel Nikko Saigon
+Liberty Central Saigon
+khách sạn Majestic
+Sheraton Saigon
+New World Saigon Hotel
+Park Hyatt Saigon
+Caravelle Saigon
+khach san Lotte Legend
+InterContinental Saigon
+
+# ── 5. AREA ONLY ─────────────────────────────────────────────────────────────
+Quận 3
+Phú Nhuận
+Bình Thạnh
+quan 7
+Gò Vấp
+Thủ Đức
+Tân Bình
+go vap
+gần trung tâm quận 1
+khu vực quận 4
+trung tâm Sài Gòn
+Đà Nẵng
+Hội An
+Đà Lạt
+
+# ── 6. AMENITY ONLY ──────────────────────────────────────────────────────────
+có parking
+co parking
+có chỗ đậu xe
+co cho dau xe
+có máy lạnh
+co may lanh
+có bếp
+co bep
+có hồ bơi không
+co ho boi
+có wifi miễn phí
+có máy giặt
+có điều hòa không
+muốn nơi có hồ bơi
+
+# ── 7. MIXED SEARCH ──────────────────────────────────────────────────────────
+khách sạn gần Landmark 81 dưới 1tr5 cho 2 người có wifi
+homestay quận 3 dưới 800k có máy lạnh
+căn hộ gần tôi có bếp cho 2 người
+ở đâu cũng được miễn dưới 700k
+khach san gan Nha tho Duc Ba duoi 1tr2 cho 2 nguoi co wifi
+phòng trọ Bình Thạnh dưới 4 triệu có wifi
+resort gần biển Đà Nẵng 3 ngày 2 đêm
+homestay Hội An 500k/đêm 2 người có bếp
+villa Đà Lạt 4 người có hồ bơi riêng cuối tuần
+khách sạn 3 sao quận 1 dưới 2 triệu
+
+# ── 8. ANYWHERE ───────────────────────────────────────────────────────────────
+ở đâu cũng được
+o dau cung duoc
+tìm phòng ở đâu cũng được 300k
+ở đâu cũng được có wifi
+
+# ── 9. NEAR USER (GPS) ───────────────────────────────────────────────────────
+gần tôi
+gan toi
+gần tôi có wifi
+gần đây có hồ bơi
+chỗ ở gần đây dưới 500k
+
+# ── 10. EDGE CASES & TYPOS NHẸ ───────────────────────────────────────────────
+xin chào
+chào
+hello
+khach san
+homestay
+phong tro re
+tim phong 2 nguoi 3 ngay
+có hồ bơi có wifi
+gần chợ Bến Thành 2 người có điều hòa
+homestay dưới 500k 3 ngày

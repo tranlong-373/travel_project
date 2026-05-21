@@ -1,14 +1,21 @@
 from __future__ import annotations
 
-import json
+import concurrent.futures
 import difflib
+import json
+import logging
+import os
 import re
+import threading
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from ..normalizers import normalize_key
 from ..location_phrase_cleaner import clean_location_candidate_phrase
+from .db_health import is_geocoder_db_available
+
+logger = logging.getLogger(__name__)
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
@@ -103,6 +110,8 @@ def generate_place_aliases(name: str | None) -> list[str]:
 def find_place_reference(query: str | None) -> dict[str, Any] | None:
     key = normalize_place_text(query)
     if not key:
+        return None
+    if not is_geocoder_db_available():
         return None
     try:
         from ..models import PlaceReference
@@ -200,13 +209,72 @@ def fuzzy_search_place_reference(query: str | None) -> dict[str, Any] | None:
     return payload
 
 
-@lru_cache(maxsize=1)
-def _semantic_index():
-    from sentence_transformers import SentenceTransformer
+# Thread-safe singleton for the semantic index.
+# lru_cache is not thread-safe under concurrent first calls — multiple threads
+# can all enter the function before the cache is populated, each loading the
+# heavy SentenceTransformer model independently (~45 s each).
+_SEMANTIC_INDEX_LOCK = threading.Lock()
+_SEMANTIC_INDEX_LOADED = False
+_SEMANTIC_INDEX_RESULT: tuple = (None, [], [])
 
+
+def _semantic_index() -> tuple:
+    global _SEMANTIC_INDEX_LOADED, _SEMANTIC_INDEX_RESULT
+    if _SEMANTIC_INDEX_LOADED:          # fast path — no lock needed
+        return _SEMANTIC_INDEX_RESULT
+    with _SEMANTIC_INDEX_LOCK:          # slow path — only one thread loads
+        if _SEMANTIC_INDEX_LOADED:      # double-checked
+            return _SEMANTIC_INDEX_RESULT
+        _SEMANTIC_INDEX_RESULT = _load_semantic_index()
+        _SEMANTIC_INDEX_LOADED = True
+        return _SEMANTIC_INDEX_RESULT
+
+
+def _load_semantic_index() -> tuple:
+    """Build the semantic search index.  Called exactly once per process."""
     from ..models import PlaceReference
 
+    # Skip model loading when DB is empty — SentenceTransformer init/download
+    # takes ~45 s on a cold cache and is useless with zero records.
+    try:
+        if not PlaceReference.objects.exists():
+            return None, [], []
+    except Exception:
+        return None, [], []
+
     references = list(PlaceReference.objects.all()[:1000])
+    if not references:
+        return None, [], []
+
+    from sentence_transformers import SentenceTransformer
+
+    # Load model with a wall-clock timeout so a missing cache file (download
+    # needed) does not block geocoder calls for 45+ seconds.
+    # Default: 5 s — fast enough for a locally cached model, short enough to
+    # skip gracefully when the model has not been pre-downloaded.
+    # Override: SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS env var.
+    #
+    # IMPORTANT: do NOT use `with ThreadPoolExecutor(...) as ex:` — the context
+    # manager calls shutdown(wait=True) on exit, which blocks until the model
+    # finishes downloading even after a TimeoutError.  Use shutdown(wait=False)
+    # explicitly so the download continues in the background without blocking.
+    timeout = _semantic_load_timeout()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(SentenceTransformer, SEMANTIC_MODEL_NAME)
+    try:
+        model = future.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        executor.shutdown(wait=False)   # let download finish in background
+        logger.warning(
+            "semantic_index: model loading exceeded %.0fs — "
+            "run `python -c \"from sentence_transformers import "
+            "SentenceTransformer; SentenceTransformer('%s')\"` once to "
+            "pre-download the model, or set SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS",
+            timeout, SEMANTIC_MODEL_NAME,
+        )
+        return None, [], []
+    executor.shutdown(wait=False)   # future already done, no need to block
+
     texts: list[str] = []
     expanded_references = []
     for reference in references:
@@ -216,7 +284,15 @@ def _semantic_index():
             if normalized:
                 texts.append(normalized)
                 expanded_references.append(reference)
-    return SentenceTransformer(SEMANTIC_MODEL_NAME), expanded_references, texts
+    logger.info("semantic_index: loaded %d entries", len(texts))
+    return model, expanded_references, texts
+
+
+def _semantic_load_timeout() -> float:
+    try:
+        return float(os.getenv("SEMANTIC_MODEL_LOAD_TIMEOUT_SECONDS", "5"))
+    except (TypeError, ValueError):
+        return 5.0
 
 
 def _content_tokens(value: str) -> set[str]:
