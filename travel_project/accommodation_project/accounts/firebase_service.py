@@ -60,8 +60,7 @@ def verify_firebase_id_token(id_token: str) -> dict:
         raise FirebaseConfigError('firebase-admin is not installed.') from exc
 
     app = get_firebase_app()
-    return auth.verify_id_token(id_token, app=app)
-
+    return auth.verify_id_token(id_token, app=app, clock_skew_seconds=120)
 
 def get_or_create_google_user(email, name='', picture='', email_verified=False):
     try:
