@@ -708,8 +708,8 @@ def _find_budget_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
 
 def _find_guest_count_spans(normalized: dict[str, Any]) -> list[SlotSpan]:
     patterns = (
-        rf"(?<!\d)(?:cho|for)?\s*(?:{COUNT_TOKEN})\s*(?:nguoi|ng|dua|khach|guest|guests|people|pax|person|persons)\b",
-        rf"(?<!\d)(?:{COUNT_TOKEN})\s*adults?\b",
+        rf"(?<![a-z\d])(?:cho|for)?\s*(?:{COUNT_TOKEN})\s*(?:nguoi|ng|dua|(?:khach)(?!\s*san)|guest|guests|people|pax|person|persons)\b",
+        rf"(?<![a-z\d])(?:{COUNT_TOKEN})\s*adults?\b",
     )
     return _regex_spans(normalized, patterns, "guest_count", "guest_count", priority=40)
 

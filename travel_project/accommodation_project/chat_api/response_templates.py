@@ -45,11 +45,11 @@ def build_explicit_confirmation_message(candidates) -> str:
 
 
 def build_off_topic_message() -> str:
-    return "Mình hiện hỗ trợ tốt nhất phần tìm khách sạn, homestay và chỗ ở du lịch. Bạn có thể nhắn khu vực muốn đi, mình sẽ gợi ý trước cho bạn nhé."
+    return "Mình chuyên tìm khách sạn, homestay và chỗ ở thôi nha. Bạn muốn tìm chỗ ở ở đâu, mình gợi ý liền."
 
 
 def build_unknown_message() -> str:
-    return "Mình chưa hiểu rõ nhu cầu của bạn lắm. Bạn có thể nhắn theo kiểu: 'Tìm khách sạn ở Quận 5 cho 2 người khoảng 800k/đêm' nhé."
+    return "Mình chưa hiểu rõ lắm. Bạn thử nhắn kiểu: \"Khách sạn ở Quận 1 cho 2 người khoảng 800k/đêm\" nhé, mình sẽ tìm ngay."
 
 
 def build_help_message() -> str:
@@ -74,27 +74,27 @@ def build_conflict_message(location_info) -> str:
 
 
 def build_greeting_message() -> str:
-    return "Chào bạn, mình đây. Bạn nhắn khu vực muốn đi, mình sẽ gợi ý chỗ ở trước cho bạn nhé."
+    return "Chào bạn! Bạn muốn tìm chỗ ở ở đâu, mình gợi ý ngay nhé."
 
 
 def build_thanks_message() -> str:
-    return "Không có gì, mình luôn sẵn sàng hỗ trợ bạn tìm chỗ ở phù hợp."
+    return "Vui lòng giúp được bạn! Lần sau cần tìm chỗ ở cứ nhắn mình nha."
 
 
 def build_goodbye_message() -> str:
-    return "Hẹn gặp lại bạn. Khi cần tìm chỗ ở, cứ nhắn mình nhé."
+    return "Bái bai bạn, chúc bạn có chuyến đi vui! Lần sau cần gợi ý chỗ ở cứ nhắn mình nha."
 
 
 def build_unsupported_message() -> str:
-    return "Khu vực này hiện mình chưa chắc có dữ liệu phù hợp. Bạn nhắn lại khu vực muốn tìm giúp mình nhé."
+    return "Khu vực này mình chưa có dữ liệu đầy đủ. Bạn thử nhắn khu vực khác gần đó xem sao nha."
 
 
 def build_unresolved_location_message() -> str:
-    return "Bạn muốn tìm chỗ ở khu vực nào? Chỉ cần nhắn tên quận hoặc thành phố là được nhé."
+    return "Bạn muốn tìm ở khu vực nào? Nhắn tên quận hoặc thành phố là mình tìm ngay nhé."
 
 
 def build_unresolved_place_message() -> str:
-    return "Mình chưa xác định chắc địa điểm này. Bạn có thể nhập rõ hơn, ví dụ thêm quận/thành phố không?"
+    return "Mình chưa tìm được địa danh này. Bạn thêm tên quận hoặc thành phố vào giúp mình nhé, ví dụ: 'gần Vincom Quận 1' hay 'gần chợ Bến Thành Quận 1'."
 
 
 # ── Input-type-aware messages ─────────────────────────────────────────────────
@@ -123,10 +123,11 @@ def build_landmark_search_message(landmark_name: str | None, resolved: bool = Tr
     place_part = f"gần {landmark_name}" if landmark_name else "khu vực bạn chọn"
     if not resolved:
         return (
-            f"Mình chưa xác định được tọa độ của {landmark_name or 'địa danh này'}. "
-            "Bạn có thể thêm tên quận hoặc thành phố để mình tìm chính xác hơn không?"
+            f"Mình chưa tìm được tọa độ của {landmark_name or 'địa danh này'}. "
+            "Bạn thêm tên quận hoặc thành phố vào giúp mình nhé, ví dụ: "
+            f'"{landmark_name or "địa danh"} Quận 1".'
         )
-    return f"Được nhé! Mình sẽ gợi ý các chỗ ở {place_part} cho bạn."
+    return f"Để mình tìm các chỗ ở {place_part} cho bạn nhé."
 
 
 def build_unresolved_place_with_filters_message(slots: dict[str, Any], place_name: str | None) -> str:

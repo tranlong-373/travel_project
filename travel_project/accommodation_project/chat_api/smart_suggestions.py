@@ -233,6 +233,16 @@ def attach_ambiguous_suggestions(
     if result.get("input_type") == "address" and result.get("location_mode") == "near_anchor":
         return False
 
+    # When the area is already cleanly resolved and we can show recommendations,
+    # don't hijack the flow with hotel-name suggestions whose title merely starts
+    # with the area name (e.g. "Thủ Đức Home" scoring high for query "Thủ Đức").
+    if (
+        result.get("location_status") == "ok"
+        and result.get("canonical_area")
+        and result.get("can_show_recommendations")
+    ):
+        return False
+
     search_text = _ambiguous_search_text(result, text)
     suggestions = _clarification_candidates(result, text, suggest_places(search_text, limit=limit))
     if not suggestions:
