@@ -214,3 +214,137 @@ class AccommodationReview(models.Model):
         accommodation = self.accommodation
         super().delete(*args, **kwargs)
         update_accommodation_rating(accommodation)
+class PartnerAccommodationRequest(models.Model):
+    STATUS_PENDING = 'pending'
+    STATUS_APPROVED = 'approved'
+    STATUS_REJECTED = 'rejected'
+
+    STATUS_CHOICES = [
+        (STATUS_PENDING, 'Chờ duyệt'),
+        (STATUS_APPROVED, 'Đã thêm vào Accommodation'),
+        (STATUS_REJECTED, 'Từ chối'),
+    ]
+
+    AMENITY_CHOICES = [
+        ('wifi', 'Wifi'),
+        ('pool', 'Hồ bơi'),
+        ('parking', 'Bãi đỗ xe'),
+        ('air_conditioner', 'Máy lạnh'),
+        ('breakfast', 'Bữa sáng'),
+        ('restaurant', 'Nhà hàng'),
+        ('gym', 'Phòng gym'),
+        ('spa', 'Spa'),
+        ('beach_nearby', 'Gần biển'),
+        ('pet_friendly', 'Cho phép thú cưng'),
+        ('airport_transfer', 'Đưa đón sân bay'),
+        ('family_room', 'Phòng gia đình'),
+    ]
+
+    representative_name = models.CharField(max_length=200)
+    phone = models.CharField(max_length=30)
+    email = models.EmailField()
+
+    hotel_name = models.CharField(max_length=200)
+    accommodation_type = models.CharField(
+        max_length=20,
+        choices=Accommodation.TYPE_CHOICES,
+        default='hotel'
+    )
+    area = models.CharField(max_length=100)
+    address = models.CharField(max_length=255)
+
+    price_per_night = models.IntegerField(default=0)
+    capacity = models.IntegerField(default=1)
+    hotline = models.CharField(max_length=50, blank=True)
+
+    amenities = models.JSONField(default=list, blank=True)
+    description = models.TextField(blank=True)
+    image_url = models.URLField(max_length=500, blank=True, null=True)
+    google_maps_link = models.URLField(max_length=500, blank=True, null=True)
+
+    room_name = models.CharField(max_length=100, default='Standard Room')
+    room_type = models.CharField(
+        max_length=20,
+        choices=Room.ROOM_TYPE_CHOICES,
+        default='single'
+    )
+    room_price_per_night = models.IntegerField(default=0)
+    room_capacity = models.IntegerField(default=1)
+    total_rooms = models.IntegerField(default=1)
+    available_rooms = models.IntegerField(default=1)
+    room_description = models.TextField(blank=True)
+    room_image_url = models.URLField(max_length=500, blank=True, null=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default=STATUS_PENDING
+    )
+
+    admin_note = models.TextField(blank=True)
+
+    created_accommodation = models.ForeignKey(
+        Accommodation,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='partner_requests'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Yêu cầu hợp tác khách sạn'
+        verbose_name_plural = 'Yêu cầu hợp tác khách sạn'
+
+    def __str__(self):
+        return f"{self.hotel_name} - {self.get_status_display()}"
+
+    def create_accommodation(self):
+        if self.created_accommodation:
+            return self.created_accommodation
+
+        accommodation = Accommodation.objects.create(
+            name=self.hotel_name,
+            accommodation_type=self.accommodation_type,
+            area=self.area,
+            address=self.address,
+            price_per_night=self.price_per_night,
+            capacity=self.capacity,
+            hotline=self.hotline,
+            amenities=self.amenities,
+            description=self.description,
+            image_url=self.image_url,
+        )
+
+        room_amenities = {
+            "tien_ich": self.amenities,
+        }
+
+        if self.room_image_url:
+            room_amenities["room_image_url"] = self.room_image_url
+
+        Room.objects.create(
+            accommodation=accommodation,
+            room_type=self.room_type,
+            name=self.room_name,
+            price_per_night=self.room_price_per_night,
+            capacity=self.room_capacity,
+            total_rooms=self.total_rooms,
+            available_rooms=self.available_rooms,
+            amenities=room_amenities,
+            description=self.room_description,
+            is_active=True,
+        )
+
+        self.status = self.STATUS_APPROVED
+        self.created_accommodation = accommodation
+        self.save(update_fields=[
+            'status',
+            'created_accommodation',
+            'updated_at'
+        ])
+
+        return accommodation

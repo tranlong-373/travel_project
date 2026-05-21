@@ -6,6 +6,8 @@ from django.db.models import Q, Sum
 from accounts.models import Favorite
 from blog.models import BlogPost
 from .models import Accommodation, AccommodationReview, Room
+from django.contrib import messages
+from .forms import PartnerAccommodationRequestForm
 
 
 def accommodation_list(request):
@@ -334,4 +336,22 @@ def home_view(request):
     return render(request, 'home.html', {
         'accommodations': accommodations,
         'latest_reviews': latest_reviews,
+    })
+
+def partner_register(request):
+    if request.method == 'POST':
+        form = PartnerAccommodationRequestForm(request.POST)
+
+        if form.is_valid():
+            form.save()
+            messages.success(
+                request,
+                'Bạn đã gửi yêu cầu hợp tác thành công. Admin sẽ kiểm duyệt trước khi thêm vào Accommodation List.'
+            )
+            return redirect('partner_register')
+    else:
+        form = PartnerAccommodationRequestForm()
+
+    return render(request, 'accommodations/partner_register.html', {
+        'form': form,
     })
