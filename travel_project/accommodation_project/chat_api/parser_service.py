@@ -490,11 +490,15 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["location_phrase"] = location.get("location_phrase")
     result["explicit_anywhere"] = bool(location.get("explicit_anywhere"))
 
-    # V2 geocoded results take precedence over V1 filter_tree re-resolution.
-    # Only preserve V2 coords when the V2 pipeline explicitly geocoded the
-    # address via Nominatim (anchor_kind == "geocoded"). Other cases (city,
-    # city_center, area, etc.) still use the V1 filter_tree for consistency.
-    v2_has_coords = result.get("anchor_kind") == "geocoded"
+    # Preserve V2 location resolution whenever the V2 pipeline produced usable
+    # coordinates (POI/landmark/geocoded/city_center/...). filter_tree (v1)
+    # still runs to compute filters/missing_slots/policy, but it must NOT
+    # overwrite the anchor that v2 already resolved correctly.
+    v2_has_coords = (
+        result.get("location_status") in {"ok", "geocoded"}
+        and result.get("anchor_lat") is not None
+        and result.get("anchor_lon") is not None
+    )
     if not v2_has_coords:
         result["anchor_name"] = location.get("anchor_name")
         result["anchor_kind"] = location.get("anchor_kind")
@@ -506,16 +510,21 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         result["geocoder_reason"] = location.get("geocoder_reason")
         result["location_display_label"] = location.get("location_display_label")
     else:
+        # anchor_name/anchor_kind/anchor_lat/anchor_lon are sourced from v2 and
+        # must not be touched here. Only fill in optional metadata that v2 may
+        # have left unset.
         result.setdefault("anchor_radius_km", location.get("anchor_radius_km"))
-        # V2 geocoded: reflect that geocoder was actually used and keep V2 display label
-        result["geocoder_called"] = True
-        result["geocoder_reason"] = result.get("geocoder_reason") or "nominatim"
-        # Build display_label from anchor_name when V2 has precise coords
-        v2_anchor = result.get("anchor_name")
-        if v2_anchor and v2_anchor not in {"TP HCM", "Hà Nội", "Đà Nẵng"}:
-            result["location_display_label"] = f"gần {v2_anchor}"
-        else:
-            result["location_display_label"] = location.get("location_display_label") or result.get("location_display_label")
+        result.setdefault("provider", location.get("provider"))
+        if "geocoder_called" not in result or result.get("geocoder_called") is None:
+            result["geocoder_called"] = bool(location.get("geocoder_called"))
+        if not result.get("geocoder_reason"):
+            result["geocoder_reason"] = location.get("geocoder_reason")
+        if not result.get("location_display_label"):
+            v2_anchor = result.get("anchor_name")
+            if v2_anchor and v2_anchor not in {"TP HCM", "Hà Nội", "Đà Nẵng"}:
+                result["location_display_label"] = f"gần {v2_anchor}"
+            else:
+                result["location_display_label"] = location.get("location_display_label")
 
     result["search_radius_km"] = location.get("search_radius_km") or slots.get("search_radius_km")
     result["resolved_place"] = location.get("resolved_place")
@@ -1613,11 +1622,23 @@ def _finalize_v2_result(
     locale: str,
     context_slots: dict[str, Any] | None,
     include_debug: bool | None,
+    router: dict[str, Any] | None = None,
+    normalized: dict[str, Any] | None = None,
+    slot_parse_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Attach missing v1-compat fields to a v2 partial parse_result, then finalize."""
-    router = classify_message(text, context_slots=context_slots, locale=locale)
-    normalized = normalize_user_text(text)
-    slot_parse_context = build_slot_parse_context(text)
+    """Attach missing v1-compat fields to a v2 partial parse_result, then finalize.
+
+    router/normalized/slot_parse_context may be supplied by the caller when
+    they have already been computed (e.g. by the terminal-intent gate in
+    parse_user_text). Recomputing them here is a measurable cost on the
+    hot path; we only do so when the caller did not provide them.
+    """
+    if router is None:
+        router = classify_message(text, context_slots=context_slots, locale=locale)
+    if normalized is None:
+        normalized = normalize_user_text(text)
+    if slot_parse_context is None:
+        slot_parse_context = build_slot_parse_context(text)
 
     # Reuse v1's parser_mode label so external clients/tests that branch on
     # the value see a stable string.  v2 provenance is still available via
@@ -1627,12 +1648,19 @@ def _finalize_v2_result(
 
     # v1 parity: generic POI categories ("đại học", "sân bay", "làng đại học")
     # are ambiguous — must NOT auto-geocode, must ask for clarification.
+    # BUT: when v2 already resolved a specific anchor (e.g. "sân bay Tân Sơn
+    # Nhất" → lat/lon), the generic-POI rule must NOT wipe that out.
     try:
         from .slot_pipeline import ambiguous_location_intent as _amb_intent
         amb = _amb_intent(text)
     except Exception:
         amb = None
-    if amb and not (context_slots or {}).get("area"):
+    v2_resolved_coords = (
+        partial.get("location_status") in {"ok", "geocoded"}
+        and partial.get("anchor_lat") is not None
+        and partial.get("anchor_lon") is not None
+    )
+    if amb and not (context_slots or {}).get("area") and not v2_resolved_coords:
         # Override location to ambiguous so filter_tree doesn't reach geocoder.
         partial["location_status"] = "ambiguous"
         partial["location_mode"] = "unknown"
@@ -1648,9 +1676,10 @@ def _finalize_v2_result(
 
     # v1 parity: bare "2" / "ba" follow-up replies should fill the first
     # missing core slot (guest_count, trip_days, ...).  v1 does this inline in
-    # parse_user_text_rule_based — call the same helper here.
+    # parse_user_text_rule_based using the normalized text — mirror that here
+    # so accented input ("ba") is tokenized identically.
     _slots_partial = partial.get("slots") or {}
-    _apply_bare_count_follow_up(_slots_partial, text, context_slots)
+    _apply_bare_count_follow_up(_slots_partial, normalized["normalized_text"], context_slots)
 
     # v1 parity: extract priorities ("yên tĩnh" → "quiet") and special
     # requirements ("có trẻ em" → "baby_friendly") from the raw text.  v2's
@@ -1771,6 +1800,9 @@ def parse_user_text(
         # domain router BEFORE running the v2 NLU pipeline.  v2 would otherwise
         # try to extract slots from "chào cậu" or "hôm nay trời mưa không" and
         # incorrectly mark ready_for_recommendation/create a preference.
+        router_early: dict[str, Any] | None = None
+        normalized_early: dict[str, Any] | None = None
+        slot_parse_context_early: dict[str, Any] | None = None
         try:
             router_early = classify_message(text, context_slots=context_slots, locale=locale)
             normalized_early = normalize_user_text(text)
@@ -1787,6 +1819,9 @@ def parse_user_text(
                 )
         except Exception:
             logger.exception("chat_pipeline_v2: terminal-intent gate failed, continuing to v2")
+            router_early = None
+            normalized_early = None
+            slot_parse_context_early = None
 
         try:
             from .application.chat_pipeline import ChatPipeline
@@ -1801,6 +1836,9 @@ def parse_user_text(
                 locale=locale,
                 context_slots=context_slots,
                 include_debug=include_debug,
+                router=router_early,
+                normalized=normalized_early,
+                slot_parse_context=slot_parse_context_early,
             )
         except Exception:
             logger.exception("chat_pipeline_v2 failed, falling back to v1")

@@ -19,6 +19,7 @@ No imports from Django, models, geocoders, or the database.
 """
 from __future__ import annotations
 
+import functools
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -136,6 +137,9 @@ _NEAR_CUES: frozenset[str] = frozenset({
     "khu vuc",      # khu vực (area-of context)
 })
 
+# Precomputed longest-first ordering — used by every classify_v2 call.
+_NEAR_CUES_BY_LEN: tuple[str, ...] = tuple(sorted(_NEAR_CUES, key=len, reverse=True))
+
 # Accommodation type keywords — when present without near-cue, hints at hotel_name or type filter.
 _ACC_KEYWORDS: frozenset[str] = frozenset({
     "khach san", "ks", "hotel", "hotels",
@@ -145,6 +149,9 @@ _ACC_KEYWORDS: frozenset[str] = frozenset({
     "can ho", "apartment", "studio", "chung cu",
     "serviced apartment",
 })
+
+# Precomputed longest-first ordering — used by every classify_v2 call.
+_ACC_KEYWORDS_BY_LEN: tuple[str, ...] = tuple(sorted(_ACC_KEYWORDS, key=len, reverse=True))
 
 # Admin-level area tokens (normalized, no accent).
 _AREA_ADMIN_TOKENS: frozenset[str] = frozenset({
@@ -309,7 +316,7 @@ def _extract_near_remainder(norm: str, text: str | None = None) -> tuple[str | N
     Original form preserves Vietnamese accents so it can be sent to Nominatim.
     Returns (None, None) when no near-cue is found.
     """
-    for cue in sorted(_NEAR_CUES, key=len, reverse=True):  # longest first
+    for cue in _NEAR_CUES_BY_LEN:  # longest first, precomputed at import time
         m = re.search(r"(?:^|\s)" + re.escape(cue) + r"\s+(.+)", norm)
         if m:
             normalized = m.group(1).strip()
@@ -320,7 +327,7 @@ def _extract_near_remainder(norm: str, text: str | None = None) -> tuple[str | N
 
 def _detect_acc_keyword(norm: str) -> str | None:
     """Return the matched accommodation keyword (longest first), or None."""
-    for kw in sorted(_ACC_KEYWORDS, key=len, reverse=True):
+    for kw in _ACC_KEYWORDS_BY_LEN:
         if re.search(r"(?:^|\s)" + re.escape(kw) + r"(?:\s|$)", norm):
             return kw
     return None
@@ -387,16 +394,21 @@ def _extract_admin_area(m: re.Match) -> str:
 _MIN_COMPACT_ALIAS_LEN = 4  # ≥4 chars to avoid noise like "sg", "q1", "go"
 
 
-def _gazetteer_aliases() -> list[str]:
+@functools.lru_cache(maxsize=1)
+def _gazetteer_aliases() -> tuple[str, ...]:
     """Aliases from the canonical gazetteer, sorted longest-first.
 
     Only aliases ≥ _MIN_COMPACT_ALIAS_LEN are returned to avoid false matches
     on common short words.  Numeric district short forms ("q1", "q3") are
     handled separately by _ADMIN_NUMERIC_RE.
+
+    Cached for the process lifetime — the gazetteer is loaded once at import
+    time and never mutated, so a single computation amortises across all
+    requests.
     """
     from ..location_gazetteer import _alias_to_canonical_index
     aliases = [a for a in _alias_to_canonical_index().keys() if len(a) >= _MIN_COMPACT_ALIAS_LEN]
-    return sorted(aliases, key=len, reverse=True)
+    return tuple(sorted(aliases, key=len, reverse=True))
 
 
 def _detect_area(norm: str) -> str | None:
