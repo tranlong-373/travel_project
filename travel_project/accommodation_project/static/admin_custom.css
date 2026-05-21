@@ -512,10 +512,10 @@ a.button {
 .admin-metric-card {
     background: #fff;
     border: 1px solid #e2e8f0;
-    border-radius: 6px;
+    border-radius: 36px;
     box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
     color: #0f172a;
-    min-height: 118px;
+    max-height: 70px;
     padding: 20px;
     text-decoration: none;
     transition: transform .15s, box-shadow .15s;
@@ -639,6 +639,17 @@ a.button {
     padding: 16px;
 }
 
+.admin-model-card:nth-child(1),
+.admin-model-card:nth-child(4),
+.admin-model-card:nth-child(6),
+.admin-model-card:nth-child(7),
+.admin-model-card:nth-child(8),
+.admin-model-card:nth-child(9),
+.admin-model-card:nth-child(10)
+{
+    display: none;
+}
+
 .admin-model-app {
     color: #64748b;
     display: block;
@@ -716,4 +727,30 @@ a.button {
     .admin-metric-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+}
+
+.icon-admin{
+    width: 46px;
+    position: relative;
+    margin-left: 180px;
+    top: -50px;
+}
+
+.app-admin{
+    display: none !important;
+}
+
+.selected{
+    background-color: #ccc !important;
+}
+.admin-metric-card strong, .admin-metric-card small{
+    margin-top: 10px;
+}
+
+.admin-metric-card small{
+    display: block;
+}
+
+.admin-metric-card strong{
+    font-size: 28px;
 }

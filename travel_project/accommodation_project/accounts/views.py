@@ -53,7 +53,11 @@ def register_view(request):
     else:
         form = RegisterForm()
 
-    return render(request, 'accounts/register.html', {'form': form})
+    return render(request, 'accounts/register.html', {
+    'form': form,
+    'firebase_config': settings.FIREBASE_WEB_CONFIG,
+    'google_login_url': settings.GOOGLE_URL or '/auth/google/start',
+    })
 
 
 def login_view(request):
@@ -144,7 +148,7 @@ def google_callback(request):
             google_token,
             GoogleRequest(),
             settings.GOOGLE_CLIENT_ID,
-            clock_skew_in_seconds=10,
+            clock_skew_in_seconds=120,
         )
         email = (profile.get('email') or '').strip().lower()
         name = (profile.get('name') or '').strip()
