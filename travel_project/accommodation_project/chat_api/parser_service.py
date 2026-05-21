@@ -479,22 +479,41 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     result["location_mode"] = location.get("mode")
     result["location_phrase"] = location.get("location_phrase")
     result["explicit_anywhere"] = bool(location.get("explicit_anywhere"))
-    result["anchor_name"] = location.get("anchor_name")
-    result["anchor_kind"] = location.get("anchor_kind")
-    result["anchor_lat"] = location.get("anchor_lat")
-    result["anchor_lon"] = location.get("anchor_lon")
-    result["anchor_radius_km"] = location.get("anchor_radius_km")
+
+    # V2 geocoded results take precedence over V1 filter_tree re-resolution.
+    # Only preserve V2 coords when the V2 pipeline explicitly geocoded the
+    # address via Nominatim (anchor_kind == "geocoded"). Other cases (city,
+    # city_center, area, etc.) still use the V1 filter_tree for consistency.
+    v2_has_coords = result.get("anchor_kind") == "geocoded"
+    if not v2_has_coords:
+        result["anchor_name"] = location.get("anchor_name")
+        result["anchor_kind"] = location.get("anchor_kind")
+        result["anchor_lat"] = location.get("anchor_lat")
+        result["anchor_lon"] = location.get("anchor_lon")
+        result["anchor_radius_km"] = location.get("anchor_radius_km")
+        result["provider"] = location.get("provider")
+        result["geocoder_called"] = bool(location.get("geocoder_called"))
+        result["geocoder_reason"] = location.get("geocoder_reason")
+        result["location_display_label"] = location.get("location_display_label")
+    else:
+        result.setdefault("anchor_radius_km", location.get("anchor_radius_km"))
+        # V2 geocoded: reflect that geocoder was actually used and keep V2 display label
+        result["geocoder_called"] = True
+        result["geocoder_reason"] = result.get("geocoder_reason") or "nominatim"
+        # Build display_label from anchor_name when V2 has precise coords
+        v2_anchor = result.get("anchor_name")
+        if v2_anchor and v2_anchor not in {"TP HCM", "Hà Nội", "Đà Nẵng"}:
+            result["location_display_label"] = f"gần {v2_anchor}"
+        else:
+            result["location_display_label"] = location.get("location_display_label") or result.get("location_display_label")
+
     result["search_radius_km"] = location.get("search_radius_km") or slots.get("search_radius_km")
-    result["provider"] = location.get("provider")
     result["resolved_place"] = location.get("resolved_place")
-    result["location_display_label"] = location.get("location_display_label")
     result["map_area"] = location.get("map_area")
     result["map_display_name"] = location.get("map_display_name")
     result["map_address"] = location.get("map_address") or {}
     result["geocode_query"] = location.get("geocode_query")
     result["geocoder_queries"] = location.get("geocoder_queries") or []
-    result["geocoder_called"] = bool(location.get("geocoder_called"))
-    result["geocoder_reason"] = location.get("geocoder_reason")
     result["rejected_geocoder_results"] = location.get("rejected_geocoder_results") or []
     result["rejected_reason"] = _first_rejected_reason(result["rejected_geocoder_results"])
     result["cache_hit"] = bool(location.get("cache_hit"))
