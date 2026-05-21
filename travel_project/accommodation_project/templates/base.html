@@ -8,7 +8,6 @@
     <title>Accommodation Recommendation</title>
     <link rel="stylesheet" href="{% static 'css.css' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <script src="{% static 'js/suggestion_input.js' %}"></script>
 </head>
 
 <body class='body'>
@@ -514,6 +513,22 @@
         }
     }
 
+    async function readChatResponse(res) {
+        try {
+            return await res.json();
+        } catch (err) {
+            return { error: 'invalid_response' };
+        }
+    }
+
+    function chatApiErrorMessage(data, fallback) {
+        if (!data || !data.error) return fallback;
+        if (data.error === 'invalid_response') {
+            return 'Máy chủ chat trả về dữ liệu chưa hợp lệ. Bạn thử lại giúp mình nhé.';
+        }
+        return 'Mình chưa xử lý được yêu cầu này: ' + data.error;
+    }
+
     async function selectLocationCandidate(candidate) {
         if (chatIsBusy) return;
         const payload = candidate.payload || { area: candidate.canonical_area || candidate.name };
@@ -530,7 +545,11 @@
                     quick_reply_payload: payload
                 })
             });
-            const data = await res.json();
+            const data = await readChatResponse(res);
+            if (!res.ok || data.error) {
+                addMessage(chatApiErrorMessage(data, 'Mình chưa xác nhận được địa điểm này, bạn thử lại giúp mình nhé.'), 'bot');
+                return;
+            }
             handleChatResult(data);
         } catch (err) {
             addMessage('Mình chưa xác nhận được địa điểm này, bạn thử lại giúp mình nhé.', 'bot');
@@ -565,7 +584,11 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            const data = await res.json();
+            const data = await readChatResponse(res);
+            if (!res.ok || data.error) {
+                addMessage(chatApiErrorMessage(data, 'Mình chưa mở được trang đề xuất, bạn thử lại giúp mình nhé.'), 'bot');
+                return;
+            }
             const nextAction = data.recommendation_action || {};
             if (nextAction.eligible && nextAction.url) {
                 window.location.assign(nextAction.url);
@@ -720,10 +743,14 @@
                 body: JSON.stringify(payload)
             });
 
-            const data = await res.json();
+            const data = await readChatResponse(res);
+            if (!res.ok || data.error) {
+                addMessage(chatApiErrorMessage(data, 'Chat đang gặp lỗi tạm thời. Bạn thử lại giúp mình nhé.'), 'bot');
+                return;
+            }
             handleChatResult(data);
         } catch (err) {
-            addMessage('Có lỗi xảy ra, vui lòng thử lại.', 'bot');
+            addMessage('Chat đang gặp lỗi kết nối. Bạn thử lại giúp mình nhé.', 'bot');
         } finally {
             setChatBusy(false);
         }
@@ -989,7 +1016,11 @@
                     quick_reply_payload: item.payload || {}
                 })
             });
-            const data = await res.json();
+            const data = await readChatResponse(res);
+            if (!res.ok || data.error) {
+                addMessage(chatApiErrorMessage(data, 'Mình chưa dùng được gợi ý này, bạn thử nhập lại giúp mình nhé.'), 'bot');
+                return;
+            }
             handleChatResult(data);
         } catch (err) {
             addMessage('Mình chưa dùng được gợi ý này, bạn thử nhập lại giúp mình nhé.', 'bot');

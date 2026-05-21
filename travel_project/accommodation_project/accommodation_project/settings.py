@@ -92,19 +92,36 @@ WSGI_APPLICATION = 'accommodation_project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
+USE_MSSQL = os.getenv("USE_MSSQL", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+if USE_MSSQL:
+    mssql_database = {
         "ENGINE": "mssql",
-        "NAME": "AccommodationDB",
-        "HOST": "localhost",
-        "PORT": "",
+        "NAME": os.getenv("MSSQL_NAME", "AccommodationDB"),
+        "HOST": os.getenv("MSSQL_HOST", "localhost"),
+        "PORT": os.getenv("MSSQL_PORT", ""),
         "OPTIONS": {
-            "driver": "ODBC Driver 18 for SQL Server",
-            "trusted_connection": "yes",
-            "extra_params": "Encrypt=No;TrustServerCertificate=Yes;",
+            "driver": os.getenv("MSSQL_DRIVER", "ODBC Driver 18 for SQL Server"),
+            "trusted_connection": os.getenv("MSSQL_TRUSTED_CONNECTION", "yes"),
+            "extra_params": os.getenv(
+                "MSSQL_EXTRA_PARAMS",
+                "Encrypt=No;TrustServerCertificate=Yes;",
+            ),
         },
     }
-}
+    if os.getenv("MSSQL_USER"):
+        mssql_database["USER"] = os.getenv("MSSQL_USER")
+    if os.getenv("MSSQL_PASSWORD"):
+        mssql_database["PASSWORD"] = os.getenv("MSSQL_PASSWORD")
+
+    DATABASES = {"default": mssql_database}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -217,7 +234,7 @@ CHAT_PIPELINE_V2_COMPARE_LOG = os.getenv("CHAT_PIPELINE_V2_COMPARE_LOG", "0") ==
 try:
     from . import settings_local as local_settings
 
-    if hasattr(local_settings, "DATABASE_OVERRIDES"):
+    if USE_MSSQL and hasattr(local_settings, "DATABASE_OVERRIDES"):
         for key, value in local_settings.DATABASE_OVERRIDES.items():
             if key == "OPTIONS" and isinstance(value, dict):
                 DATABASES["default"].setdefault("OPTIONS", {})
