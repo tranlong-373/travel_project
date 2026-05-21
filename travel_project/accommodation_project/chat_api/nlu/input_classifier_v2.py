@@ -242,6 +242,8 @@ _GENERIC_WORDS: frozenset[str] = frozenset({
 _ADDRESS_PATTERNS: list[re.Pattern] = [
     re.compile(p, re.IGNORECASE | re.UNICODE)
     for p in [
+        # Full address: "N Tên, P.X, Q.Y, TP/Tỉnh Z" — capture toàn bộ bao gồm tỉnh/thành
+        r"\d{1,5}(?:/\d+[A-Za-z]?)?[A-Za-z]?\s+\w[\w\s]{2,50},\s*(?:phuong|xa|p\.)\s*\w[\w\s]{0,15},\s*(?:quan|huyen|q\.)\s*\w[\w\s]{0,15}(?:,\s*(?:tp\.?|tinh|thanh pho)\s*[\w\s]{1,30})?",
         # "[số]/[số chữ] đường/hẻm/ngõ [tên]"
         r"(?:so\s+)?\d{1,5}(?:/\d+[A-Za-z]?)?\s+(?:duong|pho|hem|ngo|ngach)\s+\w[\w\s]{1,50}",
         # "[số] [tên], quận/phường N" — số + tên đường + admin
