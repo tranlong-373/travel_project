@@ -132,7 +132,7 @@ def extract_guest_count(text: str) -> int | None:
         return _word_to_int(m.group(1))
 
     m = re.search(
-        rf"(?<!\d)({COUNT_TOKEN})\s*(nguoi|ng|dua|khach|guest|guests|people|pax|person|persons)\b",
+        rf"(?<![a-z\d])({COUNT_TOKEN})\s*(nguoi|ng|dua|(?:khach)(?!\s*san)|guest|guests|people|pax|person|persons)\b",
         norm,
     )
     if m:

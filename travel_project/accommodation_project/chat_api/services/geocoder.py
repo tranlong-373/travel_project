@@ -1036,7 +1036,14 @@ def _result_from_cache(payload: dict[str, Any], queries: tuple[str, ...]) -> Geo
 
 
 def _canonical_name(phrase: str, item: dict[str, Any]) -> str:
+    import re as _re
+    # For street addresses (start with house number), keep the user's original phrase
+    # to avoid Nominatim returning a truncated "720A" or institution name like a school.
+    if phrase and _re.match(r"^\d", str(phrase)):
+        return phrase
     display = str(item.get("display_name") or "").split(",")[0].strip()
+    # Remove OSM-internal suffixes after semicolons (e.g. "Aeon Mall;Commercial_ID")
+    display = display.split(";")[0].strip()
     return display or phrase
 
 
