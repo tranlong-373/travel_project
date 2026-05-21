@@ -740,6 +740,9 @@ a.button {
     display: none !important;
 }
 
+.selected{
+    background-color: #ccc !important;
+}
 .admin-metric-card strong, .admin-metric-card small{
     margin-top: 10px;
 }
