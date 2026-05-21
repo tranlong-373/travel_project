@@ -43,12 +43,12 @@ class AccommodationForm(forms.ModelForm):
         percent = self.cleaned_data.get('discount_percent')
         amount = self.cleaned_data.get('discount_amount')
 
-        if percent is not None:
+        if percent:
             amenities_dict['discount_percent'] = percent
         else:
             amenities_dict.pop('discount_percent', None)
 
-        if amount is not None:
+        if amount:
             amenities_dict['discount_amount'] = amount
         else:
             amenities_dict.pop('discount_amount', None)
@@ -116,9 +116,9 @@ class AccommodationAdmin(admin.ModelAdmin):
             tien_ich = obj.amenities.get('tien_ich', [])
             if isinstance(tien_ich, list):
                 tags_str = ", ".join([str(i) for i in tien_ich if str(i).startswith("#")])
-            if 'discount_percent' in obj.amenities:
+            if obj.amenities.get('discount_percent'):
                 sales.append(f"-{obj.amenities['discount_percent']}%")
-            if 'discount_amount' in obj.amenities:
+            if obj.amenities.get('discount_amount'):
                 sales.append(f"-{obj.amenities['discount_amount']}đ")
         sale_str = format_html(
             '<br><span style="color:red;font-weight:bold;">Sale: {}</span>', " | ".join(sales)
@@ -190,12 +190,12 @@ class RoomForm(forms.ModelForm):
         percent = self.cleaned_data.get('discount_percent')
         amount = self.cleaned_data.get('discount_amount')
 
-        if percent is not None:
+        if percent:
             amenities_dict['discount_percent'] = percent
         else:
             amenities_dict.pop('discount_percent', None)
 
-        if amount is not None:
+        if amount:
             amenities_dict['discount_amount'] = amount
         else:
             amenities_dict.pop('discount_amount', None)
@@ -239,7 +239,7 @@ class RoomAdmin(admin.ModelAdmin):
             return "-"
         label = obj.discount_label
         source = "phòng" if (isinstance(obj.amenities, dict) and (
-            'discount_percent' in obj.amenities or 'discount_amount' in obj.amenities
+            obj.amenities.get('discount_percent') or obj.amenities.get('discount_amount')
         )) else "chung"
         return format_html(
             '<span style="color:red;font-weight:bold;">{}</span> '

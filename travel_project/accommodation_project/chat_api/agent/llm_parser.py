@@ -22,8 +22,8 @@ class LLMParserError(RuntimeError):
 
 @dataclass(frozen=True)
 class HFParserConfig:
-    model_name: str = os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
-    fallback_model_name: str | None = os.getenv("CHAT_API_FALLBACK_MODEL") or os.getenv(
+    model_name: str = os.getenv("CHAT_LLM_MODEL") or os.getenv("CHAT_API_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
+    fallback_model_name: str | None = os.getenv("CHAT_LLM_FALLBACK_MODEL") or os.getenv("CHAT_API_FALLBACK_MODEL") or os.getenv(
         "CHAT_API_LIGHT_MODEL",
         "Qwen/Qwen2.5-0.5B-Instruct",
     )

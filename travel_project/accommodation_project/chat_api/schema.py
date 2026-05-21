@@ -87,6 +87,20 @@ SLOTS: dict[str, SlotSpec] = {
         question_vi="Bạn thích khách sạn, homestay, hostel hay căn hộ?",
         question_en="Do you prefer hotel, homestay, hostel, or apartment?",
     ),
+    "accommodation_type": SlotSpec(
+        key="accommodation_type",
+        level="optional",
+        value_type="str",
+        description="Alias mềm của preferred_type cho parser/LLM JSON.",
+        allowed=ALLOWED_TYPES,
+    ),
+    "accommodation_types": SlotSpec(
+        key="accommodation_types",
+        level="optional",
+        value_type="list[str]",
+        description="Danh sách loại chỗ ở user chấp nhận, dùng OR khi có nhiều loại.",
+        allowed=ALLOWED_TYPES,
+    ),
     "required_amenities": SlotSpec(
         key="required_amenities",
         level="optional",
@@ -122,6 +136,42 @@ SLOTS: dict[str, SlotSpec] = {
         question_vi="Bạn đi mấy ngày?",
         question_en="How many days is your trip?",
     ),
+    "room_count": SlotSpec(
+        key="room_count",
+        level="optional",
+        value_type="int",
+        description="Số phòng nếu user nói rõ.",
+    ),
+    "rating": SlotSpec(
+        key="rating",
+        level="optional",
+        value_type="float",
+        description="Mức đánh giá tối thiểu nếu user nói rõ.",
+    ),
+    "check_in": SlotSpec(
+        key="check_in",
+        level="optional",
+        value_type="str",
+        description="Ngày nhận phòng nếu user nói rõ.",
+    ),
+    "check_out": SlotSpec(
+        key="check_out",
+        level="optional",
+        value_type="str",
+        description="Ngày trả phòng nếu user nói rõ.",
+    ),
+    "location_phrase": SlotSpec(
+        key="location_phrase",
+        level="optional",
+        value_type="str",
+        description="Cụm địa điểm gốc user nói.",
+    ),
+    "location_mode": SlotSpec(
+        key="location_mode",
+        level="optional",
+        value_type="str",
+        description="anywhere, area, near_anchor, multiple_choice hoặc unknown.",
+    ),
 }
 
 CORE_SLOTS = [k for (k, s) in SLOTS.items() if s.level == "core"]
@@ -133,8 +183,16 @@ def empty_slots() -> dict[str, Any]:
         "budget": None,
         "guest_count": None,
         "preferred_type": None,
+        "accommodation_type": None,
+        "accommodation_types": [],
         "required_amenities": [],
         "priorities": [],
         "special_requirements": [],
         "trip_days": None,
+        "room_count": None,
+        "rating": None,
+        "check_in": None,
+        "check_out": None,
+        "location_phrase": None,
+        "location_mode": "unknown",
     }

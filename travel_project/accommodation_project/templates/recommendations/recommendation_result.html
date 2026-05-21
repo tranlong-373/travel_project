@@ -5,137 +5,441 @@
 
 {% block content %}
 
-<div class="rec-page">
-    <div class="section-title" style="margin-bottom: 32px;">
+<div class="acc-list-page rec-page">
+    <div class="section-title">
         <h1 class="section-heading">Kết quả tìm kiếm</h1>
         <p class="section-subtitle">
-            Khu vực: <strong>{{ preference.area }}</strong> &nbsp;|&nbsp;
-            Ngân sách: <strong>{{ preference.budget|floatformat:0 }}₫</strong> &nbsp;|&nbsp;
-            {{ preference.guest_count }} khách
-            {% if preference.user_latitude and preference.user_longitude %}
-            <br>
-            <strong>Đang gợi ý theo vị trí hiện tại của bạn trong bán kính {{ preference.search_radius_km|floatformat:0 }} km.</strong>
+            {% if preference.location_label %}
+                Khu vực: <strong>{{ preference.location_label }}</strong>
+            {% elif preference.area %}
+                Khu vực: <strong>{{ preference.area }}</strong>
+            {% else %}
+                Khu vực: <strong>Không giới hạn</strong>
+            {% endif %}
+            &nbsp;|&nbsp;
+            {{ total_results }} kết quả
+            {% if search_origin.type == "anchor" %}
+                <br><strong>Đang gợi ý quanh {{ search_origin.label|default:"địa điểm bạn chọn" }} trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
+            {% elif search_origin.type == "semantic_center" %}
+                <br><strong>Đang gợi ý quanh {{ search_origin.label|default:"trung tâm thành phố" }} trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
+            {% elif search_origin.type == "user_location" %}
+                <br><strong>Đang gợi ý theo vị trí hiện tại trong bán kính {{ used_radius_km|floatformat:1 }} km.</strong>
             {% endif %}
         </p>
+        {% if relaxed %}
+        <p class="section-subtitle" style="margin-top:12px;">{{ relaxation_message }}</p>
+        {% endif %}
     </div>
 
-    <div class="rec-toolbar">
-        <p class="rec-count">{{ results|length }} đề xuất phù hợp</p>
-        <form method="get" class="rec-sort-form">
-            <label for="resultSort">
-                <i class="fa-solid fa-arrow-up-wide-short"></i>
-                Sắp xếp
-            </label>
-            <select id="resultSort" name="sort" onchange="this.form.submit()">
-                {% for value, label in sort_options %}
-                <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
-                {% endfor %}
-            </select>
-        </form>
-    </div>
+    <div class="acc-layout">
+        <form method="GET" class="filter-sidebar" id="recommendationFilterForm">
+            <input type="hidden" name="filters" value="1" />
 
-    <div class="acc-list">
-        {% for item, score in results %}
-        <a href="{% url 'accommodation_detail' item.pk %}" class="acc-card">
-
-            <div class="acc-img-wrap">
-                {% if item.image_url %}
-                <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
-                {% else %}
-                <div class="acc-img acc-img-placeholder">
-                    <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
-                </div>
-                {% endif %}
-
-                <!-- Score tối đa 5.0 → đổi sang % -->
-                {% if score >= 4.5 %}
-                <div class="rec-score-badge badge-excellent">Xuất sắc ★</div>
-                {% elif score >= 3.5 %}
-                <div class="rec-score-badge badge-good">Phù hợp</div>
-                {% else %}
-                <div class="rec-score-badge badge-ok">Tạm được</div>
-                {% endif %}
+            <div class="filter-header">
+                <span><i class="fa-solid fa-sliders"></i> Bộ lọc</span>
+                <a href="{% url 'recommendation_result' original_preference.id %}" class="filter-clear">Xóa tất cả</a>
             </div>
 
-            <div class="acc-body">
-                <div class="acc-top">
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">TÌM NHANH</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <div class="fcard-field">
+                        <i class="fa-solid fa-magnifying-glass fcard-field-icon"></i>
+                        <input type="text" name="destination" value="{{ current_destination }}"
+                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" autocomplete="off" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-solid fa-user fcard-field-icon"></i>
+                        <input type="number" min="1" name="guests" value="{{ current_guests }}"
+                               placeholder="Số khách" class="fcard-input" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-regular fa-calendar fcard-field-icon"></i>
+                        <input type="date" name="check_in" value="{{ current_check_in }}" class="fcard-input" />
+                    </div>
+                    <div class="fcard-field">
+                        <i class="fa-regular fa-calendar fcard-field-icon"></i>
+                        <input type="date" name="check_out" value="{{ current_check_out }}" class="fcard-input" />
+                    </div>
+                    <button type="submit" class="fcard-apply-btn">Áp dụng tìm kiếm</button>
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
                     <div>
-                        <p class="acc-type">{{ item.accommodation_type }}</p>
-                        <p class="acc-name">{{ item.name }}</p>
-                        <p class="acc-address">
-                            <i class="fa-solid fa-location-dot"></i>
-                            {{ item.address }}, {{ item.area }}
-                        </p>
-                        {% if preference.user_latitude and item.distance_km %}
-                        <p class="acc-address">
-                            <i class="fa-solid fa-route"></i>
-                            Cách bạn khoảng {{ item.distance_km|floatformat:1 }} km
-                        </p>
+                        <span class="fcard-title">Khoảng giá</span>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <a href="{% url 'recommendation_result' original_preference.id %}"
+                           class="fcard-reset-link"
+                           onclick="event.stopPropagation()">
+                            Đặt lại
+                        </a>
+
+                        <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                    </div>
+                </div>
+
+                <div class="fcard-body">
+                    <div class="fs-range-wrap">
+                        <div class="fs-range-track">
+                            <div class="fs-range-fill" id="fsRangeFill"></div>
+                        </div>
+
+                        <input
+                            type="range"
+                            id="fsRangeMin"
+                            min="0"
+                            max="24000000"
+                            step="100000"
+                            value="{{ current_price_min|default:'0' }}"
+                            class="fs-range"
+                        />
+
+                        <input
+                            type="range"
+                            id="fsRangeMax"
+                            min="0"
+                            max="24000000"
+                            step="100000"
+                            value="{{ current_price_max|default:'24000000' }}"
+                            class="fs-range"
+                        />
+                    </div>
+
+                    <div class="fs-range-vals">
+                        <div class="fs-range-val-box">
+                            <span id="fsMinDisplay">0</span>
+                            <span class="fs-currency">VND</span>
+                        </div>
+
+                        <span class="fs-range-dash">—</span>
+
+                        <div class="fs-range-val-box">
+                            <span id="fsMaxDisplay">24.000.000</span>
+                            <span class="fs-currency">VND</span>
+                        </div>
+                    </div>
+
+                    <input
+                        type="hidden"
+                        name="budget_min"
+                        id="fsPriceMin"
+                        value="{{ current_price_min|default:'0' }}"
+                    />
+
+                    <input
+                        type="hidden"
+                        name="budget_max"
+                        id="fsPriceMax"
+                        value="{{ current_price_max|default:'24000000' }}"
+                    />
+
+                    <button type="submit" class="fs-apply-btn">
+                        Áp dụng
+                    </button>
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">LOẠI CHỖ Ở</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
+                    {% for value, label in type_options %}
+                    <label class="fcard-item"><input type="radio" name="type" value="{{ value }}" {% if current_type == value %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> {{ label }}</label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">KHOẢNG GIÁ / ĐÊM</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="price" value="" {% if not current_price %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="0-500k" {% if current_price == '0-500k' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Dưới 500.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="500k-1tr" {% if current_price == '500k-1tr' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> 500k – 1.000.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="1tr-2tr" {% if current_price == '1tr-2tr' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> 1tr – 2.000.000₫</label>
+                    <label class="fcard-item"><input type="radio" name="price" value="2tr+" {% if current_price == '2tr+' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Trên 2.000.000₫</label>
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">Khuyến mãi &amp; Giảm giá</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="favorite" {% if 'favorite' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Được yêu thích nhất</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="promo_for_you" {% if 'promo_for_you' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Khuyến mãi dành cho bạn</label>
+                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="promo" value="breakfast" {% if 'breakfast' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Có bữa sáng</label>
+                    <label class="fcard-item fcard-check-item fcard-extra-promo" style="display:none;"><input type="checkbox" name="promo" value="family" {% if 'family' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> Phù hợp cho gia đình</label>
+                    <label class="fcard-item fcard-check-item fcard-extra-promo" style="display:none;"><input type="checkbox" name="promo" value="value_star" {% if 'value_star' in current_promos %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> 4-5 sao giá tốt</label>
+                    <a href="#" class="fcard-see-all" id="promoToggle" onclick="togglePromo(event)">Xem Tất cả</a>
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">Đánh giá sao</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    {% for star in "12345" %}<label class="fcard-item fcard-check-item"><input type="checkbox" name="rating" value="{{ star }}" {% if star in current_ratings %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span> {{ star }} <span class="fcard-star">★</span></label>{% endfor %}
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">TIỆN NGHI</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    {% for value, label, icon in amenity_options %}
+                    <label class="fcard-item fcard-check-item">
+                        <input type="checkbox" name="amenity" value="{{ value }}" {% if value in current_amenities %}checked{% endif %} onchange="this.form.submit()" />
+                        <span class="fcard-checkbox"></span><i class="fa-solid {{ icon }} fcard-amenity-icon"></i> {{ label }}
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="filter-card">
+                <div class="fcard-head" onclick="fsToggle(this)">
+                    <span class="fcard-title">SẮP XẾP</span>
+                    <i class="fa-solid fa-chevron-up fcard-chevron"></i>
+                </div>
+                <div class="fcard-body">
+                    <label class="fcard-item"><input type="radio" name="sort" value="{{ default_sort }}" {% if selected_sort == default_sort %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Mặc định</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="price_asc" {% if selected_sort == 'price_asc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-up-wide-short fcard-amenity-icon"></i> Giá thấp → cao</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="price_desc" {% if selected_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-down-wide-short fcard-amenity-icon"></i> Giá cao → thấp</label>
+                    <label class="fcard-item"><input type="radio" name="sort" value="rating_desc" {% if selected_sort == 'rating_desc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-star fcard-amenity-icon"></i> Đánh giá cao nhất</label>
+                </div>
+            </div>
+        </form>
+
+        <script>
+            function fsToggle(headEl) {
+                const body = headEl.nextElementSibling;
+                const chevron = headEl.querySelector('.fcard-chevron');
+
+                if (!body) return;
+
+                const isOpen = body.style.display !== 'none';
+
+                body.style.display = isOpen ? 'none' : '';
+                chevron.style.transform = isOpen ? 'rotate(180deg)' : '';
+            }
+
+            (function () {
+                const rMin = document.getElementById('fsRangeMin');
+                const rMax = document.getElementById('fsRangeMax');
+                const fill = document.getElementById('fsRangeFill');
+                const minTxt = document.getElementById('fsMinDisplay');
+                const maxTxt = document.getElementById('fsMaxDisplay');
+                const hMin = document.getElementById('fsPriceMin');
+                const hMax = document.getElementById('fsPriceMax');
+
+                if (!rMin || !rMax) return;
+
+                const MAX = 24000000;
+
+                function formatVND(v) {
+                    return Number(v).toLocaleString('vi-VN');
+                }
+
+                function updateSlider() {
+                    let minVal = parseInt(rMin.value);
+                    let maxVal = parseInt(rMax.value);
+
+                    if (minVal > maxVal) {
+                        [minVal, maxVal] = [maxVal, minVal];
+                    }
+
+                    const percentMin = (minVal / MAX) * 100;
+                    const percentMax = (maxVal / MAX) * 100;
+
+                    fill.style.left = percentMin + '%';
+                    fill.style.width = (percentMax - percentMin) + '%';
+
+                    minTxt.textContent = formatVND(minVal);
+                    maxTxt.textContent = formatVND(maxVal);
+
+                    hMin.value = minVal;
+                    hMax.value = maxVal;
+                }
+
+                rMin.value = hMin.value || 0;
+                rMax.value = hMax.value || MAX;
+
+                rMin.addEventListener('input', updateSlider);
+                rMax.addEventListener('input', updateSlider);
+
+                updateSlider();
+            })();
+
+            function togglePromo(e) {
+                e.preventDefault();
+
+                const extras = document.querySelectorAll('.fcard-extra-promo');
+                const link = document.getElementById('promoToggle');
+                const hidden = extras[0].style.display === 'none';
+
+                extras.forEach(el => {
+                    el.style.display = hidden ? '' : 'none';
+                });
+
+                link.textContent = hidden ? 'Ẩn bớt' : 'Xem Tất cả';
+            }
+        </script>
+
+        <div class="acc-main">
+            <div class="rec-toolbar">
+                <p class="rec-count">{{ total_results }} kết quả phù hợp · Trang {{ page_obj.number }}/{{ total_pages }}</p>
+                <form method="get" class="rec-sort-form">
+                    {% for key, values in request.GET.lists %}
+                        {% if key != 'sort' and key != 'page' %}
+                            {% for value in values %}
+                                <input type="hidden" name="{{ key }}" value="{{ value }}" />
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                    <label for="resultSort"><i class="fa-solid fa-arrow-up-wide-short"></i> Sắp xếp</label>
+                    <select id="resultSort" name="sort" onchange="this.form.submit()">
+                        {% for value, label in sort_options %}
+                        <option value="{{ value }}" {% if selected_sort == value %}selected{% endif %}>{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+
+            <div class="acc-list">
+                {% for item, score in results %}
+                <a href="{% url 'accommodation_detail' item.pk %}" class="acc-card">
+                    <div class="acc-img-wrap">
+                        {% if item.image_url %}
+                        <img src="{{ item.image_url }}" alt="{{ item.name }}" class="acc-img" />
+                        {% else %}
+                        <div class="acc-img acc-img-placeholder">
+                            <i class="fa-solid fa-building" style="font-size:40px; color:#cbd5e1;"></i>
+                        </div>
+                        {% endif %}
+
+                        {% if score >= 4.5 %}
+                        <div class="rec-score-badge badge-excellent">Xuất sắc ★</div>
+                        {% elif score >= 3.5 %}
+                        <div class="rec-score-badge badge-good">Phù hợp</div>
+                        {% else %}
+                        <div class="rec-score-badge badge-ok">Tạm được</div>
                         {% endif %}
                     </div>
-                    <div class="acc-rating">★ {{ item.rating }}</div>
-                </div>
 
-                <p class="acc-desc">{{ item.description }}</p>
+                    <div class="acc-body">
+                        <div class="acc-top">
+                            <div>
+                                <p class="acc-type">{{ item.accommodation_type }}</p>
+                                <p class="acc-name">{{ item.name }}</p>
+                                <p class="acc-address"><i class="fa-solid fa-location-dot"></i> {{ item.address }}, {{ item.area }}</p>
+                                {% if search_origin.type != "none" and item.distance_km != None %}
+                                <p class="acc-address">
+                                    <i class="fa-solid fa-route"></i>
+                                    Cách {{ search_origin.label|default:"điểm tìm kiếm" }} khoảng {{ item.distance_km|floatformat:1 }} km
+                                </p>
+                                {% endif %}
+                            </div>
+                            <div class="acc-rating">★ {{ item.rating }}</div>
+                        </div>
 
-                <!-- Score bar -->
-                <div class="score-bar-wrap">
-                    <span class="score-label">Độ phù hợp</span>
-                    <div class="score-bar">
-                        <!-- score/5*100 = %, tính thủ công trong template -->
-                        {% widthratio score 5 100 as score_pct %}
-                        <div class="score-fill" style="width: {{ score_pct }}%;"></div>
-                    </div>
-                    <span class="score-num">{{ score }}/5</span>
-                </div>
+                        <p class="acc-desc">{{ item.description }}</p>
 
-                <div class="acc-bottom">
-                    <div class="acc-info">
-                        <span><i class="fa-solid fa-user"></i> {{ item.capacity }} khách</span>
-                        {% for amenity in item.amenities %}
-                            {% if amenity == "discount_percent" or amenity == "discount_amount" %}
-                                <span><i class="fa-solid fa-tag"></i> Khuyến mãi</span>
-                            {% else %}
-                                <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
-                            {% endif %}
-                        {% endfor %}
+                        <div class="score-bar-wrap">
+                            <span class="score-label">Độ phù hợp</span>
+                            <div class="score-bar">
+                                {% widthratio score 5 100 as score_pct %}
+                                <div class="score-fill" style="width: {{ score_pct }}%;"></div>
+                            </div>
+                            <span class="score-num">{{ score }}/5</span>
+                        </div>
+
+                        <div class="acc-bottom">
+                            <div class="acc-info">
+                                <span><i class="fa-solid fa-user"></i> {{ item.capacity }} khách</span>
+                                {% for amenity in item.amenities %}
+                                    {% if amenity == "discount_percent" or amenity == "discount_amount" %}
+                                        <span><i class="fa-solid fa-tag"></i> Khuyến mãi</span>
+                                    {% else %}
+                                        <span><i class="fa-solid fa-check"></i> {{ amenity }}</span>
+                                    {% endif %}
+                                {% endfor %}
+                            </div>
+                            <div class="acc-price-wrap">
+                                <p class="acc-price">
+                                    {% if item.has_discount %}
+                                    <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{
+                                        item.price_per_night|floatformat:0|intcomma }}₫</span>
+                                    <span
+                                        style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
+                                        {% if item.amenities.discount_percent %}-{{ item.amenities.discount_percent }}%{% else
+                                        %}Giảm giá{% endif %}
+                                    </span><br>
+                                    <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0|intcomma
+                                        }}₫</span>
+                                    {% else %}
+                                    <span>{{ item.price_per_night|floatformat:0|intcomma }}₫</span>
+                                    {% endif %}
+                                    /đêm
+                                </p>
+                                <span class="hotel-book-btn">Xem chi tiết</span>
+                            </div>
+                        </div>
                     </div>
-                    <div class="acc-price-wrap">
-                        <p class="acc-price">
-                            {% if item.has_discount %}
-                            <span style="text-decoration: line-through; color: #94a3b8; font-size: 0.9em;">{{
-                                item.price_per_night|floatformat:0|intcomma }}₫</span>
-                            <span
-                                style="color:#dc3545; font-size:11px; background:#fee2e2; padding:2px 6px; border-radius:4px; margin-left:2px;">
-                                {% if item.amenities.discount_percent %}-{{ item.amenities.discount_percent }}%{% else
-                                %}Giảm giá{% endif %}
-                            </span><br>
-                            <span style="color: #dc3545; font-weight: bold;">{{ item.final_price|floatformat:0|intcomma
-                                }}₫</span>
-                            {% else %}
-                            <span>{{ item.price_per_night|floatformat:0|intcomma }}₫</span>
-                            {% endif %}
-                            /đêm
-                        </p>
-                        <button class="hotel-book-btn">Book Now</button>
-                    </div>
+                </a>
+                {% empty %}
+                <div style="text-align:center; padding:60px 0; grid-column:1/-1;">
+                    <i class="fa-solid fa-magnifying-glass" style="font-size:40px; color:#cbd5e1; display:block; margin-bottom:12px;"></i>
+                    <p style="color:#94a3b8; font-size:15px;">Không tìm thấy kết quả phù hợp.</p>
+                    <a href="{% url 'recommendation_result' original_preference.id %}" class="view-all-btn" style="margin-top:16px; display:inline-block;">Khôi phục bộ lọc chatbot</a>
                 </div>
+                {% endfor %}
             </div>
 
-        </a>
-        {% empty %}
-        <div style="text-align:center; padding: 60px 20px; grid-column: 1/-1;">
-            <i class="fa-solid fa-magnifying-glass"
-                style="font-size:48px; color:#cbd5e1; display:block; margin-bottom:16px;"></i>
-            <p style="color:#94a3b8; font-size:16px;">Không tìm thấy chỗ ở phù hợp.</p>
-            <a href="/preferences/" class="view-all-btn" style="margin-top:16px; display:inline-block;">Thử lại</a>
-        </div>
-        {% endfor %}
-    </div>
+            {% if page_obj.paginator.num_pages > 1 %}
+            <div class="pagination">
+                {% if page_obj.has_previous %}
+                    <a href="?page={{ page_obj.previous_page_number }}{% if query_string %}&{{ query_string }}{% endif %}" class="page-btn"><i class="fa-solid fa-chevron-left"></i></a>
+                {% else %}
+                    <span class="page-btn disabled"><i class="fa-solid fa-chevron-left"></i></span>
+                {% endif %}
 
-    <div style="text-align:center; margin-top: 40px;">
-        <a href="/" class="view-all-btn">Về trang chủ</a>
-        <a href="/preferences/" class="view-all-btn" style="margin-left:12px;">Tìm kiếm lại</a>
+                {% for num in page_obj.paginator.page_range %}
+                    {% if num == page_obj.number %}
+                        <span class="page-btn active">{{ num }}</span>
+                    {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+                        <a href="?page={{ num }}{% if query_string %}&{{ query_string }}{% endif %}" class="page-btn">{{ num }}</a>
+                    {% elif num == 1 or num == page_obj.paginator.num_pages %}
+                        <a href="?page={{ num }}{% if query_string %}&{{ query_string }}{% endif %}" class="page-btn">{{ num }}</a>
+                    {% elif num == page_obj.number|add:"-3" or num == page_obj.number|add:"3" %}
+                        <span class="page-btn dots">...</span>
+                    {% endif %}
+                {% endfor %}
+
+                {% if page_obj.has_next %}
+                    <a href="?page={{ page_obj.next_page_number }}{% if query_string %}&{{ query_string }}{% endif %}" class="page-btn"><i class="fa-solid fa-chevron-right"></i></a>
+                {% else %}
+                    <span class="page-btn disabled"><i class="fa-solid fa-chevron-right"></i></span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
     </div>
 </div>
 

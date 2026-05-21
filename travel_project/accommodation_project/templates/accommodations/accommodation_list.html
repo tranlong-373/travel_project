@@ -33,7 +33,7 @@
                     <div class="fcard-field">
                         <i class="fa-solid fa-magnifying-glass fcard-field-icon"></i>
                         <input type="text" name="destination" value="{{ current_destination }}"
-                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" />
+                               placeholder="Nhập khu vực, tên chỗ ở..." class="fcard-input" autocomplete="off" />
                     </div>
                     <div class="fcard-field">
                         <i class="fa-solid fa-user fcard-field-icon"></i>
@@ -66,7 +66,7 @@
                         class="fcard-reset-link"
                         onclick="event.stopPropagation()">
                         Đặt lại
-                        </a>
+</a>
 
                         <i class="fa-solid fa-chevron-up fcard-chevron"></i>
                     </div>
@@ -145,7 +145,7 @@
                     <i class="fa-solid fa-chevron-up fcard-chevron"></i>
                 </div>
                 <div class="fcard-body">
-                    <label class="fcard-item"><input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
+<label class="fcard-item"><input type="radio" name="type" value="" {% if not current_type %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Tất cả</label>
                     <label class="fcard-item"><input type="radio" name="type" value="hotel" {% if current_type == 'hotel' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Khách sạn</label>
                     <label class="fcard-item"><input type="radio" name="type" value="homestay" {% if current_type == 'homestay' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Homestay</label>
                     <label class="fcard-item"><input type="radio" name="type" value="hostel" {% if current_type == 'hostel' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Hostel</label>
@@ -171,7 +171,7 @@
             <!-- KHUYẾN MÃI & GIẢM GIÁ -->
             <div class="filter-card">
                 <div class="fcard-head" onclick="fsToggle(this)">
-                    <span class="fcard-title">Khuyến mãi &amp; Giảm giá</span>
+<span class="fcard-title">Khuyến mãi &amp; Giảm giá</span>
                     <i class="fa-solid fa-chevron-up fcard-chevron"></i>
                 </div>
                 <div class="fcard-body">
@@ -202,7 +202,7 @@
                     <i class="fa-solid fa-chevron-up fcard-chevron"></i>
                 </div>
                 <div class="fcard-body">
-                    <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="wifi" {% if 'wifi' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-wifi fcard-amenity-icon"></i> Wifi</label>
+<label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="wifi" {% if 'wifi' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-wifi fcard-amenity-icon"></i> Wifi</label>
                     <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="pool" {% if 'pool' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-person-swimming fcard-amenity-icon"></i> Hồ bơi</label>
                     <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="parking" {% if 'parking' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-square-parking fcard-amenity-icon"></i> Đỗ xe</label>
                     <label class="fcard-item fcard-check-item"><input type="checkbox" name="amenity" value="air_conditioner" {% if 'air_conditioner' in current_amenities %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-checkbox"></span><i class="fa-solid fa-wind fcard-amenity-icon"></i> Điều hòa</label>
@@ -220,7 +220,7 @@
                 <div class="fcard-body">
                     <label class="fcard-item"><input type="radio" name="sort" value="" {% if not current_sort %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span> Mặc định</label>
                     <label class="fcard-item"><input type="radio" name="sort" value="price_asc" {% if current_sort == 'price_asc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-up-wide-short fcard-amenity-icon"></i> Giá thấp → cao</label>
-                    <label class="fcard-item"><input type="radio" name="sort" value="price_desc" {% if current_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-down-wide-short fcard-amenity-icon"></i> Giá cao → thấp</label>
+<label class="fcard-item"><input type="radio" name="sort" value="price_desc" {% if current_sort == 'price_desc' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-arrow-down-wide-short fcard-amenity-icon"></i> Giá cao → thấp</label>
                     <label class="fcard-item"><input type="radio" name="sort" value="rating" {% if current_sort == 'rating' %}checked{% endif %} onchange="this.form.submit()" /><span class="fcard-radio-dot"></span><i class="fa-solid fa-star fcard-amenity-icon"></i> Đánh giá cao nhất</label>
                 </div>
             </div>
@@ -366,7 +366,7 @@
                             <img src="{{ room.image_url }}" alt="{{ room.name }}" class="acc-img" />
                         </a>
                     </div>
-                    <div class="acc-body">
+<div class="acc-body">
                         <div class="acc-top">
                             <div>
                                 <p class="acc-type">{{ room.accommodation_type }}</p>
@@ -411,7 +411,7 @@
                                     </a>
                                 {% empty %}
                                     <p class="acc-preview-empty">Chưa có bài đăng liên quan.</p>
-                                {% endfor %}
+{% endfor %}
                             </div>
                         </div>
                         <div class="acc-bottom">
@@ -456,7 +456,7 @@
                 {% if page_obj.has_previous %}
                     <a href="?page={{ page_obj.previous_page_number }}{% if query_string %}&{{ query_string }}{% endif %}" class="page-btn">
                         <i class="fa-solid fa-chevron-left"></i>
-                    </a>
+</a>
                 {% else %}
                     <span class="page-btn disabled"><i class="fa-solid fa-chevron-left"></i></span>
                 {% endif %}
@@ -487,5 +487,3 @@
 </div>
 
 {% endblock %}
-
-

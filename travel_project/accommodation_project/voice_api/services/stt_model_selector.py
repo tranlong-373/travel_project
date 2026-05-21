@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
 
@@ -15,9 +16,21 @@ BALANCED = STTModelLevel.BALANCED.value
 STRONG = STTModelLevel.STRONG.value
 
 STT_MODEL_DEFAULTS = {
-    WEAK: "vinai/PhoWhisper-tiny",
-    BALANCED: "vinai/PhoWhisper-base",
-    STRONG: "vinai/PhoWhisper-small",
+    WEAK: "vinai/PhoWhisper-base",
+    BALANCED: "vinai/PhoWhisper-medium",
+    STRONG: "vinai/PhoWhisper-large",
+}
+
+MODEL_ENV_VARS = {
+    WEAK: "VOICE_WEAK_MODEL",
+    BALANCED: "VOICE_BALANCED_MODEL",
+    STRONG: "VOICE_STRONG_MODEL",
+}
+
+LEGACY_MODEL_ENV_VARS = {
+    WEAK: "VOICE_ASR_WEAK_MODEL",
+    BALANCED: "VOICE_ASR_BALANCED_MODEL",
+    STRONG: "VOICE_ASR_STRONG_MODEL",
 }
 
 MODEL_ALIASES = {
@@ -36,7 +49,7 @@ STT_SELECTION_RULES = {
         "max_duration_s": 5.0,
     },
     BALANCED: {
-        "feature_modes": {"chat", "casual_voice"},
+        "feature_modes": {"chat", "casual_voice", "recommendation", "search"},
     },
     STRONG: {
         "feature_modes": {
@@ -46,7 +59,7 @@ STT_SELECTION_RULES = {
             "study_note",
             "code_input",
         },
-        "accuracy_required": {"high", "strict", "accurate"},
+        "accuracy_required": {"true", "1", "yes", "high", "strict", "accurate"},
         "audio_quality": {"poor", "noisy", "bad"},
         "min_duration_s": 15.0,
     },
@@ -59,6 +72,21 @@ RETRY_RULES = {
     "invalid_char_ratio": 0.2,
     "invalid_char_min_count": 3,
 }
+
+
+def get_model_name_for_level(model_level: str | STTModelLevel | None) -> str:
+    normalized = normalize_model_level(model_level)
+    env_name = MODEL_ENV_VARS[normalized]
+    legacy_env_name = LEGACY_MODEL_ENV_VARS[normalized]
+    return (os.getenv(env_name) or os.getenv(legacy_env_name) or STT_MODEL_DEFAULTS[normalized]).strip()
+
+
+def get_stt_model_defaults() -> dict[str, str]:
+    return {
+        WEAK: get_model_name_for_level(WEAK),
+        BALANCED: get_model_name_for_level(BALANCED),
+        STRONG: get_model_name_for_level(STRONG),
+    }
 
 
 def normalize_model_level(model_level: str | STTModelLevel | None) -> str:
@@ -93,10 +121,13 @@ def select_stt_model(
     ):
         return STRONG
 
+    if feature in STT_SELECTION_RULES[BALANCED]["feature_modes"]:
+        return BALANCED
+
     weak_rules = STT_SELECTION_RULES[WEAK]
     if (
         feature in weak_rules["feature_modes"]
-        or is_realtime
+        or (is_realtime and feature in {"wake_word", "realtime_preview"})
         or accuracy in weak_rules["accuracy_required"]
         or (
             duration is not None
@@ -118,28 +149,49 @@ def get_stronger_model(current_model: str) -> str:
     return STRONG
 
 
+def retry_reason_for_transcript(
+    transcript: str,
+    confidence: float | None,
+    audio_duration: float | None,
+    current_model: str,
+) -> str | None:
+    if normalize_model_level(current_model) == STRONG:
+        return None
+
+    text = (transcript or "").strip()
+    if not text:
+        return "empty_transcript"
+
+    word_count = _word_count(text)
+    if word_count < 2:
+        return "transcript_too_short"
+
+    if confidence is not None and confidence < RETRY_RULES["confidence_min"]:
+        return "low_confidence"
+
+    duration = _safe_float(audio_duration)
+    if duration is not None and duration > RETRY_RULES["long_audio_s"]:
+        if word_count < RETRY_RULES["min_words_for_long_audio"]:
+            return "too_few_words_for_duration"
+
+    if _has_too_many_invalid_chars(text):
+        return "invalid_characters"
+
+    return None
+
+
 def should_retry_with_stronger_model(
     transcript: str,
     confidence: float | None,
     audio_duration: float | None,
     current_model: str,
 ) -> bool:
-    if normalize_model_level(current_model) == STRONG:
-        return False
-
-    text = (transcript or "").strip()
-    if not text:
-        return True
-
-    if confidence is not None and confidence < RETRY_RULES["confidence_min"]:
-        return True
-
-    duration = _safe_float(audio_duration)
-    if duration is not None and duration > RETRY_RULES["long_audio_s"]:
-        if _word_count(text) < RETRY_RULES["min_words_for_long_audio"]:
-            return True
-
-    return _has_too_many_invalid_chars(text)
+    return retry_reason_for_transcript(
+        transcript,
+        confidence,
+        audio_duration,
+        current_model,
+    ) is not None
 
 
 def _normalize(value: str | None) -> str:
