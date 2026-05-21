@@ -1,0 +1,353 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="partner-page">
+    <div class="partner-card">
+        <h1>Đăng ký hợp tác lưu trú</h1>
+        <p class="intro-text">
+            Gửi thông tin khách sạn và phòng đầu tiên. Admin sẽ kiểm duyệt trước khi hiển thị lên Accommodation List.
+        </p>
+
+        {% if messages %}
+            {% for message in messages %}
+                <div class="message-box">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+
+            <h2>Thông tin người đại diện</h2>
+
+            <div class="form-grid">
+                <div>
+                    <label>Người đại diện</label>
+                    {{ form.representative_name }}
+                    {{ form.representative_name.errors }}
+                </div>
+
+                <div>
+                    <label>Số điện thoại</label>
+                    {{ form.phone }}
+                    {{ form.phone.errors }}
+                </div>
+
+                <div>
+                    <label>Email</label>
+                    {{ form.email }}
+                    {{ form.email.errors }}
+                </div>
+            </div>
+
+            <hr>
+
+            <h2>Thông tin khách sạn / chỗ ở</h2>
+
+            <div class="form-grid">
+                <div>
+                    <label>Tên chỗ ở</label>
+                    {{ form.hotel_name }}
+                    {{ form.hotel_name.errors }}
+                </div>
+
+                <div>
+                    <label>Loại chỗ ở</label>
+                    {{ form.accommodation_type }}
+                    {{ form.accommodation_type.errors }}
+                </div>
+
+                <div>
+                    <label>Khu vực</label>
+                    {{ form.area }}
+                    {{ form.area.errors }}
+                </div>
+
+                <div>
+                    <label>Hotline</label>
+                    {{ form.hotline }}
+                    {{ form.hotline.errors }}
+                </div>
+
+                <div class="full-row">
+                    <label>Địa chỉ</label>
+                    {{ form.address }}
+                    {{ form.address.errors }}
+                </div>
+
+                <div>
+                    <label>Giá trung bình mỗi đêm</label>
+                    {{ form.price_per_night }}
+                    {{ form.price_per_night.errors }}
+                </div>
+
+                <div>
+                    <label>Sức chứa tổng</label>
+                    {{ form.capacity }}
+                    {{ form.capacity.errors }}
+                </div>
+
+                <div>
+                    <label>Link ảnh khách sạn</label>
+                    {{ form.image_url }}
+                    {{ form.image_url.errors }}
+                    <small>Dán link ảnh đại diện của khách sạn / homestay.</small>
+                </div>
+
+                <div>
+                    <label>Google Maps link</label>
+                    {{ form.google_maps_link }}
+                    {{ form.google_maps_link.errors }}
+                    <small>Dán link vị trí Google Maps nếu có.</small>
+                </div>
+
+                <div class="full-row">
+                    <label>Tiện ích</label>
+                    <div class="checkbox-box">
+                        {{ form.amenities }}
+                    </div>
+                    {{ form.amenities.errors }}
+                </div>
+
+                <div class="full-row">
+                    <label>Mô tả chỗ ở</label>
+                    {{ form.description }}
+                    {{ form.description.errors }}
+                </div>
+            </div>
+
+            <hr>
+
+            <h2>Thông tin phòng đầu tiên</h2>
+
+            <div class="form-grid">
+                <div>
+                    <label>Tên phòng</label>
+                    {{ form.room_name }}
+                    {{ form.room_name.errors }}
+                </div>
+
+                <div>
+                    <label>Loại phòng</label>
+                    {{ form.room_type }}
+                    {{ form.room_type.errors }}
+                </div>
+
+                <div>
+                    <label>Giá phòng mỗi đêm</label>
+                    {{ form.room_price_per_night }}
+                    {{ form.room_price_per_night.errors }}
+                </div>
+
+                <div>
+                    <label>Sức chứa phòng</label>
+                    {{ form.room_capacity }}
+                    {{ form.room_capacity.errors }}
+                </div>
+
+                <div>
+                    <label>Tổng số phòng loại này</label>
+                    {{ form.total_rooms }}
+                    {{ form.total_rooms.errors }}
+                </div>
+
+                <div>
+                    <label>Số phòng còn trống</label>
+                    {{ form.available_rooms }}
+                    {{ form.available_rooms.errors }}
+                </div>
+
+                <div class="full-row">
+                    <label>Link ảnh phòng</label>
+                    {{ form.room_image_url }}
+                    {{ form.room_image_url.errors }}
+                    <small>Dán link ảnh phòng. Ảnh này sẽ được lưu kèm thông tin phòng.</small>
+                </div>
+
+                <div class="full-row">
+                    <label>Mô tả phòng</label>
+                    {{ form.room_description }}
+                    {{ form.room_description.errors }}
+                </div>
+            </div>
+
+            <button type="submit" class="submit-btn">
+                Gửi yêu cầu hợp tác
+            </button>
+        </form>
+    </div>
+</div>
+
+<style>
+    .partner-page {
+        padding: 120px 16px 60px;
+        background: #f8fafc;
+        min-height: 100vh;
+    }
+
+    .partner-card {
+        max-width: 950px;
+        margin: 0 auto;
+        padding: 30px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    }
+
+    .partner-card h1 {
+        margin-bottom: 10px;
+        font-size: 32px;
+        color: #111827;
+    }
+
+    .intro-text {
+        margin-bottom: 30px;
+        color: #666;
+        line-height: 1.6;
+    }
+
+    .message-box {
+        padding: 12px 16px;
+        margin-bottom: 20px;
+        background: #dcfce7;
+        color: #166534;
+        border-radius: 8px;
+        font-weight: 500;
+    }
+
+    h2 {
+        margin-top: 25px;
+        margin-bottom: 15px;
+        font-size: 22px;
+        color: #111827;
+    }
+
+    hr {
+        margin: 30px 0;
+        border: none;
+        border-top: 1px solid #e5e7eb;
+    }
+
+    label {
+        display: block;
+        margin-bottom: 6px;
+        font-weight: 600;
+        color: #1f2937;
+    }
+
+    small {
+        display: block;
+        margin-top: 5px;
+        color: #6b7280;
+        font-size: 13px;
+    }
+
+    .form-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 18px;
+    }
+
+    .full-row {
+        grid-column: 1 / -1;
+    }
+
+    .form-control {
+        width: 100%;
+        padding: 11px 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        outline: none;
+        box-sizing: border-box;
+        font-size: 15px;
+        background: white;
+    }
+
+    .form-control:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+    }
+
+    textarea.form-control {
+        resize: vertical;
+    }
+
+    .checkbox-box {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px 18px;
+        padding: 15px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        background: #f9fafb;
+    }
+
+    .checkbox-box ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: contents;
+    }
+
+    .checkbox-box li {
+        list-style: none;
+    }
+
+    .checkbox-box label {
+        font-weight: 400;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin: 0;
+        cursor: pointer;
+    }
+
+    .checkbox-box input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        cursor: pointer;
+    }
+
+    .errorlist {
+        color: red;
+        margin: 5px 0 0;
+        padding-left: 18px;
+        font-size: 14px;
+    }
+
+    .submit-btn {
+        margin-top: 25px;
+        padding: 12px 26px;
+        border: none;
+        border-radius: 8px;
+        background: #2563eb;
+        color: white;
+        cursor: pointer;
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    .submit-btn:hover {
+        background: #1d4ed8;
+    }
+
+    @media (max-width: 768px) {
+        .partner-page {
+            padding-top: 100px;
+        }
+
+        .partner-card {
+            padding: 22px;
+        }
+
+        .form-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .checkbox-box {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
