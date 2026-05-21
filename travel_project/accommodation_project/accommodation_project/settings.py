@@ -20,10 +20,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent.parent
 
 ENV_PATH = BASE_DIR / '.env'
+REPO_ENV_PATH = REPO_ROOT / '.env'
 if ENV_PATH.exists():
     load_dotenv(ENV_PATH)
-else:
-    load_dotenv(REPO_ROOT / '.env')
+if REPO_ENV_PATH.exists():
+    load_dotenv(REPO_ENV_PATH)
 
 
 # Quick-start development settings - unsuitable for production
@@ -223,10 +224,10 @@ GOOGLE_LOGIN = {
 }
 
 
-# ── V2 pipeline feature flags (all OFF by default) ────────────────────────────
-# Set CHAT_PIPELINE_V2_ENABLED=True to route parse_user_text() through v2.
+# ── V2 pipeline feature flags ────────────────────────────────────────────────
+# V2 is on by default. Set CHAT_PIPELINE_V2_ENABLED=0 to force v1.
 # V2 failures always fall back to v1 — no request will crash.
-CHAT_PIPELINE_V2_ENABLED = os.getenv("CHAT_PIPELINE_V2_ENABLED", "0") == "1"
+CHAT_PIPELINE_V2_ENABLED = os.getenv("CHAT_PIPELINE_V2_ENABLED", "1") == "1"
 CHAT_PIPELINE_V2_SHADOW_MODE = os.getenv("CHAT_PIPELINE_V2_SHADOW_MODE", "0") == "1"
 CHAT_PIPELINE_V2_COMPARE_LOG = os.getenv("CHAT_PIPELINE_V2_COMPARE_LOG", "0") == "1"
 
