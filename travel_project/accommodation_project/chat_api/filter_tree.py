@@ -479,8 +479,14 @@ def build_location_branch(
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or unresolved_anchor
             radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
-            branch.update(
-                {
+            # When the geocoded anchor is a street address (not a district itself),
+            # extract "Quận N" from the phrase so the result is still grouped by district.
+            geocoded_canonical_area = _district_from_phrase(
+                unresolved_anchor,
+                anchor_name,
+                geocoded.get("display_name"),
+            )
+            branch_update = {
                     "mode": "near_anchor",
                     "location_phrase": unresolved_anchor,
                     "anchor_name": anchor_name,
@@ -504,12 +510,14 @@ def build_location_branch(
                     "geocoder_called": _external_geocoder_called(geocoded),
                     "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
-            )
+            if geocoded_canonical_area:
+                branch_update["canonical_area"] = geocoded_canonical_area
+            branch.update(branch_update)
             return branch
         if unresolved_anchor and should_try_geocoder:
             radius_km = _requested_radius_km(slots, location_result, 5.0)
-            branch.update(
-                {
+            unresolved_district = _district_from_phrase(unresolved_anchor)
+            unresolved_update = {
                     "mode": "near_anchor",
                     "location_phrase": unresolved_anchor,
                     "anchor_name": unresolved_anchor,
@@ -523,7 +531,9 @@ def build_location_branch(
                     "geocoder_called": True,
                     "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
-            )
+            if unresolved_district:
+                unresolved_update["canonical_area"] = unresolved_district
+            branch.update(unresolved_update)
             return branch
 
     text_reference = resolve_local_location_reference(location_text)
@@ -566,8 +576,10 @@ def build_location_branch(
             if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
                 anchor_name = geocoded.get("name") or geocoded.get("display_name") or follow_up_phrase
                 radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
-                branch.update(
-                    {
+                geocoded_canonical_area = _district_from_phrase(
+                    follow_up_phrase, anchor_name, geocoded.get("display_name")
+                )
+                followup_update = {
                         "mode": "near_anchor",
                         "location_phrase": follow_up_phrase,
                         "anchor_name": anchor_name,
@@ -591,10 +603,12 @@ def build_location_branch(
                         "geocoder_called": _external_geocoder_called(geocoded),
                         "geocoder_reason": "strong_near_anchor_or_place_phrase",
                     }
-                )
+                if geocoded_canonical_area:
+                    followup_update["canonical_area"] = geocoded_canonical_area
+                branch.update(followup_update)
                 return branch
-            branch.update(
-                {
+            followup_unresolved_district = _district_from_phrase(follow_up_phrase)
+            followup_unresolved_update = {
                     "mode": "near_anchor",
                     "location_phrase": follow_up_phrase,
                     "anchor_name": follow_up_phrase,
@@ -608,7 +622,9 @@ def build_location_branch(
                     "geocoder_called": True,
                     "geocoder_reason": "strong_near_anchor_or_place_phrase",
                 }
-            )
+            if followup_unresolved_district:
+                followup_unresolved_update["canonical_area"] = followup_unresolved_district
+            branch.update(followup_unresolved_update)
             return branch
 
     location_status = location_result.get("location_status") or "unresolved"
@@ -632,8 +648,10 @@ def build_location_branch(
         if geocoded and geocoded.get("lat") is not None and geocoded.get("lon") is not None:
             anchor_name = geocoded.get("name") or geocoded.get("display_name") or pending_phrase
             radius_km = _requested_radius_km(slots, location_result, geocoded.get("default_radius_km") or 5.0)
-            branch.update(
-                {
+            geocoded_canonical_area = _district_from_phrase(
+                pending_phrase, anchor_name, geocoded.get("display_name")
+            )
+            pending_update = {
                     "mode": "near_anchor",
                     "location_phrase": pending_phrase,
                     "anchor_name": anchor_name,
@@ -657,10 +675,12 @@ def build_location_branch(
                     "geocoder_called": _external_geocoder_called(geocoded),
                     "geocoder_reason": "context_pending_near_anchor",
                 }
-            )
+            if geocoded_canonical_area:
+                pending_update["canonical_area"] = geocoded_canonical_area
+            branch.update(pending_update)
             return branch
-        branch.update(
-            {
+        pending_unresolved_district = _district_from_phrase(str(pending_phrase))
+        pending_unresolved_update = {
                 "mode": "near_anchor",
                 "location_phrase": pending_phrase,
                 "anchor_name": pending_phrase,
@@ -674,7 +694,9 @@ def build_location_branch(
                 "geocoder_called": bool(should_geocode_place_phrase(str(pending_phrase))),
                 "geocoder_reason": "context_pending_near_anchor",
             }
-        )
+        if pending_unresolved_district:
+            pending_unresolved_update["canonical_area"] = pending_unresolved_district
+        branch.update(pending_unresolved_update)
         return branch
 
     if location_status == "multiple_choice":
@@ -768,9 +790,16 @@ def resolve_local_location_reference(text: str | None) -> LocationReference | No
                 canonical_area=dynamic_reference.get("district") if dynamic_reference.get("kind") == "district" else None,
             )
 
+    is_street_address = bool(re.match(r"\s*\d", norm)) or norm.count(",") >= 2
     for alias_key, reference in _reference_alias_index():
         if re.search(rf"(?<!\w){re.escape(alias_key)}(?!\w)", norm):
-            if reference.kind == "city" and norm != alias_key and has_concrete_place_noun(norm):
+            # Skip city-level matches when the phrase carries a concrete POI noun
+            # (e.g. "công viên", "trường") OR looks like a full street address.
+            # Otherwise "TP Hồ Chí Minh" in "1 Sư Vạn Hạnh, Quận 5, TP HCM" would
+            # short-circuit to the city before we ever see "Quận 5".
+            if reference.kind == "city" and norm != alias_key and (
+                has_concrete_place_noun(norm) or is_street_address
+            ):
                 continue
             return reference
     return None
@@ -1024,6 +1053,62 @@ def _branch_from_selected_place(
     }
 
 
+_DISTRICT_IN_PHRASE_RE = re.compile(
+    r"\b(?:quận|quan|q\.?)\s*(\d{1,2})(?!\d)\b",
+    re.IGNORECASE,
+)
+
+# Common named districts in HCM/Hanoi that aren't numbered.
+# Map normalized form -> canonical display name.
+_NAMED_DISTRICTS: tuple[tuple[str, str], ...] = (
+    ("thu duc", "Thủ Đức"),
+    ("binh thanh", "Bình Thạnh"),
+    ("binh tan", "Bình Tân"),
+    ("go vap", "Gò Vấp"),
+    ("phu nhuan", "Phú Nhuận"),
+    ("tan binh", "Tân Bình"),
+    ("tan phu", "Tân Phú"),
+    ("nha be", "Nhà Bè"),
+    ("hoc mon", "Hóc Môn"),
+    ("cu chi", "Củ Chi"),
+    ("can gio", "Cần Giờ"),
+    ("ba dinh", "Ba Đình"),
+    ("hoan kiem", "Hoàn Kiếm"),
+    ("hai ba trung", "Hai Bà Trưng"),
+    ("dong da", "Đống Đa"),
+    ("cau giay", "Cầu Giấy"),
+    ("tay ho", "Tây Hồ"),
+    ("long bien", "Long Biên"),
+    ("ha dong", "Hà Đông"),
+    ("hoang mai", "Hoàng Mai"),
+    ("thanh xuan", "Thanh Xuân"),
+    ("nam tu liem", "Nam Từ Liêm"),
+    ("bac tu liem", "Bắc Từ Liêm"),
+)
+
+
+def _district_from_phrase(*phrases: str | None) -> str | None:
+    """Extract "Quận N" or named-district from a longer location phrase
+    (e.g. a full street address like "1 Sư Vạn Hạnh, Phường 9, Quận 5, TP HCM"
+    or "720A Điện Biên Phủ, Bình Thạnh")."""
+    for phrase in phrases:
+        if not phrase:
+            continue
+        match = _DISTRICT_IN_PHRASE_RE.search(str(phrase))
+        if match:
+            try:
+                number = int(match.group(1))
+            except (TypeError, ValueError):
+                continue
+            if 1 <= number <= 12:
+                return f"Quận {number}"
+        phrase_key = normalize_key(str(phrase))
+        for alias, canonical in _NAMED_DISTRICTS:
+            if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", phrase_key):
+                return canonical
+    return None
+
+
 def _branch_from_reference(
     reference: LocationReference,
     *,
@@ -1033,13 +1118,19 @@ def _branch_from_reference(
     explicit_radius_km: float | None = None,
 ) -> dict[str, Any]:
     resolved_radius_km = radius_km or reference.default_radius_km
+    # For street/residential references, the reference itself has no canonical_area.
+    # If the phrase mentions "Quận N", surface that as the area so downstream
+    # filtering can still group by district.
+    canonical_area = reference.canonical_area if reference.kind == "district" else None
+    if not canonical_area and reference.kind not in {"city"}:
+        canonical_area = _district_from_phrase(location_phrase, reference.canonical_name)
     if near:
         return {
             "mode": "near_anchor",
             "explicit_anywhere": False,
             "strength": FilterStrength.SOFT.value,
             "location_phrase": location_phrase or reference.canonical_name,
-            "canonical_area": reference.canonical_area if reference.kind == "district" else None,
+            "canonical_area": canonical_area,
             "anchor_name": reference.canonical_name,
             "anchor_kind": reference.kind,
             "anchor_lat": reference.lat,

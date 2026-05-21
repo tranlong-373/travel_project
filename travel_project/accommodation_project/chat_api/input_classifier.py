@@ -19,7 +19,7 @@ from typing import Any
 from .normalizers import normalize_key
 
 # ── tuning knobs ─────────────────────────────────────────────────────────────
-HOTEL_NAME_MIN_SCORE = 85.0   # rapidfuzz WRatio threshold
+HOTEL_NAME_MIN_SCORE = 88.0   # rapidfuzz WRatio threshold (raised from 85 to avoid generic "hotel" token matches like "rex hotel" → "bao minh hotel")
 HOTEL_NAME_MIN_CHARS = 3      # ignore queries shorter than this
 
 # Các từ chung bị bỏ qua khi so sánh tên khách sạn (không phải phần riêng biệt)
@@ -81,6 +81,16 @@ _NEAR_CUES: frozenset[str] = frozenset({
     "khu vuc", "khu vực",
 })
 
+# ── signals that indicate a search query, not a hotel name lookup ─────────────
+_SEARCH_QUERY_RE = re.compile(
+    r"\b\d+\s*(?:k|tr|trieu|m|million|ngan|nghin)\b"   # budget: "500k", "1tr"
+    r"|\bq\.?\s*\d{1,2}\b|\bquan\s+\d{1,2}\b"          # district: "q10", "quan 3"
+    r"|\bnao\s*(?:khong|ko|k\b)?"                        # interrogative: "nào", "nào không"
+    r"|\bco\s+\w+\s+nao\b"                               # "có ... nào"
+    r"|\bduoi\s+\d|\btren\s+\d|\bkhoang\s+\d",          # "dưới 500k", "khoảng 800k"
+    re.IGNORECASE,
+)
+
 
 # ── public API ────────────────────────────────────────────────────────────────
 
@@ -104,9 +114,9 @@ def classify_input_type(
 
     norm = normalize_key(text)
 
-    # ── 1. Hotel name: only attempt when query carries an accommodation keyword
-    #       or starts with a known brand cue, AND no "near" preposition ──────
-    if not _has_near_cue(norm) and _has_accommodation_keyword(norm):
+    # ── 1. Hotel name: only attempt when query carries an accommodation keyword,
+    #       no "near" preposition, and no search-query signals (budget/district/interrogative)
+    if not _has_near_cue(norm) and _has_accommodation_keyword(norm) and not _SEARCH_QUERY_RE.search(norm):
         match = _fuzzy_hotel_match(norm)
         if match:
             return _result(
@@ -165,12 +175,24 @@ def _detect_address(text: str) -> str | None:
     return None
 
 
+_STRIP_PHRASE_PATTERN = re.compile(
+    r"\b(?:" + "|".join(
+        re.escape(phrase) for phrase in sorted(_STRIP_BEFORE_MATCH, key=len, reverse=True)
+    ) + r")\b",
+    re.IGNORECASE,
+)
+
+
 def _strip_generic_words(norm: str) -> str:
-    """Remove generic accommodation words so fuzzy matching focuses on the distinctive name."""
-    words = norm.split()
-    filtered = [w for w in words if w not in _STRIP_BEFORE_MATCH]
-    result = " ".join(filtered).strip()
-    # Fall back to original if stripping removes everything
+    """Remove generic accommodation words/phrases so fuzzy matching focuses on the distinctive name.
+
+    Strips both single tokens ("hotel", "homestay") and multi-word phrases
+    ("khach san", "can ho"). Previously only single tokens worked, which
+    caused queries like "Khách sạn Mường Thanh" to retain "khach san" and
+    fail to match accommodations named "Muong Thanh Luxury Saigon Hotel".
+    """
+    result = _STRIP_PHRASE_PATTERN.sub(" ", norm)
+    result = re.sub(r"\s+", " ", result).strip()
     return result if result else norm
 
 
@@ -209,6 +231,11 @@ def _fuzzy_hotel_match(norm: str) -> dict[str, Any] | None:
                 continue
 
             core_acc = _strip_generic_words(acc_norm)
+
+            # Skip accommodations with too-short core names (e.g. "X").
+            # partial_ratio gives spurious high scores when one side is < 3 chars.
+            if len(core_acc.replace(" ", "")) < 3:
+                continue
 
             if _use_rf:
                 score = max(

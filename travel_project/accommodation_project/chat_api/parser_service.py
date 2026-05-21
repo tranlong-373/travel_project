@@ -464,9 +464,19 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         result["location_status"] = "multiple_choice"
         unresolved_location = False
     elif unresolved_location:
-        slots["area"] = None
-        result["canonical_area"] = None
-        result["location_status"] = "ambiguous" if location.get("needs_city_clarification") else "unresolved"
+        # Preserve canonical_area when filter_tree extracted a district from
+        # the address phrase (e.g. "q10" → "Quận 10") even though the geocoder
+        # failed to produce coordinates. This lets the search still narrow
+        # results by district rather than dropping back to "anywhere".
+        extracted_area = location.get("canonical_area")
+        if extracted_area:
+            slots["area"] = extracted_area
+            result["canonical_area"] = extracted_area
+            result["location_status"] = "ok"
+        else:
+            slots["area"] = None
+            result["canonical_area"] = None
+            result["location_status"] = "ambiguous" if location.get("needs_city_clarification") else "unresolved"
 
     result["slots"] = slots
     result["filter_tree"] = tree_dict
@@ -1855,18 +1865,17 @@ def _try_enrich_with_groq(
     if not is_groq_enabled():
         return result
 
-    # Chỉ gọi Groq khi còn thiếu slot quan trọng (area hoặc guest_count hoặc budget)
+    # Chỉ gọi Groq khi area chưa resolve được — slot có giá trị nhất với Groq.
+    # rule-based parser đã xử lý tốt budget và guest_count cho cách nói thông thường.
     slots = result.get("slots") or {}
     has_area = bool(
         result.get("canonical_area")
         or slots.get("area")
         or result.get("anchor_lat") is not None
     )
-    has_guest = bool(slots.get("guest_count"))
-    has_budget = bool(slots.get("budget") or slots.get("budget_max"))
 
-    if has_area and has_guest and has_budget:
-        return result  # đã đủ, không cần Groq
+    if has_area:
+        return result  # area đã có, không cần Groq
 
     groq_slots = groq_extract_slots(text, context_slots=context_slots)
     if not groq_slots:

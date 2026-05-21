@@ -262,9 +262,12 @@ class SuggestionService:
     def _accommodation_candidate(accommodation: Accommodation) -> SuggestionCandidate:
         type_label = catalog_label("accommodation_type", accommodation.accommodation_type)
         subtitle = " · ".join(part for part in ("Chỗ ở", type_label, accommodation.area) if part)
+        # NOTE: Do NOT include accommodation.address as an alias. Vietnamese addresses
+        # contain common street/district tokens ("văn", "thị", "minh", "khai", "trần"...)
+        # that cause rapidfuzz.partial_ratio to give spurious 80-90+ scores for
+        # unrelated queries like "CGV Sư Vạn Hạnh" → "khách sạn ở Hoàng Văn Thụ".
         aliases = (
             accommodation.name,
-            accommodation.address,
             f"{accommodation.name} {type_label}",
             f"{type_label} {accommodation.name}",
             f"{accommodation.name} {accommodation.area}",
