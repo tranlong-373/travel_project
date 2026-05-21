@@ -168,6 +168,29 @@ def submit_message(request):
         attach_recommendation_action(result)
         return JsonResponse(result, status=200)
 
+    # Guard: ensure location exists before creating preference
+    slots = result.get("slots") or {}
+    has_location = (
+        result.get("canonical_area")
+        or result.get("anchor_lat") is not None
+        or slots.get("use_current_location")
+        or slots.get("nearby_place")
+    )
+    if not has_location:
+        result["can_show_recommendations"] = False
+        result["ready_for_recommendation"] = False
+        if not result.get("follow_up_question"):
+            result["follow_up_question"] = "Bạn muốn tìm chỗ ở ở khu vực nào tại TP HCM?"
+        result.update(
+            {
+                "created_preference": False,
+                "pref_id": None,
+                "recommendation_url": None,
+            }
+        )
+        attach_recommendation_action(result)
+        return JsonResponse(result, status=200)
+
     try:
         bridge_result = create_preference_from_parse(result)
     except ValueError:
@@ -356,6 +379,7 @@ def _build_confirmed_result(slots):
 def _normalize_locale(locale):
     locale = (locale or "vi").strip().lower()
     if locale not in ["vi", "en"]:
+        logger.warning("Unsupported locale '%s', falling back to 'vi'", locale)
         locale = "vi"
     return locale
 

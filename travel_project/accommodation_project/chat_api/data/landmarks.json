@@ -2,9 +2,13 @@
   {
     "name": "Landmark 81",
     "aliases": [
-      "landmark 81"
+      "landmark 81",
+      "vinhomes landmark 81"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7950,
+    "lon": 106.7219,
+    "radius_km": 2.5,
     "category": "landmark",
     "importance": 95
   },
@@ -17,6 +21,9 @@
       "chợ bến thành"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7724,
+    "lon": 106.6980,
+    "radius_km": 2.5,
     "category": "landmark",
     "importance": 95
   },
@@ -30,6 +37,9 @@
       "nha tho chinh toa duc ba"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7798,
+    "lon": 106.6990,
+    "radius_km": 2.5,
     "category": "landmark",
     "importance": 95
   },
@@ -44,6 +54,9 @@
       "dinh thống nhất"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7772,
+    "lon": 106.6953,
+    "radius_km": 2.0,
     "category": "landmark",
     "importance": 92
   },
@@ -55,6 +68,9 @@
       "turtle lake"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7811,
+    "lon": 106.6966,
+    "radius_km": 1.5,
     "category": "landmark",
     "importance": 80
   },
@@ -65,6 +81,9 @@
       "ben nha rong"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7647,
+    "lon": 106.7048,
+    "radius_km": 2.0,
     "category": "landmark",
     "importance": 80
   },
@@ -75,6 +94,9 @@
       "cau anh sao"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7620,
+    "lon": 106.7160,
+    "radius_km": 1.5,
     "category": "landmark",
     "importance": 75
   },
@@ -87,6 +109,9 @@
       "tao dan park"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7750,
+    "lon": 106.7100,
+    "radius_km": 1.5,
     "category": "landmark",
     "importance": 78
   },
@@ -96,9 +121,13 @@
       "tân sơn nhất",
       "tan son nhat",
       "sân bay tân sơn nhất",
-      "san bay tan son nhat"
+      "san bay tan son nhat",
+      "tan son nhat airport"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.8188,
+    "lon": 106.6519,
+    "radius_km": 5.0,
     "category": "airport",
     "importance": 90
   },
@@ -111,8 +140,164 @@
       "benh vien cho ray"
     ],
     "parent_area_id": "tp_hcm",
+    "lat": 10.7554,
+    "lon": 106.6580,
+    "radius_km": 2.5,
     "category": "landmark",
     "importance": 85
+  },
+  {
+    "name": "Thảo Cầm Viên",
+    "aliases": [
+      "thảo cầm viên",
+      "thao cam vien",
+      "saigon zoo",
+      "vườn thú",
+      "vuon thu"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7884,
+    "lon": 106.7060,
+    "radius_km": 2.0,
+    "category": "attraction",
+    "importance": 80
+  },
+  {
+    "name": "Đầm Sen",
+    "aliases": [
+      "đầm sen",
+      "dam sen",
+      "khu du lich dam sen",
+      "tao dao"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7640,
+    "lon": 106.6397,
+    "radius_km": 3.0,
+    "category": "amusement_park",
+    "importance": 75
+  },
+  {
+    "name": "Suối Tiên",
+    "aliases": [
+      "suối tiên",
+      "suoi tien",
+      "khu vui choi suoi tien"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8700,
+    "lon": 106.8031,
+    "radius_km": 5.0,
+    "category": "amusement_park",
+    "importance": 78
+  },
+  {
+    "name": "Bùi Viện",
+    "aliases": [
+      "bùi viện",
+      "bui vien",
+      "phố tây",
+      "pho tay",
+      "phố đi bộ bùi viện",
+      "backpacker street"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7691,
+    "lon": 106.6946,
+    "radius_km": 1.0,
+    "category": "street",
+    "importance": 85
+  },
+  {
+    "name": "Phú Mỹ Hưng",
+    "aliases": [
+      "phú mỹ hưng",
+      "phu my hung",
+      "phú mỹ hưng urban",
+      "pmh"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7292,
+    "lon": 106.7032,
+    "radius_km": 3.5,
+    "category": "urban_area",
+    "importance": 80
+  },
+  {
+    "name": "Bitexco",
+    "aliases": [
+      "bitexco",
+      "bitexco financial tower",
+      "tòa nhà bitexco"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7712,
+    "lon": 106.7038,
+    "radius_km": 1.5,
+    "category": "landmark",
+    "importance": 82
+  },
+  {
+    "name": "Bảo tàng Chứng tích Chiến tranh",
+    "aliases": [
+      "bảo tàng chứng tích chiến tranh",
+      "bao tang chung tich chien tranh",
+      "war remnants museum",
+      "ctct"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7793,
+    "lon": 106.6921,
+    "radius_km": 1.5,
+    "category": "museum",
+    "importance": 78
+  },
+  {
+    "name": "Chợ Lớn",
+    "aliases": [
+      "chợ lớn",
+      "cho lon",
+      "bình tây",
+      "binh tay",
+      "chợ bình tây",
+      "chinatown saigon"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7553,
+    "lon": 106.6570,
+    "radius_km": 2.5,
+    "category": "market",
+    "importance": 80
+  },
+  {
+    "name": "Grand Park",
+    "aliases": [
+      "grand park",
+      "công viên grand park",
+      "cong vien grand park",
+      "vinhomes grand park"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8349,
+    "lon": 106.8210,
+    "radius_km": 4.0,
+    "category": "park",
+    "importance": 76
+  },
+  {
+    "name": "Địa đạo Củ Chi",
+    "aliases": [
+      "địa đạo củ chi",
+      "dia dao cu chi",
+      "cu chi tunnels",
+      "cu chi"
+    ],
+    "parent_area_id": "tp_hcm",
+    "lat": 11.0549,
+    "lon": 106.4670,
+    "radius_km": 5.0,
+    "category": "historical",
+    "importance": 75
   },
   {
     "name": "Biển Đà Nẵng",
@@ -123,6 +308,9 @@
       "bai bien da nang"
     ],
     "parent_area_id": "da_nang",
+    "lat": 16.0544,
+    "lon": 108.2022,
+    "radius_km": 5.0,
     "category": "beach",
     "importance": 88
   },
@@ -135,6 +323,9 @@
       "hanoi old quarter"
     ],
     "parent_area_id": "ha_noi",
+    "lat": 21.0289,
+    "lon": 105.8549,
+    "radius_km": 1.5,
     "category": "landmark",
     "importance": 95
   },
@@ -147,6 +338,9 @@
       "ho hoan kiem"
     ],
     "parent_area_id": "ha_noi",
+    "lat": 21.0285,
+    "lon": 105.8542,
+    "radius_km": 1.5,
     "category": "landmark",
     "importance": 90
   },
@@ -160,6 +354,9 @@
       "noi bai airport"
     ],
     "parent_area_id": "ha_noi",
+    "lat": 21.2185,
+    "lon": 105.8045,
+    "radius_km": 5.0,
     "category": "airport",
     "importance": 85
   },
@@ -172,6 +369,9 @@
       "sam son beach"
     ],
     "parent_area_id": "thanh_hoa",
+    "lat": 19.7737,
+    "lon": 105.9043,
+    "radius_km": 3.0,
     "category": "beach",
     "importance": 80
   },
@@ -184,6 +384,9 @@
       "buu long tourist area"
     ],
     "parent_area_id": "dong_nai",
+    "lat": 11.1056,
+    "lon": 107.0778,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 70
   },
@@ -195,6 +398,9 @@
       "cam mountain"
     ],
     "parent_area_id": "an_giang",
+    "lat": 10.4733,
+    "lon": 104.9822,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 75
   },
@@ -207,6 +413,9 @@
       "kỳ co"
     ],
     "parent_area_id": "binh_dinh",
+    "lat": 13.5844,
+    "lon": 109.1731,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 80
   },
@@ -219,6 +428,9 @@
       "hue imperial city"
     ],
     "parent_area_id": "hue",
+    "lat": 16.2426,
+    "lon": 107.5738,
+    "radius_km": 2.0,
     "category": "unsupported_landmark",
     "importance": 90
   },
@@ -230,6 +442,9 @@
       "hoi an ancient town"
     ],
     "parent_area_id": "hoi_an",
+    "lat": 15.8787,
+    "lon": 108.3155,
+    "radius_km": 2.0,
     "category": "unsupported_landmark",
     "importance": 90
   }

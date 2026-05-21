@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from django.utils import timezone
@@ -9,12 +10,43 @@ from .place_reference import generate_place_aliases, normalize_place_text, refer
 
 
 MIN_CACHE_CONFIDENCE = 0.75
+_IN_MEMORY_CACHE: dict[str, tuple[float, dict[str, Any] | None]] = {}
+_IN_MEMORY_CACHE_TTL = 300  # 5 minutes
+_IN_MEMORY_CACHE_MAX = 500
+
+
+def _get_from_in_memory_cache(key: str) -> dict[str, Any] | None:
+    """Get from in-memory cache if not expired."""
+    entry = _IN_MEMORY_CACHE.get(key)
+    if entry is None:
+        return None
+    timestamp, value = entry
+    if time.time() - timestamp < _IN_MEMORY_CACHE_TTL:
+        return value
+    # Expired — remove and fall through to DB
+    del _IN_MEMORY_CACHE[key]
+    return None
+
+
+def _set_in_memory_cache(key: str, value: dict[str, Any] | None) -> None:
+    """Store in in-memory cache with cleanup."""
+    _IN_MEMORY_CACHE[key] = (time.time(), value)
+    if len(_IN_MEMORY_CACHE) > _IN_MEMORY_CACHE_MAX:
+        # Remove oldest entry
+        oldest_key = min(_IN_MEMORY_CACHE.keys(), key=lambda k: _IN_MEMORY_CACHE[k][0])
+        del _IN_MEMORY_CACHE[oldest_key]
 
 
 def get_cached_place(query: str | None) -> dict[str, Any] | None:
     key = normalize_place_text(query)
     if not key:
         return None
+
+    # Check in-memory cache first
+    in_mem = _get_from_in_memory_cache(key)
+    if in_mem is not None or key in _IN_MEMORY_CACHE:
+        return in_mem
+
     try:
         from ..models import PlaceReference
 
@@ -37,13 +69,16 @@ def get_cached_place(query: str | None) -> dict[str, Any] | None:
                 None,
             )
         if reference is None:
+            _set_in_memory_cache(key, None)
             return None
         reference.last_used_at = timezone.now()
         reference.save(update_fields=["last_used_at", "updated_at"])
         payload = reference_to_payload(reference, source="cache")
         payload["cache_hit"] = True
+        _set_in_memory_cache(key, payload)
         return payload
     except Exception:
+        _set_in_memory_cache(key, None)
         return None
 
 

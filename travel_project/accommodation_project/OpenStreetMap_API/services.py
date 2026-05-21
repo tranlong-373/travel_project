@@ -489,6 +489,7 @@ def search_accommodations_near_coords(
 
     # Fuzzy-match against DB accommodations
     db_accommodations = _load_db_accommodations()
+
     for item in osm_items:
         item["db_match"] = None
         item["db_match_score"] = None
@@ -497,8 +498,8 @@ def search_accommodations_near_coords(
             if match and score >= 72.0:
                 item["db_match"] = {"id": match["id"], "name": match["name"], "area": match["area"]}
                 item["db_match_score"] = round(score, 1)
-                # Backfill lat/lon on DB record if missing (fire-and-forget)
-                _backfill_db_coords(match["id"], item["lat"], item["lon"])
+                # Backfill is disabled: coordinates should already be set during accommodation creation,
+                # and this was causing N+1 queries (519+ database calls for OSM matching)
 
     return osm_items
 
@@ -544,14 +545,3 @@ def _best_db_match(osm_name: str, db_accommodations: list[dict]) -> tuple[dict |
     return best_acc, best_score
 
 
-def _backfill_db_coords(accommodation_id: int, lat: float, lon: float) -> None:
-    """Save OSM lat/lon back to the DB record if coordinates are missing."""
-    try:
-        from accommodations.models import Accommodation
-        acc = Accommodation.objects.filter(pk=accommodation_id, latitude__isnull=True).first()
-        if acc:
-            acc.latitude = lat
-            acc.longitude = lon
-            acc.save(update_fields=["latitude", "longitude"])
-    except Exception:
-        pass

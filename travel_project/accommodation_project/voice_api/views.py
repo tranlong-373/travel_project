@@ -5,7 +5,7 @@ import os
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from chat_api.recommendation_bridge import create_preference_from_parse
+from chat_api.recommendation_bridge import attach_recommendation_action, create_preference_from_parse
 from chat_api.services import parse_user_text
 
 from .services.speech_to_text import SpeechToTextError, transcribe_audio_with_metadata
@@ -78,6 +78,7 @@ def parse_voice(request):
             "stt_router": stt_result.as_dict(),
             "confirmation": confirmation,
             **preference_payload,
+            "recommendation_action": parsed_result.get("recommendation_action"),
             "ready_for_recommendation": parsed_result.get("ready_for_recommendation", False),
             "awaiting_confirmation": parsed_result.get("awaiting_confirmation", False),
             "confirmation_required": parsed_result.get("confirmation_required", False),
@@ -130,6 +131,7 @@ def _read_bool(value):
 
 def _build_preference_payload(parsed_result):
     if not parsed_result.get("ready_for_recommendation"):
+        attach_recommendation_action(parsed_result)
         return {
             "created_preference": False,
             "pref_id": None,
@@ -140,6 +142,7 @@ def _build_preference_payload(parsed_result):
         bridge_result = create_preference_from_parse(parsed_result)
     except Exception:
         logger.exception("voice_api could not create preference")
+        attach_recommendation_action(parsed_result, reason="preference_not_created")
         return {
             "created_preference": False,
             "pref_id": None,
@@ -147,4 +150,5 @@ def _build_preference_payload(parsed_result):
             "save_error": "Could not save recommendation request.",
         }
 
+    attach_recommendation_action(parsed_result, bridge_result)
     return {"created_preference": True, **bridge_result}

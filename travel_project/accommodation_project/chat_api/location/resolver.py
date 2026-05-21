@@ -19,6 +19,8 @@ from .strategies.base import LocationStrategy
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_RESOLVER: "LocationResolver | None" = None
+
 
 class LocationResolver:
     """
@@ -86,7 +88,12 @@ class LocationResolver:
         """
         Build a resolver with all production strategies registered in order.
         Lazy imports ensure Django isn't needed at module load time.
+        Cached as singleton since strategies are stateless.
         """
+        global _DEFAULT_RESOLVER
+        if _DEFAULT_RESOLVER is not None:
+            return _DEFAULT_RESOLVER
+
         from .strategies.current_location import CurrentLocationStrategy
         from .strategies.selected_place import SelectedPlaceStrategy
         from .strategies.hotel_name import HotelNameStrategy
@@ -100,7 +107,7 @@ class LocationResolver:
         from .strategies.poi_centroid import PoiCentroidStrategy
         from .strategies.ambiguous_or_unsupported import AmbiguousOrUnsupportedStrategy
 
-        return cls([
+        _DEFAULT_RESOLVER = cls([
             CurrentLocationStrategy(),
             SelectedPlaceStrategy(),
             HotelNameStrategy(),
@@ -114,3 +121,4 @@ class LocationResolver:
             PoiCentroidStrategy(),
             AmbiguousOrUnsupportedStrategy(),
         ])
+        return _DEFAULT_RESOLVER

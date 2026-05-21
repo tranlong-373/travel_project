@@ -96,10 +96,16 @@ PRIORITY_MAP = {
     "beachfront": "near_beach",
 
     "rẻ": "cheap",
+    "rẻ nhất": "cheap",
+    "rẻ nhất có thể": "cheap",
     "giá rẻ": "cheap",
     "giá mềm": "cheap",
     "cheap": "cheap",
+    "cheapest": "cheap",
     "affordable": "cheap",
+    "chi phí thấp": "cheap",
+    "bình dân": "cheap",
+    "giá tốt": "cheap",
 
     "yên tĩnh": "quiet",
     "ít ồn": "quiet",

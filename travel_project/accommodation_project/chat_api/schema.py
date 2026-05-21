@@ -21,7 +21,7 @@ SCHEMA_VERSION = "2.0"
 INTENT_DEFAULT = "recommend_accommodation"
 
 # Đồng bộ với DB/recommend hiện tại của bạn cậu
-ALLOWED_TYPES = {"hotel", "homestay", "hostel", "apartment"}
+ALLOWED_TYPES = {"hotel", "homestay", "hostel", "apartment", "villa", "resort", "bungalow"}
 
 ALLOWED_AMENITIES = {
     "wifi",
@@ -33,6 +33,15 @@ ALLOWED_AMENITIES = {
     "bathtub",
     "kitchen",
     "washing_machine",
+    "elevator",
+    "fridge",
+    "water_heater",
+    "gym",
+    "rooftop",
+    "security",
+    "coworking",
+    "pet_friendly",
+    "clean",
 }
 
 ALLOWED_PRIORITIES = {

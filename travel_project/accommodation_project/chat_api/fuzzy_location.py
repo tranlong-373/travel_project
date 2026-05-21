@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 from .location_gazetteer import generate_location_aliases
 from .text_normalizer import normalize_user_text

@@ -5,6 +5,9 @@
     "type": "province_city",
     "parent_id": null,
     "supported": true,
+    "lat": 10.7769,
+    "lon": 106.7009,
+    "radius_km": 20.0,
     "aliases": [
       "tp hcm",
       "tphcm",
@@ -29,6 +32,9 @@
     "type": "province_city",
     "parent_id": null,
     "supported": true,
+    "lat": 21.0285,
+    "lon": 105.8542,
+    "radius_km": 20.0,
     "aliases": [
       "ha noi",
       "hanoi",
@@ -44,6 +50,9 @@
     "type": "province",
     "parent_id": null,
     "supported": true,
+    "lat": 19.7400,
+    "lon": 105.7600,
+    "radius_km": 15.0,
     "aliases": [
       "thanh hoa",
       "thanh hóa",
@@ -59,6 +68,9 @@
     "type": "province",
     "parent_id": null,
     "supported": true,
+    "lat": 11.0300,
+    "lon": 106.8200,
+    "radius_km": 15.0,
     "aliases": [
       "dong nai",
       "đồng nai",
@@ -74,6 +86,9 @@
     "type": "province",
     "parent_id": null,
     "supported": true,
+    "lat": 10.3400,
+    "lon": 105.1300,
+    "radius_km": 12.0,
     "aliases": [
       "an giang",
       "long xuyen",
@@ -88,6 +103,9 @@
     "type": "province",
     "parent_id": null,
     "supported": true,
+    "lat": 13.7900,
+    "lon": 109.1800,
+    "radius_km": 12.0,
     "aliases": [
       "binh dinh",
       "bình định",
@@ -101,9 +119,386 @@
     "type": "city",
     "parent_id": null,
     "supported": true,
+    "lat": 11.9400,
+    "lon": 108.4400,
+    "radius_km": 8.0,
     "aliases": [
       "da lat",
       "đà lạt"
+    ]
+  },
+  {
+    "id": "q1_hcm",
+    "canonical_name": "quận 1",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7710,
+    "lon": 106.7021,
+    "radius_km": 3.0,
+    "aliases": [
+      "q1",
+      "quan 1",
+      "quận 1",
+      "district 1",
+      "q.1"
+    ]
+  },
+  {
+    "id": "q2_hcm",
+    "canonical_name": "quận 2",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7873,
+    "lon": 106.7498,
+    "radius_km": 6.0,
+    "aliases": [
+      "q2",
+      "quan 2",
+      "quận 2",
+      "district 2",
+      "q.2"
+    ]
+  },
+  {
+    "id": "q3_hcm",
+    "canonical_name": "quận 3",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7847,
+    "lon": 106.6844,
+    "radius_km": 4.0,
+    "aliases": [
+      "q3",
+      "quan 3",
+      "quận 3",
+      "district 3",
+      "q.3"
+    ]
+  },
+  {
+    "id": "q4_hcm",
+    "canonical_name": "quận 4",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7620,
+    "lon": 106.7160,
+    "radius_km": 3.5,
+    "aliases": [
+      "q4",
+      "quan 4",
+      "quận 4",
+      "district 4",
+      "q.4"
+    ]
+  },
+  {
+    "id": "q5_hcm",
+    "canonical_name": "quận 5",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7554,
+    "lon": 106.6580,
+    "radius_km": 3.0,
+    "aliases": [
+      "q5",
+      "quan 5",
+      "quận 5",
+      "district 5",
+      "q.5",
+      "cho lon"
+    ]
+  },
+  {
+    "id": "q6_hcm",
+    "canonical_name": "quận 6",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7450,
+    "lon": 106.6700,
+    "radius_km": 3.0,
+    "aliases": [
+      "q6",
+      "quan 6",
+      "quận 6",
+      "district 6",
+      "q.6"
+    ]
+  },
+  {
+    "id": "q7_hcm",
+    "canonical_name": "quận 7",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7355,
+    "lon": 106.7197,
+    "radius_km": 4.0,
+    "aliases": [
+      "q7",
+      "quan 7",
+      "quận 7",
+      "district 7",
+      "q.7"
+    ]
+  },
+  {
+    "id": "q8_hcm",
+    "canonical_name": "quận 8",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7300,
+    "lon": 106.6500,
+    "radius_km": 4.0,
+    "aliases": [
+      "q8",
+      "quan 8",
+      "quận 8",
+      "district 8",
+      "q.8"
+    ]
+  },
+  {
+    "id": "q9_hcm",
+    "canonical_name": "quận 9",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8349,
+    "lon": 106.8210,
+    "radius_km": 5.0,
+    "aliases": [
+      "q9",
+      "quan 9",
+      "quận 9",
+      "district 9",
+      "q.9"
+    ]
+  },
+  {
+    "id": "q10_hcm",
+    "canonical_name": "quận 10",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7625,
+    "lon": 106.6750,
+    "radius_km": 3.5,
+    "aliases": [
+      "q10",
+      "quan 10",
+      "quận 10",
+      "district 10",
+      "q.10"
+    ]
+  },
+  {
+    "id": "q11_hcm",
+    "canonical_name": "quận 11",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7700,
+    "lon": 106.6600,
+    "radius_km": 4.0,
+    "aliases": [
+      "q11",
+      "quan 11",
+      "quận 11",
+      "district 11",
+      "q.11"
+    ]
+  },
+  {
+    "id": "q12_hcm",
+    "canonical_name": "quận 12",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8200,
+    "lon": 106.6200,
+    "radius_km": 4.0,
+    "aliases": [
+      "q12",
+      "quan 12",
+      "quận 12",
+      "district 12",
+      "q.12"
+    ]
+  },
+  {
+    "id": "thu_duc_hcm",
+    "canonical_name": "thủ đức",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8494,
+    "lon": 106.7537,
+    "radius_km": 8.0,
+    "aliases": [
+      "thủ đức",
+      "thu duc",
+      "thuduc",
+      "tp thủ đức",
+      "tp thu duc",
+      "thành phố thủ đức",
+      "thanh pho thu duc"
+    ]
+  },
+  {
+    "id": "binh_thanh_hcm",
+    "canonical_name": "bình thạnh",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8059,
+    "lon": 106.7140,
+    "radius_km": 4.0,
+    "aliases": [
+      "bình thạnh",
+      "binh thanh",
+      "bt"
+    ]
+  },
+  {
+    "id": "go_vap_hcm",
+    "canonical_name": "gò vấp",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8400,
+    "lon": 106.6700,
+    "radius_km": 4.0,
+    "aliases": [
+      "gò vấp",
+      "go vap",
+      "gv"
+    ]
+  },
+  {
+    "id": "tan_binh_hcm",
+    "canonical_name": "tân bình",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8188,
+    "lon": 106.6519,
+    "radius_km": 4.0,
+    "aliases": [
+      "tân bình",
+      "tan binh",
+      "tb"
+    ]
+  },
+  {
+    "id": "tan_phu_hcm",
+    "canonical_name": "tân phú",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8000,
+    "lon": 106.6400,
+    "radius_km": 4.0,
+    "aliases": [
+      "tân phú",
+      "tan phu",
+      "tp"
+    ]
+  },
+  {
+    "id": "phu_nhuan_hcm",
+    "canonical_name": "phú nhuận",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8100,
+    "lon": 106.6900,
+    "radius_km": 3.0,
+    "aliases": [
+      "phú nhuận",
+      "phu nhuan",
+      "pn"
+    ]
+  },
+  {
+    "id": "binh_chanh_hcm",
+    "canonical_name": "bình chánh",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.7200,
+    "lon": 106.5400,
+    "radius_km": 6.0,
+    "aliases": [
+      "bình chánh",
+      "binh chanh",
+      "bc"
+    ]
+  },
+  {
+    "id": "nha_be_hcm",
+    "canonical_name": "nhà bè",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.6500,
+    "lon": 106.7300,
+    "radius_km": 5.0,
+    "aliases": [
+      "nhà bè",
+      "nha be",
+      "nb"
+    ]
+  },
+  {
+    "id": "cu_chi_hcm",
+    "canonical_name": "củ chi",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 11.0549,
+    "lon": 106.4670,
+    "radius_km": 8.0,
+    "aliases": [
+      "củ chi",
+      "cu chi",
+      "cc"
+    ]
+  },
+  {
+    "id": "can_gio_hcm",
+    "canonical_name": "cần giờ",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.5000,
+    "lon": 106.9500,
+    "radius_km": 8.0,
+    "aliases": [
+      "cần giờ",
+      "can gio",
+      "cg"
+    ]
+  },
+  {
+    "id": "hoc_mon_hcm",
+    "canonical_name": "hóc môn",
+    "type": "district",
+    "parent_id": "tp_hcm",
+    "supported": true,
+    "lat": 10.8600,
+    "lon": 106.5500,
+    "radius_km": 6.0,
+    "aliases": [
+      "hóc môn",
+      "hoc mon",
+      "hm"
     ]
   }
 ]

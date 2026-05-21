@@ -9,7 +9,7 @@ from preferences.models import UserPreference
 from .search_origin import COORDINATE_ORIGIN_TYPES, build_search_origin
 
 
-DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
+DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment", "villa", "resort", "bungalow"}
 BLOCKED_INTENTS = {"off_topic", "greeting", "thanks", "help", "goodbye"}
 BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice", "ambiguous", "unsupported"}
 DEFAULT_NEARBY_RADIUS_KM = 10.0
@@ -268,12 +268,11 @@ def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]
 
     preference = UserPreference.objects.create(**preference_kwargs)
 
-    # Nếu tìm gần địa danh cụ thể → dùng Overpass backfill lat/lon cho các KS chưa có tọa độ
-    if location_mode in {"near_anchor", "near_user"} and has_anchor_location:
-        try:
-            enrich_near_anchor_with_overpass(parse_result)
-        except Exception:
-            pass
+    # Overpass enrichment disabled: was only used for coordinate backfilling, but:
+    # 1. Overpass queries take 6+ seconds (major latency contributor)
+    # 2. Coordinates should already be set during accommodation creation
+    # 3. Results aren't included in the response anyway
+    # TODO: Consider running as async task if coordinate backfilling becomes needed again
 
     return {
         "pref_id": preference.id,

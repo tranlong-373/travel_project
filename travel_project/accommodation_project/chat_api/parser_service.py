@@ -391,14 +391,22 @@ def has_recommendation_signal(slots: dict[str, Any] | None) -> bool:
 
 
 def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
-    tree = build_filter_tree(
-        text=text,
-        slots=result.get("slots") or {},
-        location_result=result,
-    )
-    tree_dict = tree.to_dict()
-    location = tree_dict["location"]
-    slots = dict(result.get("slots") or {})
+    # Skip rebuild if v2 already provided a complete filter_tree
+    existing = result.get("filter_tree") or {}
+    if existing.get("filters") is not None and result.get("parser_mode") == "v2_pipeline":
+        # v2 already built the tree — just sync location anchor if needed
+        location = existing.get("location") or {}
+        slots = dict(result.get("slots") or {})
+        tree_dict = existing
+    else:
+        tree = build_filter_tree(
+            text=text,
+            slots=result.get("slots") or {},
+            location_result=result,
+        )
+        tree_dict = tree.to_dict()
+        location = tree_dict["location"]
+        slots = dict(result.get("slots") or {})
 
     if result.get("debug_metadata"):
         result["debug_metadata"].update(
@@ -1209,6 +1217,24 @@ def _resolve_location_pipeline(
     if legacy_location.get("location_status") in {"conflict", "multiple_choice"}:
         converted = _convert_legacy_location(legacy_location, supported_locations)
         converted["geocoder_reason"] = location_intent.get("reason") or "clear_area_match"
+
+        # Auto-resolve after 2+ clarification attempts to prevent infinite loop
+        clarification_count = (context_slots or {}).get("_location_clarification_count", 0)
+        if clarification_count >= 2 and converted.get("location_candidates"):
+            # Auto-pick first candidate to break conflict loop
+            first = converted["location_candidates"][0]
+            converted["location_status"] = "ok"
+            converted["canonical_area"] = first.get("canonical_area")
+            converted["needs_confirmation"] = False
+            converted["confirmation_type"] = "none"
+            converted["_auto_resolved"] = True
+            converted["geocoder_reason"] = "conflict_auto_resolved_after_clarification"
+            logger.info(
+                "auto-resolved location conflict after %d clarification attempts: %s",
+                clarification_count,
+                first.get("canonical_area"),
+            )
+
         return converted
 
     area_fallback = _extract_area_fallback(normalize_text(str(location_text or "")))
@@ -1378,6 +1404,13 @@ def _finalize_convenience_response(
         result["llm_called"] = llm_called
     else:
         result.setdefault("llm_called", False)
+
+    # Track clarification attempts for conflict loop prevention
+    if result.get("location_status") in {"conflict", "multiple_choice"}:
+        slots = result.get("slots") or {}
+        current_count = slots.get("_location_clarification_count", 0)
+        slots["_location_clarification_count"] = current_count + 1
+        result["slots"] = slots
 
     _attach_filter_tree_payload(result, text)
     policy = decide_user_effort_policy(result)

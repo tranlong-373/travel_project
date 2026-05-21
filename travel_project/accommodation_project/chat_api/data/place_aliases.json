@@ -62,5 +62,72 @@
     "bao tang y hoc co truyen",
     "fito museum",
     "museum of traditional vietnamese medicine"
+  ],
+  "ben nha rong": [
+    "ben nha rong",
+    "dragon house wharf",
+    "nha rong wharf"
+  ],
+  "nha tho duc ba": [
+    "nha tho duc ba",
+    "cathedral basilica of saigon",
+    "notre dame cathedral saigon",
+    "saigon cathedral"
+  ],
+  "cau anh sao": [
+    "cau anh sao",
+    "dragon bridge",
+    "cau rong"
+  ],
+  "cong vien tao dan": [
+    "cong vien tao dan",
+    "tao dan park",
+    "tao dan garden"
+  ],
+  "cho lon": [
+    "cho lon",
+    "cho binh tay",
+    "binh tay market",
+    "chinatown ho chi minh"
+  ],
+  "pho tay": [
+    "pho tay",
+    "backpacker area",
+    "backpacker district"
+  ],
+  "landmark 81": [
+    "landmark 81",
+    "vinhomes landmark 81",
+    "landmark 81 building"
+  ],
+  "ben thanh": [
+    "ben thanh market",
+    "cho ben thanh",
+    "ben thanh night market"
+  ],
+  "bitexco": [
+    "bitexco financial tower",
+    "bitexco tower",
+    "saigon financial center"
+  ],
+  "bao tang chung tich chien tranh": [
+    "bao tang chung tich chien tranh",
+    "war remnants museum",
+    "war museum saigon"
+  ],
+  "ho con rua": [
+    "ho con rua",
+    "turtle lake",
+    "ho co the duc"
+  ],
+  "khu cong nghe cao shtp": [
+    "khu cong nghe cao shtp",
+    "saigon hi tech park",
+    "shtp"
+  ],
+  "san bay tan son nhat": [
+    "san bay tan son nhat",
+    "tan son nhat airport",
+    "ho chi minh city international airport"
   ]
 }

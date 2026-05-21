@@ -3,29 +3,14 @@ Thin wrapper around chat_api.services.geocoder for street-level address resoluti
 
 Provides a simple interface: geocode_street_address(query) -> (lat, lon) | None
 - Checks PlaceReference DB cache before calling Nominatim (zero API cost on repeat)
-- Respects Nominatim policy: max 1 req/sec enforced via threading.Lock + sleep
+- Rate limiting enforced by NominatimProvider (respects Nominatim policy: max ~2 req/sec)
 - Returns None on failure (never raises)
 """
 from __future__ import annotations
 
-import threading
-import time
 import logging
 
 logger = logging.getLogger(__name__)
-
-_rate_lock = threading.Lock()
-_last_nominatim_call: float = 0.0
-_MIN_INTERVAL = 1.0  # Nominatim policy: 1 req/sec max
-
-
-def _wait_for_rate_limit() -> None:
-    global _last_nominatim_call
-    with _rate_lock:
-        elapsed = time.monotonic() - _last_nominatim_call
-        if elapsed < _MIN_INTERVAL:
-            time.sleep(_MIN_INTERVAL - elapsed)
-        _last_nominatim_call = time.monotonic()
 
 
 def geocode_street_address(
@@ -54,8 +39,7 @@ def geocode_street_address(
                 logger.debug("nominatim_geocoder: cache hit for %r", query)
                 return float(lat), float(lon)
 
-        # Cache miss — enforce rate limit before calling Nominatim
-        _wait_for_rate_limit()
+        # Cache miss — Nominatim rate limit enforced by NominatimProvider
         result = geocode_place(query, city_hint=city_hint)
         if result.success and result.latitude is not None and result.longitude is not None:
             return result.latitude, result.longitude

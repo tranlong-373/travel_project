@@ -142,10 +142,10 @@ def validate_slots(slots_partial: dict[str, Any]) -> dict[str, Any]:
     slots["budget"] = budget_max
 
     guest_count = _as_int(slots.get("guest_count"))
-    slots["guest_count"] = guest_count if guest_count is not None and 1 <= guest_count <= 30 else None
+    slots["guest_count"] = min(guest_count, 30) if guest_count is not None and guest_count >= 1 else None
 
     trip_days = _as_int(slots.get("trip_days"))
-    slots["trip_days"] = trip_days if trip_days is not None and 1 <= trip_days <= 365 else None
+    slots["trip_days"] = min(trip_days, 365) if trip_days is not None and trip_days >= 1 else None
 
     accommodation_types = _filter_allowed(slots.get("accommodation_types"), ALLOWED_TYPES)
     type_choice_multiple = bool(slots_partial.get("type_choice_multiple"))

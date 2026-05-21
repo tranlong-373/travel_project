@@ -62,6 +62,19 @@ TYPE_ALIASES: tuple[tuple[str, str], ...] = (
     ("chung cư", "apartment"),
     ("chung cu", "apartment"),
     ("serviced apartment", "apartment"),
+    ("villa", "villa"),
+    ("biệt thự", "villa"),
+    ("biet thu", "villa"),
+    ("nhà nguyên căn", "villa"),
+    ("nha nguyen can", "villa"),
+    ("thuê nguyên căn", "villa"),
+    ("thue nguyen can", "villa"),
+    ("resort", "resort"),
+    ("khu nghỉ dưỡng", "resort"),
+    ("khu nghi duong", "resort"),
+    ("bungalow", "bungalow"),
+    ("bán nhà riêng", "villa"),
+    ("ban nha rieng", "villa"),
 )
 
 AMENITY_ALIASES: tuple[tuple[str, str], ...] = (
@@ -134,6 +147,49 @@ AMENITY_ALIASES: tuple[tuple[str, str], ...] = (
     ("giat do", "washing_machine"),
     ("washing machine", "washing_machine"),
     ("laundry", "washing_machine"),
+    ("thang may", "elevator"),
+    ("co thang may", "elevator"),
+    ("elevator", "elevator"),
+    ("ascensor", "elevator"),
+    ("ban cong", "balcony"),
+    ("co ban cong", "balcony"),
+    ("balcony", "balcony"),
+    ("tu lanh", "fridge"),
+    ("co tu lanh", "fridge"),
+    ("refrigerator", "fridge"),
+    ("fridge", "fridge"),
+    ("may nuoc nong", "water_heater"),
+    ("nuoc nong", "water_heater"),
+    ("hot water", "water_heater"),
+    ("nước nóng", "water_heater"),
+    ("nước nóng", "water_heater"),
+    ("gym", "gym"),
+    ("phong gym", "gym"),
+    ("fitness", "gym"),
+    ("fitness center", "gym"),
+    ("san thuong", "rooftop"),
+    ("sân thượng", "rooftop"),
+    ("rooftop", "rooftop"),
+    ("bao ve", "security"),
+    ("security", "security"),
+    ("bảo vệ", "security"),
+    ("an toan", "security"),
+    ("an toàn", "security"),
+    ("lam viec", "coworking"),
+    ("làm việc", "coworking"),
+    ("work friendly", "coworking"),
+    ("coworking", "coworking"),
+    ("ban lam viec", "coworking"),
+    ("cho thu cung", "pet_friendly"),
+    ("cho phép thú cưng", "pet_friendly"),
+    ("thu cung", "pet_friendly"),
+    ("pet friendly", "pet_friendly"),
+    ("pet-friendly", "pet_friendly"),
+    ("with pet", "pet_friendly"),
+    ("mang theo thu cung", "pet_friendly"),
+    ("sach se", "clean"),
+    ("sạch sẽ", "clean"),
+    ("clean", "clean"),
 )
 
 GENERIC_LODGING_PHRASES: tuple[str, ...] = (
@@ -354,6 +410,7 @@ class SlotSpan:
         }
 
 
+@lru_cache(maxsize=128)
 def build_slot_parse_context(text: str | None) -> dict[str, Any]:
     normalized = normalize_user_text(text or "")
     spans = _select_non_overlapping_spans(_collect_protected_spans(normalized))

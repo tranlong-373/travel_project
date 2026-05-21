@@ -105,6 +105,7 @@ ANYWHERE_PATTERNS = (
     r"\bdoesnt matter where\b",
     r"\bno location preference\b",
 )
+_ANYWHERE_RE = re.compile("|".join(f"(?:{p})" for p in ANYWHERE_PATTERNS))
 NEAR_CUE_PATTERN = re.compile(
     r"\b(?:gan|quanh|xung quanh|canh|ke|sat|near|around|close to|nearby)\b"
 )
@@ -121,6 +122,7 @@ NEAR_USER_PATTERNS = (
     r"\bcurrent location\b",
     r"\bmy location\b",
 )
+_NEAR_USER_RE = re.compile("|".join(f"(?:{p})" for p in NEAR_USER_PATTERNS))
 DISTRICT_CUE_PATTERN = re.compile(r"\b(?:quan|q\.?|district|dist)\s*(\d{1,2})\b")
 PEOPLE_CONTEXT_PATTERN = re.compile(
     r"\b(?:cho|for)?\s*(\d{1,2})\s*(?:nguoi|ng|khach|guest|guests|people|pax|adults?|persons?)\b"
@@ -247,7 +249,7 @@ LOCAL_LOCATION_REFERENCES: tuple[LocationReference, ...] = (
 
 def has_explicit_anywhere(text: str | None) -> bool:
     norm = normalize_key(text or "")
-    return any(re.search(pattern, norm) for pattern in ANYWHERE_PATTERNS)
+    return bool(_ANYWHERE_RE.search(norm))
 
 
 def should_ignore_numeric_location_match(text: str | None, canonical_area: str | None) -> bool:
@@ -423,7 +425,7 @@ def build_location_branch(
         )
         return branch
 
-    if any(re.search(pattern, norm) for pattern in NEAR_USER_PATTERNS):
+    if _NEAR_USER_RE.search(norm):
         branch.update(
             {
                 "mode": "near_user",

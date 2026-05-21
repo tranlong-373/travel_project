@@ -83,6 +83,11 @@ _ACCOMMODATION_HINTS = [
     "view dep",
     "landmark",
 ]
+_ACCOMMODATION_HINT_RE = re.compile(r"(?<!\w)(?:" + "|".join(re.escape(h) for h in _ACCOMMODATION_HINTS) + r")(?!\w)")
+_DISTRICT_RE = re.compile(r"\b(?:q|quan|district)\s*\d{1,2}\b")
+_DISTRICT_COMPACT_RE = re.compile(r"(?:q|quan)[a-z]*\d{1,3}")
+_GUEST_COUNT_RE = re.compile(r"\b\d+\s*(?:nguoi|ng|khach)\b")
+_BUDGET_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|m|million)\b")
 _SHORT_SLOT_PATTERNS = [
     r"^\d+\s*(?:nguoi|ng|khach)$",
     r"^(?:mot|hai|ba|bon|tu|nam|sau|bay|tam|chin|muoi)\s+nguoi$",
@@ -145,7 +150,7 @@ def _matches_any(norm: str, patterns: list[str]) -> bool:
 
 
 def _has_accommodation_signal(norm: str, compact: str) -> bool:
-    if any(re.search(rf"(?<!\w){re.escape(hint)}(?!\w)", norm) for hint in _ACCOMMODATION_HINTS):
+    if _ACCOMMODATION_HINT_RE.search(norm):
         return True
     try:
         from .filter_tree import NEAR_CUE_PATTERN, resolve_local_location_reference
@@ -154,13 +159,13 @@ def _has_accommodation_signal(norm: str, compact: str) -> bool:
             return True
     except Exception:
         pass
-    if re.search(r"\b(?:q|quan|district)\s*\d{1,2}\b", norm):
+    if _DISTRICT_RE.search(norm):
         return True
-    if re.search(r"(?:q|quan)[a-z]*\d{1,3}", compact):
+    if _DISTRICT_COMPACT_RE.search(compact):
         return True
-    if re.search(r"\b\d+\s*(?:nguoi|ng|khach)\b", norm):
+    if _GUEST_COUNT_RE.search(norm):
         return True
-    if re.search(r"\b\d+(?:[.,]\d+)?\s*(?:k|tr|trieu|m|million)\b", norm):
+    if _BUDGET_RE.search(norm):
         return True
     return _has_location_alias_signal(compact)
 
