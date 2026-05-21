@@ -1,3 +1,4 @@
+
 """
 Tests for recommendation_bridge v2 path (SearchIntent support).
 
