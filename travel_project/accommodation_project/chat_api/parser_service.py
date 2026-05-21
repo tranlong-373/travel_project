@@ -1721,9 +1721,10 @@ def _finalize_v2_result(
         _attach_parse_debug_metadata(partial, slot_parse_context=slot_parse_context)
 
     result = _finalize_convenience_response(partial, text, router=router, normalized=normalized)
-    # Keep search_intent_v2 in the result: it's a JSON-safe dict, and the
-    # recommendation bridge uses it to take the typed v2 path instead of
-    # falling back to legacy slot/filter_tree parsing.
+    # Keep search_intent_v2 in the result for the recommendation bridge.
+    # Convert to dict for JSON serialization (views need JSON-safe data).
+    if "search_intent_v2" in result and hasattr(result["search_intent_v2"], "to_dict"):
+        result["search_intent_v2"] = result["search_intent_v2"].to_dict()
     return result
 
 
