@@ -45,16 +45,16 @@ class Accommodation(models.Model):
     @property
     def has_discount(self):
         if isinstance(self.amenities, dict):
-            return 'discount_percent' in self.amenities or 'discount_amount' in self.amenities
+            return bool(self.amenities.get('discount_percent') or self.amenities.get('discount_amount'))
         return False
 
     @property
     def final_price(self):
         base_price = self.price_per_night
         if isinstance(self.amenities, dict):
-            if 'discount_amount' in self.amenities:
+            if self.amenities.get('discount_amount'):
                 base_price = max(0, base_price - self.amenities['discount_amount'])
-            elif 'discount_percent' in self.amenities:
+            elif self.amenities.get('discount_percent'):
                 base_price = base_price * (100 - self.amenities['discount_percent']) / 100
         return int(base_price)
 
@@ -77,7 +77,7 @@ class Accommodation(models.Model):
             return True
         return any(
             isinstance(r.amenities, dict) and (
-                'discount_percent' in r.amenities or 'discount_amount' in r.amenities
+                r.amenities.get('discount_percent') or r.amenities.get('discount_amount')
             )
             for r in self.rooms.filter(is_active=True)
         )
@@ -121,7 +121,7 @@ class Room(models.Model):
     def has_discount(self):
         """Ưu tiên kiểm tra discount của chính phòng, sau đó fallback lên Accommodation."""
         if isinstance(self.amenities, dict):
-            if 'discount_percent' in self.amenities or 'discount_amount' in self.amenities:
+            if self.amenities.get('discount_percent') or self.amenities.get('discount_amount'):
                 return True
         return self.accommodation.has_discount
 
@@ -133,8 +133,8 @@ class Room(models.Model):
         Nếu phòng không có → dùng discount chung của Accommodation.
         """
         if isinstance(self.amenities, dict):
-            # Kiểm tra phòng có discount riêng không (kể cả 0%)
-            if 'discount_percent' in self.amenities or 'discount_amount' in self.amenities:
+            # Kiểm tra phòng có discount riêng không (bỏ qua 0)
+            if self.amenities.get('discount_percent') or self.amenities.get('discount_amount'):
                 return self.amenities  # Cô lập hoàn toàn, không fallback
         # Phòng không có discount riêng → dùng discount chung của Accommodation
         if isinstance(self.accommodation.amenities, dict):
@@ -146,9 +146,9 @@ class Room(models.Model):
         """Tính giá sau giảm, ưu tiên discount phòng, fallback lên Accommodation."""
         base_price = self.price_per_night
         info = self.discount_info
-        if 'discount_amount' in info:
+        if info.get('discount_amount'):
             base_price = max(0, base_price - info['discount_amount'])
-        elif 'discount_percent' in info:
+        elif info.get('discount_percent'):
             base_price = base_price * (100 - info['discount_percent']) / 100
         return int(base_price)
 
@@ -156,9 +156,9 @@ class Room(models.Model):
     def discount_label(self):
         """Trả về chuỗi nhãn giảm giá để hiển thị (vd: -8% hoặc -300,000đ)."""
         info = self.discount_info
-        if 'discount_percent' in info:
+        if info.get('discount_percent'):
             return f"-{info['discount_percent']}%"
-        if 'discount_amount' in info:
+        if info.get('discount_amount'):
             return f"-{info['discount_amount']:,}đ"
         return ""
 

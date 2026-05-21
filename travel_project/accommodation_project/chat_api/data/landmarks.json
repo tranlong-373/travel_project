@@ -21,6 +21,76 @@
     "importance": 95
   },
   {
+    "name": "Nhà thờ Đức Bà",
+    "aliases": [
+      "nhà thờ đức bà",
+      "nha tho duc ba",
+      "notre dame saigon",
+      "cathedral",
+      "nha tho chinh toa duc ba"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 95
+  },
+  {
+    "name": "Dinh Độc Lập",
+    "aliases": [
+      "dinh độc lập",
+      "dinh doc lap",
+      "independence palace",
+      "reunification palace",
+      "dinh thong nhat",
+      "dinh thống nhất"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 92
+  },
+  {
+    "name": "Hồ Con Rùa",
+    "aliases": [
+      "hồ con rùa",
+      "ho con rua",
+      "turtle lake"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 80
+  },
+  {
+    "name": "Bến Nhà Rồng",
+    "aliases": [
+      "bến nhà rồng",
+      "ben nha rong"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 80
+  },
+  {
+    "name": "Cầu Ánh Sao",
+    "aliases": [
+      "cầu ánh sao",
+      "cau anh sao"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 75
+  },
+  {
+    "name": "Công viên Tao Đàn",
+    "aliases": [
+      "công viên tao đàn",
+      "cong vien tao dan",
+      "tao dan",
+      "tao dan park"
+    ],
+    "parent_area_id": "tp_hcm",
+    "category": "landmark",
+    "importance": 78
+  },
+  {
     "name": "Tân Sơn Nhất",
     "aliases": [
       "tân sơn nhất",
@@ -43,6 +113,18 @@
     "parent_area_id": "tp_hcm",
     "category": "landmark",
     "importance": 85
+  },
+  {
+    "name": "Biển Đà Nẵng",
+    "aliases": [
+      "biển đà nẵng",
+      "bien da nang",
+      "da nang beach",
+      "bai bien da nang"
+    ],
+    "parent_area_id": "da_nang",
+    "category": "beach",
+    "importance": 88
   },
   {
     "name": "Old Quarter",

@@ -53,10 +53,18 @@ DEFAULT_SLOTS: dict[str, Any] = {
     "budget_max": None,
     "guest_count": None,
     "preferred_type": None,
+    "accommodation_type": None,
+    "accommodation_types": [],
     "required_amenities": [],
     "priorities": [],
     "special_requirements": [],
     "trip_days": None,
+    "room_count": None,
+    "rating": None,
+    "check_in": None,
+    "check_out": None,
+    "location_phrase": None,
+    "location_mode": "unknown",
 }
 
 

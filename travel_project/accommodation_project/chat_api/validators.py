@@ -83,17 +83,19 @@ def validate_and_normalize_slots(slots_partial: dict[str, Any]) -> dict[str, Any
     slots["budget"] = _as_int(slots.get("budget"))
     slots["guest_count"] = _as_int(slots.get("guest_count"))
     slots["preferred_type"] = _as_str(slots.get("preferred_type"))
+    slots["accommodation_type"] = _as_str(slots.get("accommodation_type"))
+    slots["accommodation_types"] = _as_list_str(slots.get("accommodation_types"))
     slots["required_amenities"] = _as_list_str(slots.get("required_amenities"))
     slots["priorities"] = _as_list_str(slots.get("priorities"))
     slots["special_requirements"] = _as_list_str(slots.get("special_requirements"))
     slots["trip_days"] = _as_int(slots.get("trip_days"))
 
-    for k in ["preferred_type", "required_amenities", "priorities", "special_requirements"]:
+    for k in ["preferred_type", "accommodation_type", "accommodation_types", "required_amenities", "priorities", "special_requirements"]:
         spec = SLOTS.get(k)
         if not spec or not spec.allowed:
             continue
 
-        if k == "preferred_type":
+        if k in {"preferred_type", "accommodation_type"}:
             if slots[k] not in spec.allowed:
                 slots[k] = None
         else:
