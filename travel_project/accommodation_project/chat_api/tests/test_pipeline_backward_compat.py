@@ -9,7 +9,7 @@ Run:  python manage.py test chat_api.tests.test_pipeline_backward_compat
 import dataclasses
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from chat_api.nlu.dto import (
     LocationMode,
@@ -66,6 +66,7 @@ def _make_intent(
     )
 
 
+@override_settings(CHAT_PIPELINE_V2_ENABLED=False)
 class TestV1PathStillWorks(SimpleTestCase):
     """parse_result v1 (no search_intent_v2 key) must still create a preference."""
 
