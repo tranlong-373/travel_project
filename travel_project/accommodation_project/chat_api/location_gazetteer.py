@@ -82,6 +82,24 @@ def _is_thu_duc(canonical_name: str) -> bool:
     return no_accent == "thu duc"
 
 
+# Non-derivable city synonyms ONLY consulted by canonicalize_area_name (v2 path).
+# Kept out of generate_location_aliases() so v1's fuzzy_location resolver does
+# not start matching "Sài Gòn" in unrelated POI/text and breaking tests like
+# test_required_standalone_pois_resolve_as_near_anchor.
+_V2_EXTRA_CITY_SYNONYMS: dict[str, str] = {
+    # synonym (normalized no-accent) → canonical display name
+    "sai gon": "TP HCM",
+    "saigon": "TP HCM",
+    "sg": "TP HCM",
+    "ho chi minh": "TP HCM",
+    "ho chi minh city": "TP HCM",
+    "hcmc": "TP HCM",
+    "tp ho chi minh": "TP HCM",
+    "thanh pho ho chi minh": "TP HCM",
+    "hanoi": "Hà Nội",
+}
+
+
 def generate_location_aliases(
     canonical_name: str,
     city: str | None = None,
@@ -276,6 +294,57 @@ def load_supported_locations() -> list[dict]:
         }
         for location in _load_supported_locations_cached()
     ]
+
+
+@lru_cache(maxsize=1)
+def _alias_to_canonical_index() -> dict[str, str]:
+    """Lookup table: every alias (and its compact form) → canonical_name.
+
+    Built once from the cached gazetteer.  Reused by v2 NLU so area_hint
+    from the classifier (which is normalized/no-accent) can be mapped back
+    to display form like "Quận 3", "Bình Thạnh".
+    """
+    index: dict[str, str] = {}
+    for entry in _load_supported_locations_cached():
+        canonical = entry.get("canonical_name") or ""
+        if not canonical:
+            continue
+        for alias in entry.get("aliases", []):
+            if alias and alias not in index:
+                index[alias] = canonical
+        # Also map the canonical itself (lowercased + no-accent + compact)
+        norm_canonical = _normalize_phrase(canonical)
+        no_accent = strip_vietnamese_accents(norm_canonical)
+        for form in {norm_canonical, no_accent, no_accent.replace(" ", "")}:
+            index.setdefault(form, canonical)
+    return index
+
+
+def canonicalize_area_name(text: str | None) -> str | None:
+    """Return the canonical display form of an area string, or None on no match.
+
+    Accepts inputs in any form: with/without accents, compact ("binhthanh"),
+    short prefix ("q3"), full ("Quận 3"). Returns the gazetteer's canonical
+    name ("Quận 3", "Bình Thạnh", "TP HCM", ...).
+    """
+    if not text:
+        return None
+    raw = str(text).strip()
+    if not raw:
+        return None
+    index = _alias_to_canonical_index()
+    candidates: list[str] = []
+    norm = _normalize_phrase(raw)
+    no_accent = strip_vietnamese_accents(norm)
+    candidates.extend([raw, raw.lower(), norm, no_accent, no_accent.replace(" ", "")])
+    for cand in candidates:
+        if not cand:
+            continue
+        if cand in index:
+            return index[cand]
+        if cand in _V2_EXTRA_CITY_SYNONYMS:
+            return _V2_EXTRA_CITY_SYNONYMS[cand]
+    return None
 
 
 def _merge_locations(*groups: list[dict]) -> list[dict]:

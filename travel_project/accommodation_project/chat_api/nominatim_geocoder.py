@@ -51,6 +51,7 @@ def geocode_street_address(
             lat = cached.get("latitude") or cached.get("lat")
             lon = cached.get("longitude") or cached.get("lon")
             if lat is not None and lon is not None:
+                logger.debug("nominatim_geocoder: cache hit for %r", query)
                 return float(lat), float(lon)
 
         # Cache miss — enforce rate limit before calling Nominatim
@@ -59,7 +60,14 @@ def geocode_street_address(
         if result.success and result.latitude is not None and result.longitude is not None:
             return result.latitude, result.longitude
 
+        logger.info(
+            "nominatim_geocoder: no result for %r — reason=%r queries=%r",
+            query,
+            result.unresolved_reason or "geocode_place returned success=False",
+            list(result.geocoder_queries),
+        )
+
     except Exception as exc:
-        logger.debug("nominatim_geocoder: failed for %r: %s", query, exc)
+        logger.warning("nominatim_geocoder: exception for %r: %s", query, exc)
 
     return None

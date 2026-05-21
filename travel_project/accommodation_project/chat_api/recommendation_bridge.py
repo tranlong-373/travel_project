@@ -11,11 +11,57 @@ from .search_origin import COORDINATE_ORIGIN_TYPES, build_search_origin
 
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment"}
 BLOCKED_INTENTS = {"off_topic", "greeting", "thanks", "help", "goodbye"}
-BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice"}
+BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice", "ambiguous", "unsupported"}
 DEFAULT_NEARBY_RADIUS_KM = 10.0
 
 
+def usable_filters_from_intent(intent: Any) -> list[str]:
+    """
+    Build the same filter list as usable_filters_from_parse() but from a
+    typed SearchIntent. Used by the v2 path and callable standalone.
+    """
+    from .nlu.dto import LocationMode
+
+    loc = intent.location
+    filters: list[str] = []
+
+    if intent.accommodation_types:
+        filters.append("accommodation_types")
+    if intent.budget or intent.budget_max or intent.budget_min:
+        filters.append("budget")
+    if intent.guest_count:
+        filters.append("guest_count")
+    if intent.required_amenities:
+        filters.append("amenities")
+    if intent.rating_min:
+        filters.append("rating")
+    if intent.priorities:
+        filters.append("sort")
+
+    mode = loc.mode
+    has_coords = loc.latitude is not None and loc.longitude is not None
+
+    if mode == LocationMode.ANYWHERE:
+        filters.append("location_anywhere")
+    elif mode == LocationMode.AREA and loc.canonical_area:
+        filters.append("location")
+        if loc.nearby_poi_key:
+            filters.append("nearby_poi")
+    elif mode in {LocationMode.NEAR_ANCHOR, LocationMode.NEAR_USER, LocationMode.CITY_CENTER} and has_coords:
+        filters.append("location")
+    elif mode == LocationMode.HOTEL_NAME:
+        filters.append("location")
+
+    return list(dict.fromkeys(filters))
+
+
 def usable_filters_from_parse(parse_result: dict[str, Any]) -> list[str]:
+    # ── v2 path: delegate to typed function ──────────────────────────────────
+    intent = _extract_search_intent(parse_result)
+    if intent is not None:
+        return usable_filters_from_intent(intent)
+
+    # ── legacy path ───────────────────────────────────────────────────────────
     slots = parse_result.get("slots") or {}
     filters: list[str] = []
     if slots.get("accommodation_types") or slots.get("preferred_type") or slots.get("accommodation_type"):
@@ -108,6 +154,12 @@ def attach_recommendation_action(
 
 
 def create_preference_from_parse(parse_result: dict[str, Any]) -> dict[str, Any]:
+    # ── v2 path: SearchIntent present ─────────────────────────────────────────
+    intent = _extract_search_intent(parse_result)
+    if intent is not None:
+        return _create_preference_from_intent_v2(intent, parse_result)
+
+    # ── legacy path (unchanged) ───────────────────────────────────────────────
     user_location = _read_user_location(parse_result)
     search_origin = build_search_origin(parse_result)
     has_user_location = search_origin.get("type") == "user_location" and bool(user_location)
@@ -333,6 +385,240 @@ def enrich_near_anchor_with_overpass(
 
     parse_result["overpass_nearby_hotels"] = results
     return results
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# v2 helpers — SearchIntent support
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _safe_float_bridge(v: Any) -> float | None:
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _safe_int_bridge(v: Any) -> int | None:
+    try:
+        return int(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _extract_search_intent(parse_result: dict[str, Any]) -> Any:
+    """
+    Return a SearchIntent from parse_result["search_intent_v2"], or None.
+    Accepts both SearchIntent objects (direct call from new pipeline) and
+    serialised dicts (round-tripped through JSON).
+    """
+    try:
+        from .nlu.dto import SearchIntent
+    except ImportError:
+        return None
+
+    raw = parse_result.get("search_intent_v2")
+    if raw is None:
+        return None
+    if isinstance(raw, SearchIntent):
+        return raw
+    if isinstance(raw, dict):
+        return _reconstruct_intent_from_dict(raw)
+    return None
+
+
+def _reconstruct_intent_from_dict(data: dict[str, Any]) -> Any:
+    """Rebuild a SearchIntent from its serialised dict representation."""
+    from .nlu.dto import (
+        LocationMode,
+        LocationStatus,
+        ResolvedLocation,
+        SearchIntent,
+        UserLocationInput,
+    )
+
+    loc_data = data.get("location") or {}
+
+    try:
+        loc_mode = LocationMode(loc_data.get("mode", "unknown"))
+    except ValueError:
+        loc_mode = LocationMode.UNKNOWN
+
+    try:
+        loc_status = LocationStatus(loc_data.get("status", "none"))
+    except ValueError:
+        loc_status = LocationStatus.NONE
+
+    loc = ResolvedLocation(
+        status=loc_status,
+        mode=loc_mode,
+        canonical_area=loc_data.get("canonical_area"),
+        display_label=loc_data.get("display_label"),
+        anchor_name=loc_data.get("anchor_name"),
+        anchor_kind=loc_data.get("anchor_kind"),
+        latitude=_safe_float_bridge(loc_data.get("latitude")),
+        longitude=_safe_float_bridge(loc_data.get("longitude")),
+        radius_km=float(loc_data.get("radius_km") or 10.0),
+        provider=loc_data.get("provider"),
+        nearby_poi_key=loc_data.get("nearby_poi_key"),
+        nearby_poi_label=loc_data.get("nearby_poi_label"),
+        raw_phrase=loc_data.get("raw_phrase"),
+        cache_hit=bool(loc_data.get("cache_hit")),
+        debug=loc_data.get("debug") or {},
+    )
+
+    ul_data = data.get("user_location")
+    user_location = None
+    if isinstance(ul_data, dict) and ul_data.get("lat") and ul_data.get("lon"):
+        try:
+            user_location = UserLocationInput(
+                lat=float(ul_data["lat"]),
+                lon=float(ul_data["lon"]),
+                radius_km=float(ul_data.get("radius_km") or 10.0),
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+
+    return SearchIntent(
+        raw_text=data.get("raw_text") or "",
+        locale=data.get("locale") or "vi",
+        conversation_intent=data.get("conversation_intent") or "search",
+        input_kind=data.get("input_kind") or "unknown",
+        location=loc,
+        user_location=user_location,
+        selected_place=data.get("selected_place"),
+        area=data.get("area"),
+        hotel_name=data.get("hotel_name"),
+        accommodation_types=list(data.get("accommodation_types") or []),
+        budget=_safe_int_bridge(data.get("budget")),
+        budget_min=_safe_int_bridge(data.get("budget_min")),
+        budget_max=_safe_int_bridge(data.get("budget_max")),
+        guest_count=_safe_int_bridge(data.get("guest_count")),
+        trip_days=_safe_int_bridge(data.get("trip_days")),
+        required_amenities=list(data.get("required_amenities") or []),
+        priorities=list(data.get("priorities") or []),
+        special_requirements=list(data.get("special_requirements") or []),
+        rating_min=_safe_float_bridge(data.get("rating_min")),
+        confidence=float(data.get("confidence") or 0.0),
+        assumptions=data.get("assumptions") or {},
+        used_default_slots=data.get("used_default_slots") or {},
+        debug=data.get("debug") or {},
+    )
+
+
+def _validate_intent_for_recommendation(intent: Any) -> None:
+    """
+    Guard equivalent to the validation block in create_preference_from_parse()
+    but operating on a typed SearchIntent.
+    Raises ValueError with a descriptive message on failure.
+    """
+    from .nlu.dto import LocationMode, LocationStatus
+
+    loc = intent.location
+    mode = loc.mode
+    status = loc.status
+
+    usable = usable_filters_from_intent(intent)
+
+    # Must have at least one usable filter
+    if not usable:
+        raise ValueError("No usable filters for recommendation.")
+
+    # Greeting with no filters is not eligible
+    if intent.input_kind == "greeting":
+        raise ValueError("Conversation intent is not eligible for recommendation.")
+
+    # Conflict / multiple_choice location blocks creation (legacy parity)
+    if status.value in BLOCKED_LOCATION_STATUSES:
+        raise ValueError(
+            f"Location status '{status.value}' is not eligible for recommendation."
+        )
+
+    # near_anchor / city_center requires resolved coordinates
+    if mode in {LocationMode.NEAR_ANCHOR, LocationMode.CITY_CENTER}:
+        if loc.latitude is None:
+            raise ValueError(
+                "Location could not be resolved to coordinates."
+            )
+
+    # near_user without GPS: only block when there are zero non-location filters
+    if mode == LocationMode.NEAR_USER and intent.user_location is None:
+        non_location = [
+            f for f in usable
+            if f not in {"location", "location_anywhere", "nearby_poi"}
+        ]
+        if not non_location:
+            raise ValueError(
+                "near_user mode requires GPS coordinates or at least one other filter."
+            )
+
+
+def _build_used_default_slots_v2(intent: Any) -> dict[str, Any]:
+    """Mirror the used_default_slots tracking from the legacy path."""
+    used: dict[str, Any] = dict(intent.used_default_slots or {})
+    if not intent.budget and not intent.budget_max and not intent.budget_min:
+        used.setdefault("budget", {
+            "value": 0,
+            "reason": "user_missing_budget_no_budget_filter",
+        })
+    if not intent.guest_count:
+        used.setdefault("guest_count", {
+            "value": 1,
+            "reason": "user_missing_guest_count_safe_minimum",
+        })
+    return used
+
+
+def _create_preference_from_intent_v2(
+    intent: Any,
+    parse_result: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    v2 path for create_preference_from_parse().
+
+    Validates intent, delegates to the new adapter for the DB write,
+    then returns the same response shape as the legacy path so callers
+    don't need to distinguish between paths.
+    """
+    from django.urls import reverse
+
+    from .adapters.search_intent_to_user_preference import create_user_preference_from_intent
+    from .nlu.dto import LocationMode
+
+    _validate_intent_for_recommendation(intent)
+
+    preference = create_user_preference_from_intent(intent)
+
+    # Overpass enrichment — same logic as legacy path
+    loc = intent.location
+    if loc.mode in {LocationMode.NEAR_ANCHOR, LocationMode.NEAR_USER} and loc.latitude is not None:
+        try:
+            pseudo = {
+                "location_mode": loc.mode.value,
+                "anchor_lat": loc.latitude,
+                "anchor_lon": loc.longitude,
+            }
+            enrich_near_anchor_with_overpass(pseudo)
+            if "overpass_nearby_hotels" in pseudo:
+                parse_result["overpass_nearby_hotels"] = pseudo["overpass_nearby_hotels"]
+        except Exception:
+            pass
+
+    used_default_slots = _build_used_default_slots_v2(intent)
+    search_origin = (preference.filter_tree_json or {}).get("search_origin") or {}
+    has_user_location = (
+        intent.user_location is not None
+        and loc.mode == LocationMode.NEAR_USER
+    )
+
+    return {
+        "pref_id": preference.id,
+        "recommendation_url": reverse(
+            "recommendation_result", kwargs={"pref_id": preference.id}
+        ),
+        "used_default_slots": used_default_slots,
+        "user_location_used": has_user_location,
+        "search_origin": search_origin,
+    }
 
 
 def _read_search_origin_location(search_origin: dict[str, Any]) -> dict[str, float] | None:

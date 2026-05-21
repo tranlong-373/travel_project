@@ -1133,17 +1133,22 @@ def _log_geocoder_timing(
     success: bool,
     unresolved_reason: str,
 ) -> None:
-    logger.debug(
-        "geocoder_timing",
-        extra={
-            "geocoder_stage": stage,
-            "geocoder_phrase": phrase,
-            "geocoder_timing": timings,
-            "geocoder_query_count": query_count,
-            "geocoder_success": success,
-            "geocoder_unresolved_reason": unresolved_reason,
-        },
-    )
+    extra = {
+        "geocoder_stage": stage,
+        "geocoder_phrase": phrase,
+        "geocoder_timing": timings,
+        "geocoder_query_count": query_count,
+        "geocoder_success": success,
+        "geocoder_unresolved_reason": unresolved_reason,
+    }
+    if success:
+        logger.debug("geocoder_timing: ok stage=%s phrase=%r total_ms=%.1f", stage, phrase, timings.get("total_ms", 0), extra=extra)
+    else:
+        logger.warning(
+            "geocoder_timing: FAIL stage=%s phrase=%r reason=%r queries=%d total_ms=%.1f",
+            stage, phrase, unresolved_reason, query_count, timings.get("total_ms", 0),
+            extra=extra,
+        )
 
 
 def _provider() -> str:
