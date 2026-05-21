@@ -8,6 +8,7 @@
     <title>Accommodation Recommendation</title>
     <link rel="stylesheet" href="{% static 'css.css' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <script src="{% static 'js/suggestion_input.js' %}"></script>
 </head>
 
 <body class='body'>
@@ -81,7 +82,7 @@
                 <button type="button" class="chat-icon-btn chat-reset-btn" onclick="resetChat()" aria-label="Làm mới chat" title="Làm mới chat">
                     <i class="fa-solid fa-rotate-left"></i>
                 </button>
-                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" />
+                <input type="text" id="chatInput" placeholder="Nhập tin nhắn..." onkeydown="handleChatKey(event)" autocomplete="off" />
                 <button type="button" class="chat-icon-btn chat-send-btn" id="chatSendBtn" onclick="sendMessage()" aria-label="Gửi" title="Gửi">
                     <i class="fa-solid fa-paper-plane"></i>
                 </button>
@@ -141,7 +142,39 @@
     const CHAT_GREETING = 'Xin chào! Mình giúp bạn tìm chỗ ở nhé. Bạn muốn ở khu vực nào?';
     const CHAT_STORAGE_KEY = 'travel_chat_state_{% if user.is_authenticated %}user_{{ user.id }}{% else %}guest{% endif %}';
     const CHAT_OPEN_STORAGE_KEY = CHAT_STORAGE_KEY + '_open';
+    const CHAT_SCROLL_STORAGE_KEY = CHAT_STORAGE_KEY + '_scroll';
     let chatHistory = [{ kind: 'message', text: CHAT_GREETING, type: 'bot' }];
+
+    function chatBody() {
+        return document.getElementById('chatMessages');
+    }
+
+    function shouldAutoScrollChat(box) {
+        if (!box) return false;
+        return box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    }
+
+    function saveChatScrollState() {
+        const box = chatBody();
+        if (!box) return;
+        try {
+            localStorage.setItem(CHAT_SCROLL_STORAGE_KEY, String(box.scrollTop));
+            localStorage.setItem(CHAT_OPEN_STORAGE_KEY, document.getElementById('chatWidget').classList.contains('open') ? '1' : '0');
+        } catch (err) {}
+    }
+
+    function restoreChatScrollState() {
+        const box = chatBody();
+        if (!box) return;
+        try {
+            const saved = localStorage.getItem(CHAT_SCROLL_STORAGE_KEY);
+            if (saved !== null) {
+                window.requestAnimationFrame(() => {
+                    box.scrollTop = Number(saved) || 0;
+                });
+            }
+        } catch (err) {}
+    }
 
     function toggleChat() {
         const widget = document.getElementById('chatWidget');
@@ -161,12 +194,15 @@
     }
 
     function addMessage(text, type, persist = true) {
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
         const div = document.createElement('div');
         div.className = 'chat-msg ' + type;
         div.textContent = text;
         box.appendChild(div);
-        box.scrollTop = box.scrollHeight;
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
 
         if (persist) {
             chatHistory.push({ kind: 'message', text, type });
@@ -183,7 +219,7 @@
             localStorage.removeItem(CHAT_STORAGE_KEY);
         } catch (err) {}
 
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
         box.innerHTML = '';
         addMessage(CHAT_GREETING, 'bot', false);
         document.getElementById('chatInput').value = '';
@@ -192,7 +228,9 @@
     }
 
     function visibleConfirmItems(items) {
+        const hiddenKeys = new Set(['selected_place']);
         return (items || []).map((item) => {
+            if (hiddenKeys.has(item.key)) return null;
             if (item.key !== 'priorities') return item;
             const rawValue = item.display_value !== undefined ? item.display_value : item.value;
             const values = Array.isArray(rawValue) ? rawValue : String(rawValue || '').split(',').map((value) => value.trim());
@@ -225,6 +263,9 @@
             return value ? 'Có' : 'Không';
         }
         if (['budget', 'budget_min', 'budget_max'].includes(item.key)) {
+            if (typeof value === 'string' && /-|Từ|Tối đa|đ\/đêm/.test(value)) {
+                return value;
+            }
             return formatMoney(value);
         }
         if (item.key === 'guest_count' && value) {
@@ -240,7 +281,8 @@
         const confirmItems = visibleConfirmItems(result.confirm_table || []);
         if (!confirmItems.length) return;
 
-        const box = document.getElementById('chatMessages');
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
         const card = document.createElement('div');
         card.className = 'chat-msg bot chat-confirm-card';
 
@@ -271,14 +313,17 @@
         const actions = document.createElement('div');
         actions.className = 'chat-confirm-actions';
 
-        const recommendationUrl = result.recommendation_url;
-        if (recommendationUrl) {
+        const recommendationAction = result.recommendation_action || {};
+        const recommendationEligible = recommendationAction.eligible !== undefined ? recommendationAction.eligible : recommendationAction.enabled;
+        if (recommendationAction.visible && recommendationEligible) {
             const recommendBtn = document.createElement('button');
             recommendBtn.type = 'button';
             recommendBtn.className = 'primary';
             recommendBtn.textContent = 'Xem đề xuất';
-            recommendBtn.onclick = () => {
-                window.location.href = recommendationUrl;
+            recommendBtn.onclick = (event) => {
+                event.preventDefault();
+                saveChatScrollState();
+                openRecommendationFromAction(result);
             };
             actions.appendChild(recommendBtn);
         }
@@ -295,7 +340,9 @@
         actions.appendChild(addMoreBtn);
         card.appendChild(actions);
         box.appendChild(card);
-        box.scrollTop = box.scrollHeight;
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
 
         if (persist) {
             chatHistory.push({
@@ -305,11 +352,228 @@
                     confirmation_prompt: result.confirmation_prompt || 'Bạn muốn bổ sung thêm thông tin không?',
                     primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
                     confirm_table: confirmItems,
+                    recommendation_action: result.recommendation_action || null,
                     recommendation_url: result.recommendation_url || null,
                     recommendation_level: result.recommendation_level || null
                 }
             });
             persistChatState();
+        }
+    }
+
+    function shouldShowLocationCandidateTable(result) {
+        const candidates = result.location_candidates || (result.clarification && result.clarification.candidates) || [];
+        return candidates.length > 0 && (
+            result.location_status === 'multiple_choice' ||
+            result.location_mode === 'multiple_choice' ||
+            result.ambiguous_location
+        );
+    }
+
+    function candidateLocationName(candidate) {
+        return candidate.title || candidate.name || candidate.canonical_area || candidate.display_name || 'Địa điểm';
+    }
+
+    function candidateLocationAddress(candidate) {
+        return candidate.subtitle || candidate.address || candidate.display_address || candidate.display_name || '';
+    }
+
+    function addLocationCandidateTable(result, persist = true) {
+        const candidates = result.location_candidates || (result.clarification && result.clarification.candidates) || [];
+        if (!candidates.length) return;
+
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card chat-location-card';
+
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = 'Chọn địa điểm';
+        card.appendChild(title);
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.primary_message || result.polite_bot_message || result.bot_message || result.follow_up_question || 'Bạn chọn đúng địa chỉ giúp mình nhé.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table chat-location-choice-table';
+        candidates.slice(0, 5).forEach((candidate) => {
+            const row = document.createElement('tr');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.onclick = () => selectLocationCandidate(candidate);
+            row.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    selectLocationCandidate(candidate);
+                }
+            };
+
+            const name = document.createElement('th');
+            name.textContent = candidateLocationName(candidate);
+            const address = document.createElement('td');
+            address.textContent = candidateLocationAddress(candidate);
+            row.appendChild(name);
+            row.appendChild(address);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+        box.appendChild(card);
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'location_candidates',
+                result: {
+                    primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                    follow_up_question: result.follow_up_question || null,
+                    location_candidates: candidates
+                }
+            });
+            persistChatState();
+        }
+    }
+
+    function smartSuggestionCandidates(result) {
+        return result.smart_suggestion_candidates || result.smart_suggestions || [];
+    }
+
+    function shouldShowSmartSuggestionTable(result) {
+        return smartSuggestionCandidates(result).length > 0;
+    }
+
+    function smartSuggestionLabel(item) {
+        return item.label || item.title || 'Gợi ý';
+    }
+
+    function smartSuggestionSubtitle(item) {
+        return item.subtitle || item.type || item.kind || '';
+    }
+
+    function addSmartSuggestionTable(result, persist = true) {
+        const candidates = smartSuggestionCandidates(result);
+        if (!candidates.length) return;
+
+        const box = chatBody();
+        const shouldScroll = shouldAutoScrollChat(box);
+        const card = document.createElement('div');
+        card.className = 'chat-msg bot chat-confirm-card chat-smart-suggestion-card';
+
+        const title = document.createElement('p');
+        title.className = 'chat-confirm-title';
+        title.textContent = 'Chọn gợi ý';
+        card.appendChild(title);
+
+        const question = document.createElement('p');
+        question.className = 'chat-confirm-question';
+        question.textContent = result.smart_suggestion_question || result.primary_message || result.polite_bot_message || result.bot_message || 'Bạn chọn gợi ý phù hợp giúp mình nhé.';
+        card.appendChild(question);
+
+        const table = document.createElement('table');
+        table.className = 'chat-confirm-table chat-location-choice-table chat-smart-suggestion-table';
+        candidates.slice(0, 5).forEach((item) => {
+            const row = document.createElement('tr');
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.onclick = () => sendSmartSuggestionFromChat(item);
+            row.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    sendSmartSuggestionFromChat(item);
+                }
+            };
+
+            const name = document.createElement('th');
+            name.textContent = smartSuggestionLabel(item);
+            const subtitle = document.createElement('td');
+            subtitle.textContent = smartSuggestionSubtitle(item);
+            row.appendChild(name);
+            row.appendChild(subtitle);
+            table.appendChild(row);
+        });
+        card.appendChild(table);
+        box.appendChild(card);
+        if (shouldScroll) {
+            box.scrollTop = box.scrollHeight;
+        }
+
+        if (persist) {
+            chatHistory.push({
+                kind: 'smart_suggestions',
+                result: {
+                    smart_suggestion_question: result.smart_suggestion_question || null,
+                    primary_message: result.primary_message || result.polite_bot_message || result.bot_message || null,
+                    smart_suggestion_candidates: candidates
+                }
+            });
+            persistChatState();
+        }
+    }
+
+    async function selectLocationCandidate(candidate) {
+        if (chatIsBusy) return;
+        const payload = candidate.payload || { area: candidate.canonical_area || candidate.name };
+        const label = candidateLocationName(candidate);
+        addMessage('Chọn: ' + label, 'user');
+        setChatBusy(true);
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    locale: 'vi',
+                    context_slots: contextSlots,
+                    quick_reply_payload: payload
+                })
+            });
+            const data = await res.json();
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Mình chưa xác nhận được địa điểm này, bạn thử lại giúp mình nhé.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
+    async function openRecommendationFromAction(result) {
+        const action = result.recommendation_action || {};
+        if (action.url && !action.requires_submit) {
+            window.location.assign(action.url);
+            return;
+        }
+        if (!action.requires_submit) {
+            return;
+        }
+
+        const payload = {
+            locale: 'vi',
+            context_slots: result.slots || contextSlots || {}
+        };
+        if (result.raw_text) {
+            payload.text = result.raw_text;
+        } else if (result.slots) {
+            payload.confirmed_slots = result.slots;
+        }
+
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            const nextAction = data.recommendation_action || {};
+            if (nextAction.eligible && nextAction.url) {
+                window.location.assign(nextAction.url);
+                return;
+            }
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Mình chưa mở được trang đề xuất, bạn thử lại giúp mình nhé.', 'bot');
         }
     }
 
@@ -319,11 +583,15 @@
             if (saved && Array.isArray(saved.messages) && saved.messages.length > 0) {
                 chatHistory = saved.messages;
                 contextSlots = saved.contextSlots || {};
-                const box = document.getElementById('chatMessages');
+                const box = chatBody();
                 box.innerHTML = '';
                 chatHistory.forEach((entry) => {
                     if (entry.kind === 'confirmation') {
                         addConfirmationTable(entry.result || {}, false);
+                    } else if (entry.kind === 'location_candidates') {
+                        addLocationCandidateTable(entry.result || {}, false);
+                    } else if (entry.kind === 'smart_suggestions') {
+                        addSmartSuggestionTable(entry.result || {}, false);
                     } else {
                         addMessage(entry.text || '', entry.type || 'bot', false);
                     }
@@ -333,6 +601,7 @@
             if (localStorage.getItem(CHAT_OPEN_STORAGE_KEY) === '1') {
                 document.getElementById('chatWidget').classList.add('open');
             }
+            restoreChatScrollState();
         } catch (err) {}
     }
 
@@ -471,11 +740,28 @@
         }
 
         const primaryMessage = result.polite_bot_message || result.bot_message;
-        const recommendationUrl = data.recommendation_url || result.recommendation_url;
-        result.recommendation_url = recommendationUrl || null;
+        result.recommendation_action = data.recommendation_action || result.recommendation_action || {
+            visible: true,
+            enabled: false,
+            eligible: false,
+            url: null,
+            reason: 'no_usable_filter'
+        };
+        const recommendationEligible = result.recommendation_action.eligible !== undefined ? result.recommendation_action.eligible : result.recommendation_action.enabled;
+        result.recommendation_url = recommendationEligible ? result.recommendation_action.url : null;
         result.primary_message = primaryMessage || null;
 
         const hasConfirmTable = result.confirm_table && result.confirm_table.length > 0;
+        if (shouldShowSmartSuggestionTable(result)) {
+            addSmartSuggestionTable(result);
+            return;
+        }
+
+        if (shouldShowLocationCandidateTable(result)) {
+            addLocationCandidateTable(result);
+            return;
+        }
+
         if (hasConfirmTable) {
             addConfirmationTable(result);
             return;
@@ -616,6 +902,112 @@
         }
     }
 
+    function initSmartSuggestInputs() {
+        const helper = window.TravelSuggestion && window.TravelSuggestion.initSuggestionInput;
+        if (!helper) return;
+        document.querySelectorAll('[data-smart-suggest]').forEach((input) => {
+            const mode = input.dataset.smartSuggest;
+            const context = mode === 'destination' ? 'find_recommendation' : (mode || 'chat');
+            helper(input, {
+                context: context,
+                placement: input.closest('.chat-input-wrap') ? 'above' : 'below',
+                onSelect: (item) => {
+                    if (mode === 'chat' && input.id === 'chatInput') {
+                        sendSmartSuggestionFromChat(item);
+                    } else {
+                        applySmartSuggestionToForm(input, item);
+                    }
+                }
+            });
+        });
+    }
+
+    function renderSmartSuggestPanel(panel, suggestions, onSelect) {
+        panel.innerHTML = '';
+        if (!suggestions.length) {
+            hideSmartSuggest(panel);
+            return;
+        }
+        suggestions.slice(0, 8).forEach((item) => {
+            const row = document.createElement('button');
+            row.type = 'button';
+            row.className = 'smart-suggest-item';
+            row.onmousedown = (event) => event.preventDefault();
+            row.onclick = () => onSelect(item);
+            row.innerHTML = `
+                <span class="smart-suggest-title">${smartEscape(item.title || 'Gợi ý')}</span>
+                <span class="smart-suggest-subtitle">${smartEscape(item.subtitle || item.kind || '')}</span>
+            `;
+            panel.appendChild(row);
+        });
+        panel.style.display = 'block';
+    }
+
+    function hideSmartSuggest(panel) {
+        panel.style.display = 'none';
+        panel.innerHTML = '';
+    }
+
+    function applySmartSuggestionToForm(input, item) {
+        const form = input.closest('form');
+        const payload = item.payload || {};
+        const kind = item.kind || item.type;
+        if (kind === 'accommodation_type' && payload.accommodation_type && form) {
+            const typeInput = form.querySelector(`input[name="type"][value="${payload.accommodation_type}"]`);
+            if (typeInput) {
+                typeInput.checked = true;
+                input.value = '';
+                form.submit();
+                return;
+            }
+        }
+
+        if (kind === 'amenity' && form) {
+            const amenity = payload.amenity_key || (payload.required_amenities || [])[0];
+            const amenityInput = amenity ? form.querySelector(`input[name="required_amenities"][value="${amenity}"]`) : null;
+            if (amenityInput) {
+                amenityInput.checked = true;
+            }
+        }
+
+        input.value = payload.destination || payload.area || payload.name || item.label || item.title || '';
+    }
+
+    async function sendSmartSuggestionFromChat(item) {
+        if (chatIsBusy) return;
+        const input = document.getElementById('chatInput');
+        if (input) input.value = '';
+        addMessage('Chọn: ' + (item.label || item.title || 'gợi ý'), 'user');
+        setChatBusy(true);
+        try {
+            const res = await fetch('/chat_api/submit/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    locale: 'vi',
+                    context_slots: contextSlots,
+                    quick_reply_payload: item.payload || {}
+                })
+            });
+            const data = await res.json();
+            handleChatResult(data);
+        } catch (err) {
+            addMessage('Mình chưa dùng được gợi ý này, bạn thử nhập lại giúp mình nhé.', 'bot');
+        } finally {
+            setChatBusy(false);
+        }
+    }
+
+    function smartEscape(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    window.addEventListener('beforeunload', saveChatScrollState);
+    initSmartSuggestInputs();
     restoreChatState();
 </script>
 </html>

@@ -65,12 +65,12 @@ DATABASE_OVERRIDES = {
 
 ## Cài Và Chạy Web
 
-### Từ repo root:
+### Trên WSL/Linux/macOS:
 
 ```bash
 cd travel_project/accommodation_project
-python -m venv venv
-venv\Scripts\activate
+python3 -m venv venv
+source venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 cp .env.example .env
@@ -129,6 +129,8 @@ Chat API:
 Voice API:
 
 - `POST /api/voice/parse/` với multipart field `audio` hoặc `file`.
+- Voice flow giữ nguyên: audio upload -> WAV 16kHz mono -> transcript -> cleanup tiếng Việt -> `chat_api` slots -> `UserPreference` nếu đủ dữ liệu.
+- Cần cài `ffmpeg` trên máy chạy server để convert file ghi âm trước khi đưa vào ASR.
 
 Auth API:
 
@@ -220,8 +222,19 @@ Nhóm biến chính:
 - Firebase client: `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_STORAGE_BUCKET`, `FIREBASE_MESSAGING_SENDER_ID`, `FIREBASE_APP_ID`, `FIREBASE_MEASUREMENT_ID`.
 - Firebase admin: toàn bộ nhóm `FIREBASE_ADMIN_*`.
 - Google OAuth: `GOOGLE_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`, `COOKIE_SECURE`.
-- Chat/HF parser: `CHAT_API_ENABLE_HF_AGENT`, `CHAT_API_LLM_STRATEGY`, `CHAT_API_MODEL`, `CHAT_API_FALLBACK_MODEL`, `CHAT_API_DEVICE`, `CHAT_API_TIMEOUT_SECONDS`, `CHAT_API_USE_NER`, `CHAT_API_NER_MODEL`.
-- Voice: `VOICE_ASR_MODEL`, `VOICE_DEVICE`, `VOICE_MAX_AUDIO_MB`, `VOICE_MAX_NEW_TOKENS`, `VOICE_CHUNK_LENGTH_S`.
+- Chat parser: `CHAT_API_ENABLE_HF_AGENT`, `CHAT_API_LLM_STRATEGY`, `CHAT_API_MODEL`, `CHAT_API_LIGHT_MODEL`, `CHAT_API_FALLBACK_MODEL`, `CHAT_API_STRONG_MODEL`, `CHAT_API_DEVICE`, `CHAT_API_MAX_NEW_TOKENS`, `CHAT_API_TEMPERATURE`, `CHAT_API_TOP_P`, `CHAT_API_DO_SAMPLE`, `CHAT_API_TIMEOUT_SECONDS`, `CHAT_API_PROMPT_EXAMPLE_COUNT`, `CHAT_API_USE_NER`, `CHAT_API_NER_MODEL`, `CHAT_API_INCLUDE_DIAGNOSTICS`, `CHAT_API_STRICT_SUPPORTED_AREAS`.
+- Voice backend: `STT_BACKEND`, `VOICE_WEAK_MODEL`, `VOICE_BALANCED_MODEL`, `VOICE_STRONG_MODEL`, `HF_TOKEN`, `HF_API_MODEL`.
+- Voice limits/runtime: `VOICE_MAX_AUDIO_MB`, `VOICE_MIN_AUDIO_SECONDS`, `VOICE_MAX_AUDIO_SECONDS`, `VOICE_DEVICE`, `VOICE_MAX_NEW_TOKENS`, `VOICE_CHUNK_LENGTH_S`.
+
+Voice backend khuyến nghị:
+
+- Demo/local accuracy: `STT_BACKEND=local` với `vinai/PhoWhisper-medium` hoặc `vinai/PhoWhisper-large`.
+- API đơn giản/free: `STT_BACKEND=hf_api` với `HF_API_MODEL=openai/whisper-large-v3` và `HF_TOKEN`.
+- Máy yếu: dùng `vinai/PhoWhisper-base` hoặc `vinai/PhoWhisper-medium`.
+
+Lưu ý: local backend dùng PhoWhisper để ưu tiên tiếng Việt. HF API backend mặc định dùng `openai/whisper-large-v3` vì `vinai/PhoWhisper-large` hiện không đảm bảo có Hugging Face Inference Provider, nên không đặt PhoWhisper-large làm mặc định cho `hf_api`.
+
+Nếu `.env` local cũ còn các dòng `VOICE_ASR_WEAK_MODEL`, `VOICE_ASR_BALANCED_MODEL`, `VOICE_ASR_STRONG_MODEL` trỏ tới tiny/base/small, hãy comment chúng hoặc đổi sang PhoWhisper base/medium/large. Sau khi đổi `.env`, restart `runserver` để Django nạp lại config.
 
 Google OAuth local redirect mặc định:
 
@@ -237,11 +250,11 @@ Không thêm dấu `/` cuối callback. Nếu đổi sang `localhost` hoặc dom
 
 - Core web: `Django`, `python-dotenv`, `requests`.
 - SQL Server: `mssql-django`, `pyodbc`.
-- Firebase/Google auth: `firebase-admin`; `google-auth` đang có qua dependency của Firebase Admin trong venv.
+- Firebase/Google auth: `firebase-admin`, `google-auth`.
 - Hugging Face text/voice parser: `transformers`, `torch`, `accelerate`.
 - Các package cũ như `folium`, `overpy`, `google-generativeai`, `langchain*`, `chromadb` vẫn nằm trong requirements theo yêu cầu project, dù chưa thấy import trực tiếp trong code Django hiện tại.
 
-Nếu dùng voice API mà môi trường mới báo thiếu audio runtime, kiểm tra thêm các package audio phụ thuộc của Hugging Face như `librosa`, `soundfile`, `torchaudio` hoặc cài `ffmpeg` ở cấp hệ điều hành.
+Nếu dùng voice API, cài `ffmpeg` ở cấp hệ điều hành. Nếu local ASR báo thiếu audio runtime, kiểm tra thêm các package audio phụ thuộc của Hugging Face như `librosa`, `soundfile`, `torchaudio`.
 
 ## Test Nhanh
 
@@ -279,4 +292,4 @@ Nếu lỡ paste key thật vào git hoặc chat, rotate lại key trong Firebas
 - Dữ liệu seed chủ yếu là demo, kết quả recommendation phụ thuộc dữ liệu thật trong DB.
 - `preferred_type = "resort"` không lưu downstream vì model hiện chỉ hỗ trợ `hotel`, `homestay`, `hostel`, `apartment`.
 - HF model mặc định có thể nặng và có thể cần tải model ở lần chạy đầu tiên.
-- Voice API phụ thuộc chất lượng audio và runtime audio của máy local.
+- Voice API phụ thuộc chất lượng audio, `ffmpeg`, runtime audio của máy local hoặc trạng thái Hugging Face Inference API nếu dùng `STT_BACKEND=hf_api`.

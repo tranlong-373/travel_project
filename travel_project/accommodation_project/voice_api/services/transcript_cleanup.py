@@ -45,7 +45,7 @@ RAW_FILLER_PATTERNS = [
 ]
 
 FILLER_PATTERNS = [
-    r"\b(u|um|uh|om|a|ah|ha|nha|nhe)\b",
+    r"\b(u|um|uh|om|a|ah|nha|nhe)\b",
     r"\b(cho mình hỏi là|mình muốn hỏi là|kiểu như là|nói chung là)\b",
 ]
 
@@ -95,6 +95,8 @@ ACCENT_PHRASES = {
     "danh gia cao": "đánh giá cao",
     "gan trung tam": "gần trung tâm",
     "gan bien": "gần biển",
+    "trieu ruoi": "triệu rưỡi",
+    "mot trieu ruoi": "một triệu rưỡi",
     "yen tinh": "yên tĩnh",
     "sach se": "sạch sẽ",
     "view dep": "view đẹp",
@@ -139,6 +141,7 @@ ACCENT_TOKENS = {
     "co": "có",
     "va": "và",
     "voi": "với",
+    "ks": "khách sạn",
     "phong": "phòng",
     "re": "rẻ",
     "tot": "tốt",

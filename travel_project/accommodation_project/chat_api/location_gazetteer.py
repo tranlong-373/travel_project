@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import re
 from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from .text_normalizer import strip_vietnamese_accents
+
+_DVHCVN_PATH = Path(__file__).parent / "data" / "vietnamese_admin_units.json"
 
 
 _FALLBACK_LOCATION_SPECS: tuple[tuple[str, str | None, str | None], ...] = (
@@ -78,6 +82,24 @@ def _is_thu_duc(canonical_name: str) -> bool:
     return no_accent == "thu duc"
 
 
+# Non-derivable city synonyms ONLY consulted by canonicalize_area_name (v2 path).
+# Kept out of generate_location_aliases() so v1's fuzzy_location resolver does
+# not start matching "Sài Gòn" in unrelated POI/text and breaking tests like
+# test_required_standalone_pois_resolve_as_near_anchor.
+_V2_EXTRA_CITY_SYNONYMS: dict[str, str] = {
+    # synonym (normalized no-accent) → canonical display name
+    "sai gon": "TP HCM",
+    "saigon": "TP HCM",
+    "sg": "TP HCM",
+    "ho chi minh": "TP HCM",
+    "ho chi minh city": "TP HCM",
+    "hcmc": "TP HCM",
+    "tp ho chi minh": "TP HCM",
+    "thanh pho ho chi minh": "TP HCM",
+    "hanoi": "Hà Nội",
+}
+
+
 def generate_location_aliases(
     canonical_name: str,
     city: str | None = None,
@@ -127,6 +149,42 @@ def _location_entry(canonical_name: str, city: str | None, type: str | None) -> 
 
 def _fallback_locations() -> list[dict]:
     return [_location_entry(name, city, location_type) for name, city, location_type in _FALLBACK_LOCATION_SPECS]
+
+
+def _load_dvhcvn_units() -> list[dict]:
+    """Load phường/xã/thị trấn từ dvhcvn dataset và tạo alias entries."""
+    try:
+        raw = json.loads(_DVHCVN_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+    entries: list[dict] = []
+    for province in raw.get("provinces", []):
+        province_name: str = province.get("name", "")
+        for district in province.get("districts", []):
+            district_name: str = district.get("name", "")
+            district_type: str = district.get("type", "district")
+            entries.append(_location_entry(district_name, province_name, district_type))
+            for ward in district.get("wards", []):
+                ward_name: str = ward.get("name", "")
+                if not ward_name:
+                    continue
+                # Alias cả có prefix (Phường Bến Nghé) lẫn không (Bến Nghé)
+                short_name = re.sub(
+                    r"^(?:phường|xã|thị trấn|thi tran)\s+",
+                    "",
+                    ward_name,
+                    flags=re.IGNORECASE,
+                )
+                extra_aliases: set[str] = set()
+                if short_name and short_name.lower() != ward_name.lower():
+                    _add_alias_forms(extra_aliases, short_name)
+                    _add_alias_forms(extra_aliases, f"{short_name} {district_name}")
+                entry = _location_entry(ward_name, district_name, "ward")
+                if extra_aliases:
+                    entry["aliases"] = sorted(set(entry["aliases"]) | extra_aliases)
+                entries.append(entry)
+    return entries
 
 
 def _model_location_type(model_name: str) -> str | None:
@@ -221,7 +279,8 @@ def _location_merge_key(canonical_name: str) -> str:
 @lru_cache(maxsize=1)
 def _load_supported_locations_cached() -> tuple[dict, ...]:
     db_locations = _locations_from_database()
-    locations = _merge_locations(_fallback_locations(), db_locations)
+    dvhcvn_locations = _load_dvhcvn_units()
+    locations = _merge_locations(_fallback_locations(), dvhcvn_locations, db_locations)
     return tuple(locations)
 
 
@@ -235,6 +294,57 @@ def load_supported_locations() -> list[dict]:
         }
         for location in _load_supported_locations_cached()
     ]
+
+
+@lru_cache(maxsize=1)
+def _alias_to_canonical_index() -> dict[str, str]:
+    """Lookup table: every alias (and its compact form) → canonical_name.
+
+    Built once from the cached gazetteer.  Reused by v2 NLU so area_hint
+    from the classifier (which is normalized/no-accent) can be mapped back
+    to display form like "Quận 3", "Bình Thạnh".
+    """
+    index: dict[str, str] = {}
+    for entry in _load_supported_locations_cached():
+        canonical = entry.get("canonical_name") or ""
+        if not canonical:
+            continue
+        for alias in entry.get("aliases", []):
+            if alias and alias not in index:
+                index[alias] = canonical
+        # Also map the canonical itself (lowercased + no-accent + compact)
+        norm_canonical = _normalize_phrase(canonical)
+        no_accent = strip_vietnamese_accents(norm_canonical)
+        for form in {norm_canonical, no_accent, no_accent.replace(" ", "")}:
+            index.setdefault(form, canonical)
+    return index
+
+
+def canonicalize_area_name(text: str | None) -> str | None:
+    """Return the canonical display form of an area string, or None on no match.
+
+    Accepts inputs in any form: with/without accents, compact ("binhthanh"),
+    short prefix ("q3"), full ("Quận 3"). Returns the gazetteer's canonical
+    name ("Quận 3", "Bình Thạnh", "TP HCM", ...).
+    """
+    if not text:
+        return None
+    raw = str(text).strip()
+    if not raw:
+        return None
+    index = _alias_to_canonical_index()
+    candidates: list[str] = []
+    norm = _normalize_phrase(raw)
+    no_accent = strip_vietnamese_accents(norm)
+    candidates.extend([raw, raw.lower(), norm, no_accent, no_accent.replace(" ", "")])
+    for cand in candidates:
+        if not cand:
+            continue
+        if cand in index:
+            return index[cand]
+        if cand in _V2_EXTRA_CITY_SYNONYMS:
+            return _V2_EXTRA_CITY_SYNONYMS[cand]
+    return None
 
 
 def _merge_locations(*groups: list[dict]) -> list[dict]:

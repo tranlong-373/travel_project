@@ -93,22 +93,16 @@ WSGI_APPLICATION = 'accommodation_project.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    #  "default": {
-    #      "ENGINE": "mssql",
-    #      "NAME": "AccommodationDB",
-    #      "HOST": "localhost",
-    #      "PORT": "",
-    #      "OPTIONS": {
-    #          "driver": "ODBC Driver 18 for SQL Server",
-    #          #"driver": "ODBC Driver 18 for SQL Server",#
-    #          "trusted_connection": "yes",
-    #          "extra_params": "Encrypt=No;TrustServerCertificate=Yes;",
-    #      },
-    #  }
-
-    'default': {
-       'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+    "default": {
+        "ENGINE": "mssql",
+        "NAME": "AccommodationDB",
+        "HOST": "localhost",
+        "PORT": "",
+        "OPTIONS": {
+            "driver": "ODBC Driver 18 for SQL Server",
+            "trusted_connection": "yes",
+            "extra_params": "Encrypt=No;TrustServerCertificate=Yes;",
+        },
     }
 }
 
@@ -210,6 +204,14 @@ GOOGLE_LOGIN = {
     'frontend_url': FRONTEND_URL,
     'cookie_secure': COOKIE_SECURE,
 }
+
+
+# ── V2 pipeline feature flags (all OFF by default) ────────────────────────────
+# Set CHAT_PIPELINE_V2_ENABLED=True to route parse_user_text() through v2.
+# V2 failures always fall back to v1 — no request will crash.
+CHAT_PIPELINE_V2_ENABLED = os.getenv("CHAT_PIPELINE_V2_ENABLED", "0") == "1"
+CHAT_PIPELINE_V2_SHADOW_MODE = os.getenv("CHAT_PIPELINE_V2_SHADOW_MODE", "0") == "1"
+CHAT_PIPELINE_V2_COMPARE_LOG = os.getenv("CHAT_PIPELINE_V2_COMPARE_LOG", "0") == "1"
 
 
 try:
