@@ -22,8 +22,16 @@ logger = logging.getLogger(__name__)
 
 _GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 _GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-_GROQ_TIMEOUT = int(os.getenv("GROQ_TIMEOUT_SECONDS", "8"))
+_GROQ_TIMEOUT = int(os.getenv("GROQ_TIMEOUT_SECONDS", "2"))
 _GROQ_MAX_TOKENS = int(os.getenv("GROQ_MAX_TOKENS", "256"))
+
+
+def _groq_feature_enabled() -> bool:
+    # Default OFF — Groq blocks the request thread and was on the hot path
+    # for every unresolved-area query. Operators opt in explicitly.
+    return os.getenv("CHAT_API_GROQ_ENABLED", "0").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 # Rate-limit guard: Groq free tier ~30 req/min
 _rate_lock = threading.Lock()
@@ -89,7 +97,7 @@ Ví dụ:
 
 
 def is_groq_enabled() -> bool:
-    return bool(_GROQ_API_KEY)
+    return _groq_feature_enabled() and bool(_GROQ_API_KEY)
 
 
 def groq_extract_slots(text: str, *, context_slots: dict[str, Any] | None = None) -> dict[str, Any] | None:
