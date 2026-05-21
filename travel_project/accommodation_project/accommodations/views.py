@@ -1,7 +1,7 @@
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Q, Sum
 
 from accounts.models import Favorite
 from blog.models import BlogPost
@@ -12,11 +12,21 @@ def accommodation_list(request):
 
     qs = Accommodation.objects.all()
 
+    def positive_int(value):
+        try:
+            parsed = int(str(value or '').strip())
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
     # =========================
     # SEARCH
     # =========================
     destination = request.GET.get('destination', '').strip()
     guests = request.GET.get('guests', '').strip()
+    adults = request.GET.get('adults', '').strip()
+    children = request.GET.get('children', '').strip()
+    rooms = request.GET.get('rooms', '').strip()
     check_in = request.GET.get('check_in', '').strip()
     check_out = request.GET.get('check_out', '').strip()
 
@@ -31,14 +41,23 @@ def accommodation_list(request):
     guest_count = None
 
     if guests:
-        try:
-            guest_count = int(guests)
+        guest_count = positive_int(guests)
+    elif adults or children:
+        adult_count = positive_int(adults) or 0
+        child_count = positive_int(children) or 0
+        guest_count = adult_count + child_count or None
 
-            if guest_count > 0:
-                qs = qs.filter(capacity__gte=guest_count)
+    if guest_count:
+        qs = qs.filter(capacity__gte=guest_count)
 
-        except (TypeError, ValueError):
-            guest_count = None
+    room_count = positive_int(rooms)
+    if room_count:
+        qs = qs.annotate(
+            total_available_room_count=Sum(
+                'rooms__available_rooms',
+                filter=Q(rooms__is_active=True),
+            )
+        ).filter(total_available_room_count__gte=room_count)
 
     # =========================
     # TYPE
@@ -236,7 +255,10 @@ def accommodation_list(request):
             'current_amenities': amenities,
 
             'current_destination': destination,
-            'current_guests': guests,
+            'current_guests': guests or (str(guest_count) if guest_count else ''),
+            'current_adults': adults,
+            'current_children': children,
+            'current_rooms': rooms,
 
             'current_check_in': check_in,
             'current_check_out': check_out,
