@@ -2,6 +2,10 @@ import os
 import django
 import random
 
+from collections import defaultdict
+
+from cloudinary_image_urls import IMAGE_URLS
+
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "accommodation_project.settings")
 django.setup()
 
@@ -89,7 +93,101 @@ def random_capacity_by_type(accommodation_type):
         return random.randint(2, 10)
 
     return random.randint(1, 8)
+def load_image_map():
+    image_map = {}
 
+    for acc_type, urls in IMAGE_URLS.items():
+        if not isinstance(urls, list):
+            continue
+
+        valid_urls = []
+
+        for url in urls:
+            if isinstance(url, str) and url.startswith("http"):
+                valid_urls.append(url.strip())
+
+        image_map[acc_type] = valid_urls
+
+    return image_map
+
+
+def random_image_url(image_map, accommodation_type, fallback_url):
+    urls = image_map.get(accommodation_type, [])
+
+    if urls:
+        return random.choice(urls)
+
+    return fallback_url
+
+
+def normalize_duplicate_id(accommodation):
+    code = accommodation.accommodation_code or ""
+
+    if "-" not in code:
+        return code
+
+    parts = code.split("-")
+
+    if len(parts) >= 2:
+        return f"{parts[0]}-{parts[1]}"
+
+    return code
+
+
+def delete_duplicate_accommodations_by_id():
+    grouped = defaultdict(list)
+
+    accommodations = Accommodation.objects.all().order_by("id")
+
+    for accommodation in accommodations:
+        duplicate_id = normalize_duplicate_id(accommodation)
+        grouped[duplicate_id].append(accommodation)
+
+    deleted_count = 0
+
+    for duplicate_id, items in grouped.items():
+        if not duplicate_id:
+            continue
+
+        if len(items) <= 1:
+            continue
+
+        keep_item = items[0]
+        duplicate_items = items[1:]
+
+        for duplicate in duplicate_items:
+            duplicate.delete()
+            deleted_count += 1
+
+        print(f"Đã xóa {len(duplicate_items)} accommodation trùng ID {duplicate_id}, giữ lại {keep_item.name}")
+
+    print(f"✅ Tổng số accommodation trùng đã xóa: {deleted_count}")
+
+
+def update_accommodation_images():
+    image_map = load_image_map()
+
+    if not image_map:
+        print("⚠️ Không có image map, bỏ qua bước update ảnh.")
+        return
+
+    accommodations = Accommodation.objects.all()
+
+    updated_count = 0
+
+    for accommodation in accommodations:
+        fallback_url = f"https://picsum.photos/seed/accommodation{accommodation.id}/800/500"
+
+        accommodation.image_url = random_image_url(
+            image_map=image_map,
+            accommodation_type=accommodation.accommodation_type,
+            fallback_url=fallback_url
+        )
+
+        accommodation.save(update_fields=["image_url"])
+        updated_count += 1
+
+    print(f"✅ Đã cập nhật image_url cho {updated_count} accommodation.")
 
 accommodation_data = [{'accommodation_code': 'HOTEL-7776644089008742412',
   'name': 'Khách Sạn Hạnh Phúc - Phòng Đẹp 24/7 - Từ 390K',
@@ -12181,6 +12279,8 @@ accommodation_data = [{'accommodation_code': 'HOTEL-7776644089008742412',
   'source_file': 'Apartment_Quận Gò Vấp.xlsx'}]
 
 
+
+
 for i, item in enumerate(accommodation_data, start=1):
     acc_type = item.get("accommodation_type") or "hotel"
     capacity = random_capacity_by_type(acc_type)
@@ -12244,5 +12344,7 @@ for i, item in enumerate(accommodation_data, start=1):
         accommodation.price_per_night = sum(room_prices) // len(room_prices)
         accommodation.save(update_fields=["price_per_night"])
 
+delete_duplicate_accommodations_by_id()
+update_accommodation_images()
 
 print(f"✅ Đã seed {len(accommodation_data)} accommodations thành công!")
