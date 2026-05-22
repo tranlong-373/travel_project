@@ -34,10 +34,13 @@ _HANDLED_KINDS: frozenset[str] = frozenset({
 })
 
 
+DEFAULT_LANDMARK_RADIUS_KM = 3.0
+
+
 @lru_cache(maxsize=1)
-def _load_landmark_index() -> list[tuple[str, str, str]]:
+def _load_landmark_index() -> list[tuple[str, str, str, float | None, float | None, float]]:
     """
-    Returns list of (normalized_alias, landmark_name, parent_area_canonical)
+    Returns list of (normalized_alias, landmark_name, parent_area_canonical, lat, lon, radius_km)
     sorted by alias length descending for greedy matching.
     """
     try:
@@ -52,24 +55,27 @@ def _load_landmark_index() -> list[tuple[str, str, str]]:
         for area in areas_raw
     }
 
-    entries: list[tuple[str, str, str]] = []
+    entries: list[tuple[str, str, str, float | None, float | None, float]] = []
     for landmark in landmarks:
         name = landmark.get("name", "")
         parent_id = landmark.get("parent_area_id", "")
         canonical_area = area_by_id.get(parent_id, parent_id)
+        lat = landmark.get("lat")
+        lon = landmark.get("lon")
+        radius_km = float(landmark.get("radius_km") or DEFAULT_LANDMARK_RADIUS_KM)
         for alias in landmark.get("aliases", []):
             norm_alias = normalize_key(alias)
             if norm_alias:
-                entries.append((norm_alias, name, canonical_area))
+                entries.append((norm_alias, name, canonical_area, lat, lon, radius_km))
 
     # Longest alias first — greedy match avoids "ben thanh" shadowing "cho ben thanh"
     entries.sort(key=lambda t: len(t[0]), reverse=True)
     return entries
 
 
-def _find_landmark(phrase: str | None) -> tuple[str, str] | None:
+def _find_landmark(phrase: str | None) -> tuple[str, str, float | None, float | None, float] | None:
     """
-    Return (landmark_name, canonical_area) if phrase contains a known alias.
+    Return (landmark_name, canonical_area, lat, lon, radius_km) if phrase contains a known alias.
     Uses substring match so mixed_search location_phrases (e.g. "landmark 81
     duoi 1tr5 cho 2 nguoi") still resolve correctly.
     Returns None if no match.
@@ -79,9 +85,9 @@ def _find_landmark(phrase: str | None) -> tuple[str, str] | None:
     norm = normalize_key(phrase)
     if not norm:
         return None
-    for alias, name, canonical_area in _load_landmark_index():
+    for alias, name, canonical_area, lat, lon, radius_km in _load_landmark_index():
         if alias in norm:
-            return name, canonical_area
+            return name, canonical_area, lat, lon, radius_km
     return None
 
 
@@ -100,7 +106,8 @@ class LandmarkStaticJsonStrategy(LocationStrategy):
         if match is None:
             return None
 
-        landmark_name, canonical_area = match
+        landmark_name, canonical_area, lat, lon, radius_km = match
+        has_coords = lat is not None and lon is not None
         return ResolvedLocation(
             status=LocationStatus.OK,
             mode=LocationMode.NEAR_ANCHOR,
@@ -109,11 +116,14 @@ class LandmarkStaticJsonStrategy(LocationStrategy):
             display_label=landmark_name,
             anchor_name=landmark_name,
             anchor_kind="landmark",
-            # No lat/lon — landmarks.json is name-only
-            latitude=None,
-            longitude=None,
-            radius_km=5.0,
+            latitude=lat,
+            longitude=lon,
+            radius_km=radius_km,
             provider="landmark_static_json",
-            cache_hit=False,
-            debug={"source": "landmark_static_json", "matched": landmark_name},
+            cache_hit=has_coords,
+            debug={
+                "source": "landmark_static_json",
+                "matched": landmark_name,
+                "has_coords": has_coords,
+            },
         )

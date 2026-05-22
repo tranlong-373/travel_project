@@ -6,9 +6,9 @@
       "vinhomes landmark 81"
     ],
     "parent_area_id": "tp_hcm",
-    "lat": 10.7950,
+    "lat": 10.795,
     "lon": 106.7219,
-    "radius_km": 2.5,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 95
   },
@@ -22,8 +22,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.7724,
-    "lon": 106.6980,
-    "radius_km": 2.5,
+    "lon": 106.698,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 95
   },
@@ -38,8 +38,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.7798,
-    "lon": 106.6990,
-    "radius_km": 2.5,
+    "lon": 106.699,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 95
   },
@@ -56,7 +56,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7772,
     "lon": 106.6953,
-    "radius_km": 2.0,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 92
   },
@@ -70,7 +70,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7811,
     "lon": 106.6966,
-    "radius_km": 1.5,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 80
   },
@@ -83,7 +83,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7647,
     "lon": 106.7048,
-    "radius_km": 2.0,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 80
   },
@@ -94,9 +94,9 @@
       "cau anh sao"
     ],
     "parent_area_id": "tp_hcm",
-    "lat": 10.7620,
-    "lon": 106.7160,
-    "radius_km": 1.5,
+    "lat": 10.762,
+    "lon": 106.716,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 75
   },
@@ -109,9 +109,9 @@
       "tao dan park"
     ],
     "parent_area_id": "tp_hcm",
-    "lat": 10.7750,
-    "lon": 106.7100,
-    "radius_km": 1.5,
+    "lat": 10.775,
+    "lon": 106.71,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 78
   },
@@ -127,7 +127,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.8188,
     "lon": 106.6519,
-    "radius_km": 5.0,
+    "radius_km": 3.0,
     "category": "airport",
     "importance": 90
   },
@@ -141,8 +141,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.7554,
-    "lon": 106.6580,
-    "radius_km": 2.5,
+    "lon": 106.658,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 85
   },
@@ -157,8 +157,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.7884,
-    "lon": 106.7060,
-    "radius_km": 2.0,
+    "lon": 106.706,
+    "radius_km": 3.0,
     "category": "attraction",
     "importance": 80
   },
@@ -171,7 +171,7 @@
       "tao dao"
     ],
     "parent_area_id": "tp_hcm",
-    "lat": 10.7640,
+    "lat": 10.764,
     "lon": 106.6397,
     "radius_km": 3.0,
     "category": "amusement_park",
@@ -185,7 +185,7 @@
       "khu vui choi suoi tien"
     ],
     "parent_area_id": "tp_hcm",
-    "lat": 10.8700,
+    "lat": 10.87,
     "lon": 106.8031,
     "radius_km": 5.0,
     "category": "amusement_park",
@@ -204,7 +204,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7691,
     "lon": 106.6946,
-    "radius_km": 1.0,
+    "radius_km": 3.0,
     "category": "street",
     "importance": 85
   },
@@ -219,7 +219,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7292,
     "lon": 106.7032,
-    "radius_km": 3.5,
+    "radius_km": 3.0,
     "category": "urban_area",
     "importance": 80
   },
@@ -233,7 +233,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7712,
     "lon": 106.7038,
-    "radius_km": 1.5,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 82
   },
@@ -248,7 +248,7 @@
     "parent_area_id": "tp_hcm",
     "lat": 10.7793,
     "lon": 106.6921,
-    "radius_km": 1.5,
+    "radius_km": 3.0,
     "category": "museum",
     "importance": 78
   },
@@ -264,8 +264,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.7553,
-    "lon": 106.6570,
-    "radius_km": 2.5,
+    "lon": 106.657,
+    "radius_km": 3.0,
     "category": "market",
     "importance": 80
   },
@@ -279,8 +279,8 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 10.8349,
-    "lon": 106.8210,
-    "radius_km": 4.0,
+    "lon": 106.821,
+    "radius_km": 3.0,
     "category": "park",
     "importance": 76
   },
@@ -294,7 +294,7 @@
     ],
     "parent_area_id": "tp_hcm",
     "lat": 11.0549,
-    "lon": 106.4670,
+    "lon": 106.467,
     "radius_km": 5.0,
     "category": "historical",
     "importance": 75
@@ -310,7 +310,7 @@
     "parent_area_id": "da_nang",
     "lat": 16.0544,
     "lon": 108.2022,
-    "radius_km": 5.0,
+    "radius_km": 3.0,
     "category": "beach",
     "importance": 88
   },
@@ -325,7 +325,7 @@
     "parent_area_id": "ha_noi",
     "lat": 21.0289,
     "lon": 105.8549,
-    "radius_km": 1.5,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 95
   },
@@ -340,7 +340,7 @@
     "parent_area_id": "ha_noi",
     "lat": 21.0285,
     "lon": 105.8542,
-    "radius_km": 1.5,
+    "radius_km": 3.0,
     "category": "landmark",
     "importance": 90
   },
@@ -356,7 +356,7 @@
     "parent_area_id": "ha_noi",
     "lat": 21.2185,
     "lon": 105.8045,
-    "radius_km": 5.0,
+    "radius_km": 3.0,
     "category": "airport",
     "importance": 85
   },
@@ -430,7 +430,7 @@
     "parent_area_id": "hue",
     "lat": 16.2426,
     "lon": 107.5738,
-    "radius_km": 2.0,
+    "radius_km": 3.0,
     "category": "unsupported_landmark",
     "importance": 90
   },
@@ -444,8 +444,328 @@
     "parent_area_id": "hoi_an",
     "lat": 15.8787,
     "lon": 108.3155,
-    "radius_km": 2.0,
+    "radius_km": 3.0,
     "category": "unsupported_landmark",
     "importance": 90
+  },
+  {
+    "name": "Vincom Center Đồng Khởi",
+    "aliases": ["vincom center dong khoi", "vincom dong khoi", "vincom center quan 1"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7785,
+    "lon": 106.7020,
+    "radius_km": 2.5,
+    "category": "shopping_mall",
+    "importance": 85
+  },
+  {
+    "name": "Vincom Mega Mall Thảo Điền",
+    "aliases": ["vincom thao dien", "vincom mega mall thao dien"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8068,
+    "lon": 106.7401,
+    "radius_km": 3.0,
+    "category": "shopping_mall",
+    "importance": 78
+  },
+  {
+    "name": "AEON Mall Tân Phú",
+    "aliases": ["aeon mall tan phu", "aeon tan phu", "aeon mall tân phú celadon"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8005,
+    "lon": 106.6175,
+    "radius_km": 3.0,
+    "category": "shopping_mall",
+    "importance": 78
+  },
+  {
+    "name": "AEON Mall Bình Tân",
+    "aliases": ["aeon mall binh tan", "aeon binh tan"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7430,
+    "lon": 106.6107,
+    "radius_km": 3.0,
+    "category": "shopping_mall",
+    "importance": 76
+  },
+  {
+    "name": "Lotte Mart Quận 7",
+    "aliases": ["lotte mart quan 7", "lotte mart q7", "lotte quan 7"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7320,
+    "lon": 106.7180,
+    "radius_km": 3.0,
+    "category": "shopping_mall",
+    "importance": 75
+  },
+  {
+    "name": "Bệnh viện Chợ Rẫy",
+    "aliases": ["benh vien cho ray", "bệnh viện chợ rẫy", "cho ray hospital"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7554,
+    "lon": 106.6580,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 88
+  },
+  {
+    "name": "Bệnh viện Ung Bướu",
+    "aliases": ["benh vien ung buou", "bệnh viện ung bướu", "ung buou hospital", "cancer hospital"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8050,
+    "lon": 106.6943,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 85
+  },
+  {
+    "name": "Bệnh viện Đại học Y Dược",
+    "aliases": ["benh vien dai hoc y duoc", "bệnh viện đhyd", "umc hospital"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7619,
+    "lon": 106.6648,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 80
+  },
+  {
+    "name": "Bệnh viện Nhi Đồng 1",
+    "aliases": ["benh vien nhi dong 1", "bệnh viện nhi đồng 1", "children hospital 1"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7702,
+    "lon": 106.6720,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 78
+  },
+  {
+    "name": "Bệnh viện FV",
+    "aliases": ["benh vien fv", "bệnh viện fv", "fv hospital", "franco-vietnamese hospital"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7301,
+    "lon": 106.7099,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 78
+  },
+  {
+    "name": "Bệnh viện Vinmec Central Park",
+    "aliases": ["benh vien vinmec", "bệnh viện vinmec", "vinmec central park", "vinmec hospital saigon"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7944,
+    "lon": 106.7218,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 80
+  },
+  {
+    "name": "Trường Đại học Bách Khoa TP.HCM",
+    "aliases": ["dai hoc bach khoa", "đại học bách khoa", "bach khoa tphcm", "hcmut"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7733,
+    "lon": 106.6597,
+    "radius_km": 3.0,
+    "category": "university",
+    "importance": 82
+  },
+  {
+    "name": "Trường Đại học Khoa học Tự nhiên",
+    "aliases": ["dai hoc khoa hoc tu nhien", "đại học khoa học tự nhiên", "hcmus", "khoa hoc tu nhien"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7626,
+    "lon": 106.6826,
+    "radius_km": 3.0,
+    "category": "university",
+    "importance": 80
+  },
+  {
+    "name": "Trường Đại học Kinh tế TP.HCM",
+    "aliases": ["dai hoc kinh te", "đại học kinh tế", "ueh", "kinh te tphcm"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7837,
+    "lon": 106.6981,
+    "radius_km": 3.0,
+    "category": "university",
+    "importance": 80
+  },
+  {
+    "name": "Trường Đại học Tôn Đức Thắng",
+    "aliases": ["dai hoc ton duc thang", "đại học tôn đức thắng", "tdtu", "ton duc thang"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7325,
+    "lon": 106.7194,
+    "radius_km": 3.0,
+    "category": "university",
+    "importance": 78
+  },
+  {
+    "name": "Phố đi bộ Nguyễn Huệ",
+    "aliases": ["pho di bo nguyen hue", "phố đi bộ nguyễn huệ", "nguyen hue walking street"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7741,
+    "lon": 106.7034,
+    "radius_km": 2.5,
+    "category": "street",
+    "importance": 88
+  },
+  {
+    "name": "Chợ An Đông",
+    "aliases": ["cho an dong", "chợ an đông", "an dong market"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7563,
+    "lon": 106.6712,
+    "radius_km": 2.5,
+    "category": "market",
+    "importance": 75
+  },
+  {
+    "name": "Chợ Tân Định",
+    "aliases": ["cho tan dinh", "chợ tân định", "tan dinh market"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7872,
+    "lon": 106.6904,
+    "radius_km": 2.5,
+    "category": "market",
+    "importance": 72
+  },
+  {
+    "name": "Saigon Centre",
+    "aliases": ["saigon centre", "saigon center", "takashimaya"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7762,
+    "lon": 106.7012,
+    "radius_km": 2.5,
+    "category": "shopping_mall",
+    "importance": 80
+  },
+  {
+    "name": "Diamond Plaza",
+    "aliases": ["diamond plaza", "diamond plaza quan 1"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7811,
+    "lon": 106.6989,
+    "radius_km": 2.5,
+    "category": "shopping_mall",
+    "importance": 76
+  },
+  {
+    "name": "Khu Công nghệ cao SHTP",
+    "aliases": ["khu cong nghe cao", "shtp", "saigon high tech park", "khu công nghệ cao quận 9"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8530,
+    "lon": 106.7969,
+    "radius_km": 4.0,
+    "category": "industrial_park",
+    "importance": 75
+  },
+  {
+    "name": "Sân vận động Thống Nhất",
+    "aliases": ["san van dong thong nhat", "sân vận động thống nhất", "thong nhat stadium"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7813,
+    "lon": 106.6788,
+    "radius_km": 2.5,
+    "category": "stadium",
+    "importance": 72
+  },
+  {
+    "name": "Bệnh viện Từ Dũ",
+    "aliases": ["benh vien tu du", "bệnh viện từ dũ", "tu du hospital", "phụ sản từ dũ"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7706,
+    "lon": 106.6878,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 78
+  },
+  {
+    "name": "Bệnh viện Bình Dân",
+    "aliases": ["benh vien binh dan", "bệnh viện bình dân", "binh dan hospital"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7818,
+    "lon": 106.6822,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 72
+  },
+  {
+    "name": "Bệnh viện 115",
+    "aliases": ["benh vien 115", "bệnh viện 115", "hospital 115"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7714,
+    "lon": 106.6608,
+    "radius_km": 3.0,
+    "category": "hospital",
+    "importance": 72
+  },
+  {
+    "name": "Bến xe Miền Đông",
+    "aliases": ["ben xe mien dong", "bến xe miền đông", "mien dong bus station"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8146,
+    "lon": 106.7113,
+    "radius_km": 3.0,
+    "category": "bus_station",
+    "importance": 75
+  },
+  {
+    "name": "Bến xe Miền Tây",
+    "aliases": ["ben xe mien tay", "bến xe miền tây", "mien tay bus station"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7383,
+    "lon": 106.6193,
+    "radius_km": 3.0,
+    "category": "bus_station",
+    "importance": 75
+  },
+  {
+    "name": "Ga Sài Gòn",
+    "aliases": ["ga sai gon", "ga sài gòn", "saigon railway station", "ga ho chi minh"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7822,
+    "lon": 106.6776,
+    "radius_km": 2.5,
+    "category": "train_station",
+    "importance": 78
+  },
+  {
+    "name": "Crescent Mall",
+    "aliases": ["crescent mall", "crescent quan 7", "crescent mall phu my hung"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7295,
+    "lon": 106.7172,
+    "radius_km": 2.5,
+    "category": "shopping_mall",
+    "importance": 76
+  },
+  {
+    "name": "Lotte Mart Tân Bình",
+    "aliases": ["lotte mart tan binh", "lotte mart cong hoa"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8023,
+    "lon": 106.6500,
+    "radius_km": 2.5,
+    "category": "shopping_mall",
+    "importance": 72
+  },
+  {
+    "name": "Snow Town Sài Gòn",
+    "aliases": ["snow town", "snow town saigon", "snow town sai gon"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.8038,
+    "lon": 106.7510,
+    "radius_km": 2.5,
+    "category": "amusement_park",
+    "importance": 70
+  },
+  {
+    "name": "Bến Nghé",
+    "aliases": ["ben nghe", "bến nghé", "phuong ben nghe"],
+    "parent_area_id": "tp_hcm",
+    "lat": 10.7770,
+    "lon": 106.7028,
+    "radius_km": 2.5,
+    "category": "ward",
+    "importance": 75
   }
 ]

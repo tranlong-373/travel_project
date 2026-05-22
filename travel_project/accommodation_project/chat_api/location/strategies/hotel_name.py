@@ -23,25 +23,55 @@ logger = logging.getLogger(__name__)
 
 def _find_accommodation_by_name(name: str | None) -> dict[str, Any] | None:
     """
-    Query Accommodation table for a hotel by name.
+    Look up an Accommodation by name. First tries a literal ``icontains`` match
+    (fast path for clean names like "Hotel Phương Anh"), then falls back to the
+    fuzzy candidate matcher (which handles "ACB", "Mường Thanh", "caravelle",
+    typos, partial names, …).
+
     Returns a plain dict with name/area/latitude/longitude or None.
-    Wrapped for testability — patch this function in tests.
     """
     if not name:
         return None
+    cleaned = name.strip()
+    if not cleaned:
+        return None
+
     try:
         from accommodations.models import Accommodation
 
+        # 1. Try exact substring (fastest, no fuzzy overhead)
         acc = (
             Accommodation.objects
-            .filter(name__icontains=name.strip())
+            .filter(name__icontains=cleaned)
             .values("id", "name", "area", "latitude", "longitude", "accommodation_type")
             .first()
         )
-        return dict(acc) if acc else None
+        if acc:
+            return dict(acc)
+
+        # 2. Fall back to fuzzy candidate matching (handles ACB-like cases)
+        from ...input_classifier import _fuzzy_hotel_candidates
+        from ...normalizers import normalize_key
+
+        norm = normalize_key(cleaned)
+        candidates = _fuzzy_hotel_candidates(norm, allow_no_keyword=True)
+        if not candidates:
+            return None
+
+        top = candidates[0]
+        # Load full details (incl. latitude/longitude) for the picked candidate
+        full = (
+            Accommodation.objects
+            .filter(pk=top["accommodation_id"])
+            .values("id", "name", "area", "latitude", "longitude", "accommodation_type")
+            .first()
+        )
+        if full:
+            return dict(full)
     except Exception as exc:
         logger.debug("hotel_name: DB lookup failed for %r: %s", name, exc)
-        return None
+
+    return None
 
 
 class HotelNameStrategy(LocationStrategy):
@@ -59,18 +89,7 @@ class HotelNameStrategy(LocationStrategy):
             acc = None
 
         if acc is None:
-            # No DB match — return UNRESOLVED hotel_name so downstream can show
-            # a name-only card. Do NOT fall to geocoder or AMBIGUOUS.
-            return ResolvedLocation(
-                status=LocationStatus.UNRESOLVED,
-                mode=LocationMode.HOTEL_NAME,
-                raw_phrase=context.hotel_name or context.raw_text,
-                anchor_name=context.hotel_name,
-                anchor_kind="hotel",
-                provider="hotel_name_only",
-                cache_hit=False,
-                debug={"source": "hotel_name_no_db_match", "hotel_name": context.hotel_name},
-            )
+            return None  # no DB match — let later strategies (AmbiguousOrUnsupported) handle it
 
         lat = acc.get("latitude")
         lon = acc.get("longitude")

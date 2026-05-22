@@ -214,6 +214,14 @@ _POI_CATEGORIES: dict[str, str] = {
     "trung tam thuong mai": "mall",
     "vincom": "mall",
     "aeon": "mall",
+    # gas stations
+    "tram xang": "gas_station",
+    "cay xang": "gas_station",
+    "xang dau": "gas_station",
+    "tram xang dau": "gas_station",
+    "gas station": "gas_station",
+    "petrol station": "gas_station",
+    "cua hang xang": "gas_station",
 }
 
 # Budget detection — a number followed by a monetary unit.
@@ -261,6 +269,9 @@ _ADDRESS_PATTERNS: list[re.Pattern] = [
         r"(?:phuong|xa)\s+\w[\w\s]{0,20},\s*(?:quan|huyen|q\.|h\.)\s*\w[\w\s]{0,20}",
         # "N đường/phố/hẻm X, P.M, Q.N" — full address with 3+ components
         r"\d{1,5}\s+\w[\w\s]{2,40},\s*(?:phuong|xa|p\.)\s*\w[\w\s]{0,15},\s*(?:quan|huyen|q\.)",
+        # International / postal-code format: "N Street, Ward/Area, City 70000, Vietnam, Quận N"
+        # Matches: number + street words + comma + 2+ more segments ending with quan/huyen + number
+        r"\d{1,5}\s+\w[\w\s]{2,40}(?:,\s*[\w][\w\s]{1,40}){2,},\s*(?:quan|huyen|q\.)\s*\d+",
     ]
 ]
 
@@ -268,6 +279,38 @@ _ADDRESS_PATTERNS: list[re.Pattern] = [
 # ============================================================================
 # Signal detectors (private)
 # ============================================================================
+
+@functools.lru_cache(maxsize=1)
+def _load_static_landmark_aliases() -> frozenset[str]:
+    """
+    Return a frozenset of normalized landmark aliases from data/landmarks.json.
+    Cached for the process lifetime — used by _is_known_landmark_alias().
+    """
+    try:
+        import json
+        from pathlib import Path
+        data_dir = Path(__file__).resolve().parents[1] / "data"
+        landmarks = json.loads((data_dir / "landmarks.json").read_text(encoding="utf-8"))
+        aliases: set[str] = set()
+        for lm in landmarks:
+            for alias in lm.get("aliases", []):
+                norm = normalize_key(alias)
+                if norm:
+                    aliases.add(norm)
+        return frozenset(aliases)
+    except Exception:
+        return frozenset()
+
+
+def _is_known_landmark_alias(phrase: str) -> bool:
+    """True if phrase contains a known static landmark alias as a substring."""
+    if not phrase:
+        return False
+    for alias in _load_static_landmark_aliases():
+        if alias in phrase:
+            return True
+    return False
+
 
 def _detect_amenities(norm: str) -> list[str]:
     """
@@ -697,6 +740,19 @@ def classify_v2(
 
     # ── 4 & 5. near-cue paths ─────────────────────────────────────────────────
     if has_near_cue:
+        # Static landmark takes top priority — wins over generic_poi_in_area and
+        # near_cue+known_area_only. "gần chợ Bến Thành" and "gần Bến Thành" both
+        # contain landmark aliases, so they resolve as named anchors not area text.
+        if near_remainder and _is_known_landmark_alias(near_remainder):
+            return ClassificationResult(
+                input_kind="landmark_or_poi",
+                confidence=0.88,
+                location_phrase=near_remainder,
+                location_phrase_raw=near_remainder_raw,
+                area_hint=area,
+                debug={"reason": "near_cue+known_landmark", "signals": signals},
+            )
+
         # generic_poi_in_area: near-cue + category word + explicit area
         # e.g. "gần quán cafe ở Quận 5", "gần bệnh viện ở Phú Nhuận"
         if poi_category and area:
@@ -727,7 +783,7 @@ def classify_v2(
             )
 
         # landmark_or_poi: near-cue + named place
-        # e.g. "gần Landmark 81", "gần Dinh Độc Lập", "gần chợ Bến Thành"
+        # e.g. "gần Landmark 81", "gần Dinh Độc Lập"
         return ClassificationResult(
             input_kind="landmark_or_poi",
             confidence=0.80,
@@ -776,7 +832,24 @@ def classify_v2(
             debug={"reason": "area_token_only", "signals": signals},
         )
 
-    # ── 8b. standalone POI / landmark — "Đầm Sen", "Snow Town Sài Gòn",
+    # ── 8b. generic POI in area — no near-cue — "trạm xăng ở Quận 3", "cafe Quận 1"
+    # POI category word + explicit area but no near-cue ("ở" is not a near-cue).
+    # Prevents geocoding the whole phrase as a vague landmark.
+    if poi_category and area and not has_near_cue and not amenity_terms and not acc_kw:
+        return ClassificationResult(
+            input_kind="generic_poi_in_area",
+            confidence=0.82,
+            location_phrase=norm,
+            location_phrase_raw=text.strip(),
+            area_hint=area,
+            debug={
+                "reason": "poi_category+area_no_near_cue",
+                "poi_category": poi_category,
+                "signals": signals,
+            },
+        )
+
+    # ── 8c. standalone POI / landmark — "Đầm Sen", "Snow Town Sài Gòn", — "Đầm Sen", "Snow Town Sài Gòn",
     # "Chợ Tân Bình", "Công viên Văn hóa Đầm Sen", "Bình Quới 1".
     # Reuses v1's has_concrete_place_noun + multi-token heuristic so v2 routes
     # these to FallbackGeocodeStrategy instead of HotelNameStrategy.

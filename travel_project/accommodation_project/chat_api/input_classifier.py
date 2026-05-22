@@ -19,8 +19,41 @@ from typing import Any
 from .normalizers import normalize_key
 
 # ── tuning knobs ─────────────────────────────────────────────────────────────
-HOTEL_NAME_MIN_SCORE = 88.0   # rapidfuzz WRatio threshold (raised from 85 to avoid generic "hotel" token matches like "rex hotel" → "bao minh hotel")
-HOTEL_NAME_MIN_CHARS = 3      # ignore queries shorter than this
+# Tiered thresholds by query length — short queries (e.g. "ACB") need a higher
+# score because false positives are easier; long queries can be looser.
+HOTEL_NAME_MIN_SCORE_LONG = 78.0   # ≥ 10 chars
+HOTEL_NAME_MIN_SCORE_MED = 82.0    # 5–9 chars
+HOTEL_NAME_MIN_SCORE_SHORT = 88.0  # 3–4 chars (use Jaro-Winkler)
+HOTEL_NAME_MIN_CHARS = 3           # ignore queries shorter than this
+
+# Backward-compat alias (legacy callers / tests)
+HOTEL_NAME_MIN_SCORE = HOTEL_NAME_MIN_SCORE_LONG
+
+# Show TOP-N candidates when multiple results are similarly strong
+TOP_N_CANDIDATES = 4
+CANDIDATE_MARGIN = 8.0   # if 2nd-best within this margin → return as candidate list
+
+# Words that are clearly landmarks/POI categories, NOT hotel names. If query
+# starts with one of these, skip fuzzy hotel matching to avoid false positives
+# like "Bệnh viện Ung bứu" matching some hotel name.
+_LANDMARK_PREFIXES: frozenset[str] = frozenset({
+    "benh vien", "bệnh viện",
+    "truong", "trường", "dai hoc", "đại học",
+    "chua", "chùa", "nha tho", "nhà thờ", "thanh duong", "thánh đường",
+    "cong vien", "công viên",
+    "san bay", "sân bay",
+    "ben xe", "bến xe", "ga ", "ga tau", "ga tàu",
+    "bao tang", "bảo tàng",
+    "vien bao tang", "viện bảo tàng",
+    "cho ", "chợ ", "cong vien", "công viên",
+    "sieu thi", "siêu thị",
+    "trung tam thuong mai", "trung tâm thương mại",
+    "ngan hang", "ngân hàng",
+    "atm",
+    "tram xang", "trạm xăng",
+    "cua hang tien loi", "cửa hàng tiện lợi",
+    "tiem", "tiệm",
+})
 
 # Các từ chung bị bỏ qua khi so sánh tên khách sạn (không phải phần riêng biệt)
 _STRIP_BEFORE_MATCH: frozenset[str] = frozenset({
@@ -69,6 +102,18 @@ _ADDRESS_PATTERNS: list[str] = [
     r"(?:quận|quan|q\.?)\s*\d{1,2}\s*,\s*(?:tp\.?\s*hcm|hồ chí minh|tp\.?\s*hồ chí minh)",
     # địa chỉ có mã bưu chính 5-6 chữ số
     r"\d{1,5}(?:/\d+[A-Za-z]?)?\s+(?:đường|phố|hẻm|ngõ)\s+\w[\w\s,]{5,80},\s*(?:việt nam|vietnam|\d{5,6})",
+    # C1: full address with postal code (5-6 digits) after city
+    # e.g. "14 Võ Văn Tần, Xuân Hòa, Hồ Chí Minh 70000, Vietnam, Quận 3"
+    r"\d{1,5}(?:[/\-]\d+[A-Za-z]?)?\s+\w[\w\s]{2,60},\s*\w[\w\s]{1,40},\s*(?:hồ chí minh|ho chi minh|hà nội|ha noi|đà nẵng|da nang|tp\.?\s*\w+)[\s\w\.]*\s*\d{4,6}\b",
+    # C1 variant: "Số/Number + name + ..., Quận/Phường, City"
+    # e.g. "Số 50 Bùi Thị Xuân, Đakao, Quận 1" | "50 Lê Lợi, Bến Nghé, Q1"
+    r"(?:số\s+)?\d{1,5}(?:[/\-]\d+[A-Za-z]?)?\s+\w[\w\s]{2,60},\s*\w[\w\s]{1,30},\s*(?:quận|phường|q\.|p\.)\s*\w",
+    # C2: "Số N [Tên đường], Phường, Quận" — without explicit street keyword
+    # e.g. "Số 50 Bùi Thị Xuân, Đakao, Quận 1"
+    r"số\s+\d{1,5}(?:[/\-]\d+[A-Za-z]?)?\s+\w[\w\s]{2,60}(?:,\s*\w[\w\s]{0,30})*",
+    # C1 variant: very flexible — number + street + ≥2 commas + city/country
+    # Catches the case where postal code or "Vietnam" appears between commas
+    r"\d{1,5}(?:[/\-]\d+[A-Za-z]?)?\s+\w[\w\s]{2,60}(?:,\s*\w[\w\s\d]{1,40}){2,}",
 ]
 _ADDRESS_RE: list[re.Pattern] = [
     re.compile(p, re.IGNORECASE | re.UNICODE) for p in _ADDRESS_PATTERNS
@@ -103,28 +148,53 @@ def classify_input_type(
     Classify a chat query into hotel_name, address, or landmark.
 
     Returns a dict:
-        type            : "hotel_name" | "address" | "landmark"
-        confidence      : float 0–1
-        reason          : str  (debug)
-        hotel_match     : dict | None   (when type == "hotel_name")
-        address_phrase  : str | None    (when type == "address")
+        type             : "hotel_name" | "address" | "landmark"
+        confidence       : float 0–1
+        reason           : str  (debug)
+        hotel_match      : dict | None              (best fuzzy match)
+        hotel_candidates : list[dict] | None        (top-N candidates when ambiguous)
+        address_phrase   : str | None               (when type == "address")
     """
     if not text or not text.strip():
         return _result("landmark", 0.3, "empty_input")
 
     norm = normalize_key(text)
 
-    # ── 1. Hotel name: only attempt when query carries an accommodation keyword,
-    #       no "near" preposition, and no search-query signals (budget/district/interrogative)
-    if not _has_near_cue(norm) and _has_accommodation_keyword(norm) and not _SEARCH_QUERY_RE.search(norm):
-        match = _fuzzy_hotel_match(norm)
-        if match:
-            return _result(
-                "hotel_name",
-                match["score"] / 100.0,
-                "db_fuzzy_match",
-                hotel_match=match,
-            )
+    # ── 1. Hotel name fuzzy matching ────────────────────────────────────────
+    #    - Skip if query has "near" preposition (clearly a landmark search)
+    #    - Skip if query starts with a landmark prefix (bệnh viện, sân bay, …)
+    #    - Skip if query is *only* an accommodation keyword like "khách sạn"
+    #    - Allow fuzzy even without keyword (so "Mường Thanh" matches),
+    #      but require higher score to compensate
+    if (
+        not _has_near_cue(norm)
+        and not _starts_with_landmark_prefix(norm)
+        and not _SEARCH_QUERY_RE.search(norm)
+    ):
+        core = _strip_generic_words(norm).strip()
+        # If after stripping generic words there's nothing left, user gave
+        # only "khách sạn" with no specific name → skip fuzzy match.
+        if len(core.replace(" ", "")) >= HOTEL_NAME_MIN_CHARS:
+            has_keyword = _has_accommodation_keyword(norm)
+            matches = _fuzzy_hotel_candidates(norm, allow_no_keyword=not has_keyword)
+            if matches:
+                top = matches[0]
+                # Multi-candidate scenario: top scores are close → return candidates
+                if len(matches) > 1 and (top["score"] - matches[1]["score"]) < CANDIDATE_MARGIN:
+                    return _result(
+                        "hotel_name",
+                        top["score"] / 100.0,
+                        "db_fuzzy_match_multi",
+                        hotel_match=top,
+                        hotel_candidates=matches[:TOP_N_CANDIDATES],
+                    )
+                # Clear single best match
+                return _result(
+                    "hotel_name",
+                    top["score"] / 100.0,
+                    "db_fuzzy_match",
+                    hotel_match=top,
+                )
 
     # ── 2. Specific address ────────────────────────────────────────────────────
     phrase = _detect_address(text)
@@ -135,6 +205,14 @@ def classify_input_type(
     return _result("landmark", 0.72, "default_landmark")
 
 
+def _starts_with_landmark_prefix(norm: str) -> bool:
+    """Return True if the normalized text begins with a known landmark/POI category."""
+    for prefix in _LANDMARK_PREFIXES:
+        if norm.startswith(prefix.strip().lower() + " ") or norm == prefix.strip().lower():
+            return True
+    return False
+
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _result(
@@ -143,11 +221,13 @@ def _result(
     reason: str,
     *,
     hotel_match: dict[str, Any] | None = None,
+    hotel_candidates: list[dict[str, Any]] | None = None,
     address_phrase: str | None = None,
 ) -> dict[str, Any]:
     return {
         "type": kind,
         "confidence": round(confidence, 4),
+        "hotel_candidates": hotel_candidates,
         "reason": reason,
         "hotel_match": hotel_match,
         "address_phrase": address_phrase,
@@ -190,21 +270,47 @@ def _strip_generic_words(norm: str) -> str:
     ("khach san", "can ho"). Previously only single tokens worked, which
     caused queries like "Khách sạn Mường Thanh" to retain "khach san" and
     fail to match accommodations named "Muong Thanh Luxury Saigon Hotel".
+
+    NOTE: When stripping leaves nothing (query is *only* generic words like
+    "khách sạn"), returns "" so the caller can detect that case and skip
+    fuzzy matching — preventing false positives where a bare "khách sạn"
+    matches arbitrary hotels by token overlap.
     """
     result = _STRIP_PHRASE_PATTERN.sub(" ", norm)
     result = re.sub(r"\s+", " ", result).strip()
-    return result if result else norm
+    return result
 
 
-def _fuzzy_hotel_match(norm: str) -> dict[str, Any] | None:
+def _min_score_for_length(core_query: str, *, allow_no_keyword: bool) -> float:
+    """Pick the threshold based on query length. Stricter when no keyword."""
+    length = len(core_query.replace(" ", ""))
+    if length >= 10:
+        base = HOTEL_NAME_MIN_SCORE_LONG
+    elif length >= 5:
+        base = HOTEL_NAME_MIN_SCORE_MED
+    else:
+        base = HOTEL_NAME_MIN_SCORE_SHORT
+    # Without a "khách sạn/hotel" keyword, the query could be anything — add buffer
+    if allow_no_keyword:
+        base += 5.0
+    return base
+
+
+def _fuzzy_hotel_candidates(norm: str, *, allow_no_keyword: bool = False) -> list[dict[str, Any]]:
     """
     Fuzzy-match norm against all accommodation names in the DB.
-    Returns the best match dict if score ≥ HOTEL_NAME_MIN_SCORE, else None.
+
+    Returns up to TOP_N_CANDIDATES match dicts, ordered by score descending,
+    filtered to those that meet the (length-tiered) threshold.
+
+    When ``allow_no_keyword`` is True the threshold is bumped slightly so a
+    naked name like "Mường Thanh" still matches but noise queries don't.
     """
     if len(norm.replace(" ", "")) < HOTEL_NAME_MIN_CHARS:
-        return None
+        return []
 
     core_query = _strip_generic_words(norm)
+    min_score = _min_score_for_length(core_query, allow_no_keyword=allow_no_keyword)
 
     try:
         from accommodations.models import Accommodation
@@ -216,14 +322,21 @@ def _fuzzy_hotel_match(norm: str) -> dict[str, Any] | None:
             from difflib import SequenceMatcher
             _use_rf = False
 
+        # Try to import Jaro-Winkler for short queries (better for prefix matching)
+        try:
+            from rapidfuzz.distance import JaroWinkler
+            _has_jw = True
+        except ImportError:
+            _has_jw = False
+
         accommodations = list(
             Accommodation.objects.only("id", "name", "accommodation_type", "area")
         )
         if not accommodations:
-            return None
+            return []
 
-        best_score = 0.0
-        best_acc = None
+        scored: list[tuple[float, Any]] = []
+        is_short_query = len(core_query.replace(" ", "")) <= 4
 
         for acc in accommodations:
             acc_norm = normalize_key(acc.name or "")
@@ -231,34 +344,62 @@ def _fuzzy_hotel_match(norm: str) -> dict[str, Any] | None:
                 continue
 
             core_acc = _strip_generic_words(acc_norm)
-
-            # Skip accommodations with too-short core names (e.g. "X").
-            # partial_ratio gives spurious high scores when one side is < 3 chars.
             if len(core_acc.replace(" ", "")) < 3:
                 continue
 
             if _use_rf:
-                score = max(
-                    fuzz.WRatio(core_query, core_acc),
-                    fuzz.partial_ratio(core_query, core_acc) * 0.90,
-                    fuzz.token_set_ratio(core_query, core_acc) * 0.95,
-                )
+                if is_short_query and _has_jw:
+                    # Jaro-Winkler weights common prefix — great for "ACB" → "AU LAC LEGEND" via tokens
+                    jw_token_max = max(
+                        (JaroWinkler.similarity(core_query, tok) for tok in core_acc.split() if tok),
+                        default=0.0,
+                    )
+                    score = max(
+                        fuzz.WRatio(core_query, core_acc),
+                        fuzz.partial_ratio(core_query, core_acc) * 0.92,
+                        fuzz.token_set_ratio(core_query, core_acc) * 0.95,
+                        jw_token_max * 100,
+                    )
+                else:
+                    score = max(
+                        fuzz.WRatio(core_query, core_acc),
+                        fuzz.partial_ratio(core_query, core_acc) * 0.90,
+                        fuzz.token_set_ratio(core_query, core_acc) * 0.95,
+                    )
             else:
                 score = SequenceMatcher(None, core_query, core_acc).ratio() * 100
 
-            if score > best_score:
-                best_score = score
-                best_acc = acc
+            if score >= min_score:
+                scored.append((score, acc))
 
-        if best_score >= HOTEL_NAME_MIN_SCORE and best_acc is not None:
-            return {
-                "score": round(best_score, 1),
-                "accommodation_id": best_acc.id,
-                "name": best_acc.name,
-                "area": best_acc.area,
-                "accommodation_type": best_acc.accommodation_type,
-            }
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+
+        # Dedupe by normalized name + area: a hotel with duplicate seed rows
+        # (same name in same area, different ids) should appear once.
+        candidates: list[dict[str, Any]] = []
+        seen_keys: set[tuple[str, str]] = set()
+        for score, acc in scored:
+            name_norm = normalize_key(acc.name or "")
+            area_norm = normalize_key(acc.area or "")
+            key = (name_norm, area_norm)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            candidates.append({
+                "score": round(score, 1),
+                "accommodation_id": acc.id,
+                "name": acc.name,
+                "area": acc.area,
+                "accommodation_type": acc.accommodation_type,
+            })
+            if len(candidates) >= TOP_N_CANDIDATES:
+                break
+        return candidates
     except Exception:
-        pass
+        return []
 
-    return None
+
+def _fuzzy_hotel_match(norm: str) -> dict[str, Any] | None:
+    """Backward-compat helper: return the top single match or None."""
+    candidates = _fuzzy_hotel_candidates(norm)
+    return candidates[0] if candidates else None

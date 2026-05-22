@@ -237,16 +237,38 @@ def _build_location_branch_from_intent(intent: SearchIntent) -> dict[str, Any]:
             })
 
     elif mode == LocationMode.AREA:
-        branch.update({
-            "mode": "area",
-            "canonical_area": loc.canonical_area,
-            "location_display_label": loc.display_label or loc.canonical_area,
-            "location_source": loc.provider or "search_intent_v2",
-            "confidence": max(intent.confidence, 0.75),
-            "unresolved_location": False,
-            "nearby_poi_key": loc.nearby_poi_key,
-            "nearby_place": loc.nearby_poi_label,
-        })
+        has_coords = loc.latitude is not None and loc.longitude is not None
+        if has_coords:
+            # Area resolved to a centroid (e.g. via PoiCentroidStrategy) — use
+            # anchor semantics so coordinate-based filtering applies.  Pure area
+            # queries like "Quận 3" have no lat/lon and stay as area text.
+            display = loc.display_label or loc.canonical_area or ""
+            branch.update({
+                "mode": "near_anchor",
+                "canonical_area": loc.canonical_area,
+                "anchor_name": loc.canonical_area,
+                "anchor_kind": "area_centroid",
+                "anchor_lat": loc.latitude,
+                "anchor_lon": loc.longitude,
+                "anchor_radius_km": loc.radius_km,
+                "location_display_label": display,
+                "location_source": loc.provider or "search_intent_v2",
+                "confidence": max(intent.confidence, 0.75),
+                "unresolved_location": False,
+                "nearby_poi_key": loc.nearby_poi_key,
+                "nearby_place": loc.nearby_poi_label,
+            })
+        else:
+            branch.update({
+                "mode": "area",
+                "canonical_area": loc.canonical_area,
+                "location_display_label": loc.display_label or loc.canonical_area,
+                "location_source": loc.provider or "search_intent_v2",
+                "confidence": max(intent.confidence, 0.75),
+                "unresolved_location": False,
+                "nearby_poi_key": loc.nearby_poi_key,
+                "nearby_place": loc.nearby_poi_label,
+            })
 
     elif mode == LocationMode.NEAR_ANCHOR:
         has_coords = loc.latitude is not None and loc.longitude is not None
@@ -410,6 +432,7 @@ def build_user_preference_kwargs(intent: SearchIntent) -> dict[str, Any]:
     user_lat: float | None = None
     user_lon: float | None = None
     radius_km: float = loc.radius_km or _DEFAULT_RADIUS_KM
+    _area_has_coords = loc.mode == LocationMode.AREA and loc.latitude is not None
 
     if loc.mode == LocationMode.NEAR_USER and intent.user_location:
         user_lat = intent.user_location.lat
@@ -421,10 +444,13 @@ def build_user_preference_kwargs(intent: SearchIntent) -> dict[str, Any]:
     elif loc.mode == LocationMode.HOTEL_NAME and loc.latitude is not None:
         user_lat = loc.latitude
         user_lon = loc.longitude
+    elif _area_has_coords:
+        user_lat = loc.latitude
+        user_lon = loc.longitude
 
     # ── area: only when coords do NOT drive the search ────────────────────────
     area: str | None = None
-    if loc.mode not in _COORD_ONLY_MODES and loc.mode != LocationMode.HOTEL_NAME:
+    if loc.mode not in _COORD_ONLY_MODES and loc.mode != LocationMode.HOTEL_NAME and not _area_has_coords:
         area = loc.canonical_area or intent.area
 
     # ── budget: single cap for the model ─────────────────────────────────────
@@ -448,15 +474,19 @@ def build_user_preference_kwargs(intent: SearchIntent) -> dict[str, Any]:
         or area
     )
 
+    # When AREA resolved to centroid coords, report as near_anchor so the
+    # recommendation bridge applies coordinate-based filtering.
+    effective_mode = "near_anchor" if _area_has_coords else loc.mode.value
+
     kwargs: dict[str, Any] = {
         "area": area,
         "budget": budget,
         "guest_count": guest_count,
         "preferred_type": preferred_type,
         "required_amenities": list(intent.required_amenities),
-        "location_mode": loc.mode.value,
+        "location_mode": effective_mode,
         "location_label": location_label,
-        "anchor_kind": loc.anchor_kind,
+        "anchor_kind": loc.anchor_kind or ("area_centroid" if _area_has_coords else None),
         "filter_tree_json": filter_tree_dict,
         "soft_filter_summary": summary,
         "search_radius_km": radius_km,

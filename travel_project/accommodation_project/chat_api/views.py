@@ -168,7 +168,10 @@ def submit_message(request):
         attach_recommendation_action(result)
         return JsonResponse(result, status=200)
 
-    # Guard: ensure location exists before creating preference
+    # Guard: tier-based recommendation visibility (E1+E2).
+    # Tier 1 (Best): có location + ≥1 filter khác → show button + create preference.
+    # Tier 2 (Acceptable): có ≥2 filters dù không location → show button + tìm toàn TP HCM.
+    # Tier 3 (Poor): chỉ 1 filter hoặc không filter → yêu cầu thêm thông tin.
     slots = result.get("slots") or {}
     has_location = (
         result.get("canonical_area")
@@ -176,20 +179,66 @@ def submit_message(request):
         or slots.get("use_current_location")
         or slots.get("nearby_place")
     )
+
     if not has_location:
-        result["can_show_recommendations"] = False
-        result["ready_for_recommendation"] = False
-        if not result.get("follow_up_question"):
-            result["follow_up_question"] = "Bạn muốn tìm chỗ ở ở khu vực nào tại TP HCM?"
-        result.update(
-            {
-                "created_preference": False,
-                "pref_id": None,
-                "recommendation_url": None,
-            }
+        non_location_filter_count = sum(
+            bool(slots.get(key))
+            for key in (
+                "budget", "budget_max", "budget_min",
+                "guest_count",
+                "preferred_type", "accommodation_type", "accommodation_types",
+                "required_amenities",
+                "trip_days",
+                "rating",
+                "priorities",
+                "special_requirements",
+            )
         )
-        attach_recommendation_action(result)
-        return JsonResponse(result, status=200)
+
+        if non_location_filter_count >= 2:
+            # Tier 2: enough filters to do a city-wide search; relax the area guard.
+            slots["area"] = slots.get("area") or "TP HCM"
+            slots["location_mode"] = "area"
+            result["slots"] = slots
+            result["canonical_area"] = result.get("canonical_area") or "TP HCM"
+            result["location_mode"] = "area"
+            result["location_status"] = "ok"
+            result["location_relaxed"] = True
+            result["unresolved_location"] = False
+            # Force legacy bridge so the relaxed area triggers a real preference
+            # (v2 intent still carries unresolved location and would reject).
+            result.pop("search_intent_v2", None)
+            # Refresh filter_tree so usable_filter_count picks up the new area.
+            from .filter_tree import build_filter_tree, soft_filter_summary
+            tree = build_filter_tree(text="", slots=slots, location_result=result).to_dict()
+            result["filter_tree"] = tree
+            result["available_slots"] = tree.get("available_slots") or []
+            result["missing_filter_slots"] = tree.get("missing_slots") or []
+            result["partial_intent"] = tree.get("partial_intent", False)
+            result["soft_filter_summary"] = soft_filter_summary(tree)
+            if not result.get("follow_up_question"):
+                result["follow_up_question"] = (
+                    "Mình sẽ gợi ý toàn TP HCM theo các tiêu chí của bạn. "
+                    "Bạn có thể bổ sung khu vực cụ thể nếu muốn lọc sát hơn."
+                )
+        else:
+            # Tier 3: not enough info to recommend; ask user for more.
+            result["can_show_recommendations"] = False
+            result["ready_for_recommendation"] = False
+            if not result.get("follow_up_question"):
+                result["follow_up_question"] = (
+                    "Bạn muốn tìm chỗ ở ở khu vực nào tại TP HCM? "
+                    "(Hoặc cho mình thêm ngân sách, số khách, loại chỗ ở…)"
+                )
+            result.update(
+                {
+                    "created_preference": False,
+                    "pref_id": None,
+                    "recommendation_url": None,
+                }
+            )
+            attach_recommendation_action(result)
+            return JsonResponse(result, status=200)
 
     try:
         bridge_result = create_preference_from_parse(result)
@@ -240,8 +289,29 @@ def _read_quick_reply_payload(body):
     return payload if isinstance(payload, dict) else None
 
 
+# Location metadata keys that must be cleared when a new location is selected.
+# Stale values from a prior disambiguation choice would otherwise leak into the
+# confirm_table and produce mismatched Key/Name/Parent display.
+_STALE_LOCATION_KEYS: frozenset[str] = frozenset({
+    "area", "canonical_area", "location_phrase", "location_mode",
+    "selected_place", "nearby_place", "nearby_poi_key",
+    "anchor_lat", "anchor_lon", "anchor_radius_km",
+    "key", "name", "parent", "location_type", "smart_suggestion",
+})
+
+
+def _has_new_location_payload(payload: dict) -> bool:
+    """True when the payload carries a fresh location selection."""
+    return bool(payload.get("area") or payload.get("selected_place"))
+
+
 def _merge_payload(context_slots, payload):
     merged = dict(context_slots or {})
+    # Wipe stale location metadata before merging a new location selection so
+    # old Key/Name/Parent values don't survive into the next confirm_table.
+    if _has_new_location_payload(payload):
+        for key in _STALE_LOCATION_KEYS:
+            merged.pop(key, None)
     for key, value in payload.items():
         if key in {"required_amenities", "priorities", "special_requirements"}:
             base = merged.get(key) or []
@@ -368,6 +438,16 @@ def _build_confirmed_result(slots):
         "assumptions": [],
         "used_default_slots": {},
     }
+
+    # Propagate anchor coordinates from selected_place so _read_anchor_location()
+    # can find them when create_preference_from_parse() checks for usable coords.
+    if has_selected_place:
+        result["anchor_lat"] = selected_place.get("lat")
+        result["anchor_lon"] = selected_place.get("lon")
+        result["anchor_radius_km"] = selected_place.get("radius_km") or 3.0
+        result["anchor_kind"] = selected_place.get("kind") or "geocoded"
+        result["anchor_name"] = selected_place.get("name") or selected_place.get("display_name")
+        result["location_mode"] = "near_anchor"
     return _finalize_convenience_response(
         result,
         "",

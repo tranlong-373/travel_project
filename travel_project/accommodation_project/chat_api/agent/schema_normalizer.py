@@ -248,10 +248,35 @@ def _money_to_vnd(num_str: str, unit: str | None) -> int:
     return int(number)
 
 
+_ADDRESS_NOISE_RE = re.compile(
+    # Vietnam postal codes: 4-6 digit run that sits right after a city name or
+    # ", Vietnam"/"Việt Nam" — clearly a postal code, not a budget.
+    r"(?:"
+    r"(?<=ho chi minh\s)\d{4,6}\b"
+    r"|(?<=hcm\s)\d{4,6}\b"
+    r"|(?<=ha noi\s)\d{4,6}\b"
+    r"|(?<=da nang\s)\d{4,6}\b"
+    r"|\b(?:viet\s*nam|vietnam)\b"
+    r")",
+    re.IGNORECASE,
+)
+
+
 def extract_budget_bounds(text: str | None) -> tuple[int | None, int | None]:
     norm = normalize_key(text or "")
     if not norm:
         return None, None
+
+    # C3 fix: strip address-noise tokens (postal code, "Vietnam") before
+    # budget matching so "14 Võ Văn Tần, ..., Hồ Chí Minh 70000" doesn't
+    # accidentally interpret "70000" as a 70k VND budget. Only applies when
+    # the text *contains* an address-style prefix (a digit followed by a
+    # street word) so plain "70000" budgets still parse.
+    if re.search(r"\d+\s+\w+", norm) and ("," in norm or "viet nam" in norm or "vietnam" in norm):
+        norm = _ADDRESS_NOISE_RE.sub(" ", norm)
+        norm = re.sub(r"\s+", " ", norm).strip()
+        if not norm:
+            return None, None
 
     compact = re.search(r"(?<!\d)(\d+)\s*(tr|trieu|m|cu|million|mil|mio)\s*(\d{1,2})(?!\d)", norm)
     if compact:

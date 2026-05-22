@@ -66,7 +66,7 @@ class ResolvedLocation:
     # Coordinates
     latitude: float | None = None
     longitude: float | None = None
-    radius_km: float = 10.0
+    radius_km: float = 3.0   # standardized: matches DEFAULT_NEARBY_RADIUS_KM
 
     # Provenance
     provider: str | None = None      # "osm" | "nominatim" | "overpass" | "alias" | "none"

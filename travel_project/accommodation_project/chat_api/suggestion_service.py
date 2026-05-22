@@ -78,13 +78,27 @@ class SuggestionService:
         scored.sort(key=lambda row: (row[0], row[1], row[2].priority, row[2].popularity), reverse=True)
         output: list[dict[str, Any]] = []
         seen: set[tuple[str, str]] = set()
+        seen_label_area: set[tuple[str, str, str]] = set()
         for rank, text_score, item, matched_alias in scored:
             if normalize_text(item.label) == "smart suggestion":
                 continue
             identity = (item.kind, str(item.object_id or item.payload.get("key") or item.label))
             if identity in seen:
                 continue
+            # F2 fix: extra dedupe by (kind, normalized_label, area) — catches
+            # duplicate seed accommodations that share the same name but have
+            # different IDs (e.g. "Room For Rent — Phòng trọ đẹp, gần ETown…"
+            # appearing twice in the catalog).
+            area_value = str(item.payload.get("area") or "")
+            label_area_key = (
+                item.kind,
+                normalize_text(item.label or ""),
+                normalize_text(area_value),
+            )
+            if label_area_key in seen_label_area:
+                continue
             seen.add(identity)
+            seen_label_area.add(label_area_key)
             output.append(cls._serialize_item(item, rank, text_score, matched_alias))
             if len(output) >= limit:
                 break

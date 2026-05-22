@@ -12,7 +12,7 @@ from .search_origin import COORDINATE_ORIGIN_TYPES, build_search_origin
 DOWNSTREAM_TYPES = {"hotel", "homestay", "hostel", "apartment", "villa", "resort", "bungalow"}
 BLOCKED_INTENTS = {"off_topic", "greeting", "thanks", "help", "goodbye"}
 BLOCKED_LOCATION_STATUSES = {"conflict", "multiple_choice", "ambiguous", "unsupported"}
-DEFAULT_NEARBY_RADIUS_KM = 10.0
+DEFAULT_NEARBY_RADIUS_KM = 3.0
 
 
 def usable_filters_from_intent(intent: Any) -> list[str]:

@@ -36,25 +36,47 @@ _HANDLED_KINDS: frozenset[str] = frozenset({
 })
 
 
+try:
+    GEOCODE_TIMEOUT: float = float(os.getenv("FALLBACK_GEOCODE_TIMEOUT_SECONDS", "15"))
+except (TypeError, ValueError):
+    GEOCODE_TIMEOUT = 15.0
+
+
 def _geocode_timeout() -> float:
-    try:
-        return float(os.getenv("FALLBACK_GEOCODE_TIMEOUT_SECONDS", "15"))
-    except (TypeError, ValueError):
-        return 15.0
+    return GEOCODE_TIMEOUT
 
 
 def _geocode(phrase: str) -> tuple[float, float] | None:
     """
-    Call the geocoder and return (lat, lon) or None.
+    Cascading geocoder: Nominatim → Photon.
+
+    Nominatim is tried first because it has DB caching via PlaceReference.
+    If Nominatim returns nothing (common for Vietnamese hospitals, addresses
+    with postal codes, or specific POIs), fall back to Photon which has
+    much better fuzzy / Vietnamese support.
+
     Wrapped for testability — patch this function in tests.
-    Rate limit and caching are handled inside geocode_street_address().
     """
+    # Stage 1: Nominatim (DB-cached)
     try:
         from ...nominatim_geocoder import geocode_street_address
-        return geocode_street_address(phrase)
+        result = geocode_street_address(phrase)
+        if result is not None:
+            return result
     except Exception as exc:
-        logger.warning("fallback_geocode: geocoder raised for %r: %s", phrase, exc)
-        return None
+        logger.warning("fallback_geocode: Nominatim raised for %r: %s", phrase, exc)
+
+    # Stage 2: Photon (Vietnamese-friendly OSM)
+    try:
+        from ...photon_geocoder import photon_geocode
+        result = photon_geocode(phrase)
+        if result is not None:
+            logger.info("fallback_geocode: Photon resolved %r → %s", phrase, result)
+            return result
+    except Exception as exc:
+        logger.warning("fallback_geocode: Photon raised for %r: %s", phrase, exc)
+
+    return None
 
 
 class FallbackGeocodeStrategy(LocationStrategy):
@@ -120,8 +142,8 @@ class FallbackGeocodeStrategy(LocationStrategy):
             anchor_kind="geocoded",
             latitude=lat,
             longitude=lon,
-            radius_km=5.0,
-            provider="nominatim",
+            radius_km=3.0,
+            provider="nominatim_or_photon",
             cache_hit=False,
-            debug={"query": query, "source": "external_geocoder"},
+            debug={"query": query, "source": "external_geocoder_cascade"},
         )

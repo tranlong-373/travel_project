@@ -51,13 +51,17 @@ def _ref_to_resolved(
 ) -> ResolvedLocation:
     lat = ref.get("latitude") or ref.get("lat")
     lon = ref.get("longitude") or ref.get("lon")
+    # Use canonical_name as the short display label — the full OSM display_name
+    # may contain wrong administrative text (e.g. "Thành phố Thủ Đức") for streets
+    # that are actually inside the inner-city districts.
+    short_name = ref.get("canonical_name") or ref.get("name")
     return ResolvedLocation(
         status=LocationStatus.OK,
         mode=LocationMode.NEAR_ANCHOR,
         raw_phrase=raw_phrase,
         canonical_area=ref.get("canonical_name") or ref.get("display_name"),
-        display_label=ref.get("display_name") or ref.get("canonical_name"),
-        anchor_name=ref.get("canonical_name") or ref.get("name"),
+        display_label=short_name or ref.get("display_name"),
+        anchor_name=short_name,
         anchor_kind=ref.get("kind") or ref.get("place_type"),
         latitude=float(lat) if lat is not None else None,
         longitude=float(lon) if lon is not None else None,

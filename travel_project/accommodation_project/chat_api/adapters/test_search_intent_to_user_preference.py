@@ -493,8 +493,6 @@ class TestCreateUserPreference(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from django.test.utils import setup_test_environment
-        setup_test_environment()
         from django.db import connection
         with connection.schema_editor() as schema_editor:
             from preferences.models import UserPreference

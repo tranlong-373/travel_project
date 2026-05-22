@@ -26,20 +26,20 @@ class DirectAreaStrategy(LocationStrategy):
         return context.input_kind == "area" and bool(context.area_hint)
 
     def resolve(self, context: LocationContext) -> ResolvedLocation | None:
-        # Resolve to the gazetteer's canonical form ("Quận 3", "Bình Thạnh")
-        # so downstream filters/display use proper diacritics.
         area_raw = context.area_hint
-        canonical = canonicalize_area_name(area_raw) or area_raw
+        # canonical_area: stable normalized key (already no-accent from classifier)
+        # display_label:  human-readable Vietnamese form from gazetteer
+        display = canonicalize_area_name(area_raw) or area_raw
         return ResolvedLocation(
             status=LocationStatus.OK,
             mode=LocationMode.AREA,
             raw_phrase=context.location_phrase or context.raw_text,
-            canonical_area=canonical,
-            display_label=canonical,
+            canonical_area=area_raw,
+            display_label=display,
             # No lat/lon — recommendation engine uses area name for filtering
             latitude=None,
             longitude=None,
-            radius_km=10.0,
+            radius_km=5.0,   # area-level search uses a moderate radius
             provider="area_match",
             cache_hit=False,
         )

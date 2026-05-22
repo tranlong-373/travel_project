@@ -24,7 +24,7 @@ from .fuzzy_location import resolve_location_fuzzy
 from .gate import evaluate_parse_gate
 from .location_gazetteer import load_supported_locations
 from .location_resolver import resolve_location
-from .normalizers import normalize_key, normalize_text
+from .normalizers import clean_display_label, normalize_key, normalize_text
 from .protected_spans import public_protected_spans
 from .questions import build_suggested_questions
 from .response_generator import ResponseGenerator
@@ -79,6 +79,14 @@ CONFIRM_SKIP_KEYS = {
     "type_choice_multiple",
     "search_radius_km",
     "nearby_place",
+    # Suggestion-payload metadata — internal keys that must never appear in the
+    # user-facing confirm table (they leak old selection state and confuse the UI).
+    "key",
+    "name",
+    "parent",
+    "location_type",
+    "smart_suggestion",
+    "nearby_poi_key",
 }
 RECOMMENDATION_SIGNAL_KEYS = (
     "area",
@@ -391,22 +399,19 @@ def has_recommendation_signal(slots: dict[str, Any] | None) -> bool:
 
 
 def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
-    # Skip rebuild if v2 already provided a complete filter_tree
-    existing = result.get("filter_tree") or {}
-    if existing.get("filters") is not None and result.get("parser_mode") == "v2_pipeline":
-        # v2 already built the tree — just sync location anchor if needed
-        location = existing.get("location") or {}
-        slots = dict(result.get("slots") or {})
-        tree_dict = existing
-    else:
-        tree = build_filter_tree(
-            text=text,
-            slots=result.get("slots") or {},
-            location_result=result,
-        )
-        tree_dict = tree.to_dict()
-        location = tree_dict["location"]
-        slots = dict(result.get("slots") or {})
+    # Always rebuild filter_tree using the v1 build_filter_tree() because the
+    # downstream code expects v1's tree shape (usable_filter_count,
+    # available_slots, missing_slots, partial_intent, etc.). Even when v2 is
+    # active, we run v1's tree to get the right keys — the v2-resolved anchor
+    # is preserved separately via the `v2_has_coords` guard a few lines below.
+    tree = build_filter_tree(
+        text=text,
+        slots=result.get("slots") or {},
+        location_result=result,
+    )
+    tree_dict = tree.to_dict()
+    location = tree_dict["location"]
+    slots = dict(result.get("slots") or {})
 
     if result.get("debug_metadata"):
         result["debug_metadata"].update(
@@ -450,15 +455,29 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         result["canonical_area"] = location["canonical_area"]
 
     unresolved_location = bool(location.get("unresolved_location"))
+    # Treat v2-resolved coordinates as authoritative even if the legacy
+    # filter_tree didn't recognise the anchor.
+    v2_anchor_lat = result.get("anchor_lat")
+    v2_anchor_lon = result.get("anchor_lon")
+    v2_has_anchor = (
+        v2_anchor_lat is not None
+        and v2_anchor_lon is not None
+        and (
+            result.get("search_intent_v2") is not None
+            or result.get("parser_mode") in {"v2_pipeline", "deterministic_fuzzy_fast"}
+        )
+    )
     if location.get("mode") in {"near_anchor", "city_center"} and (
         location.get("anchor_lat") is None or location.get("anchor_lon") is None
     ):
         unresolved_location = True
+    if v2_has_anchor:
+        unresolved_location = False
     geocoder_resolved = (
         location.get("mode") in {"near_anchor", "city_center"}
         and location.get("anchor_lat") is not None
         and location.get("anchor_lon") is not None
-    )
+    ) or v2_has_anchor
     if geocoder_resolved:
         # Geocoder resolved the address to coordinates — this overrides any
         # prior ambiguity (multiple_choice) from the alias resolver, but NOT
@@ -502,13 +521,20 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
     # coordinates (POI/landmark/geocoded/city_center/...). filter_tree (v1)
     # still runs to compute filters/missing_slots/policy, but it must NOT
     # overwrite the anchor that v2 already resolved correctly.
+    # Check both v2-derived fields (search_intent_v2 / parser_mode) AND the
+    # raw result["anchor_lat"] which is set by ChatPipeline.run() before
+    # _attach_filter_tree_payload runs, regardless of the filter_tree output.
     v2_has_coords = (
-        result.get("location_status") in {"ok", "geocoded"}
-        and result.get("anchor_lat") is not None
+        result.get("anchor_lat") is not None
         and result.get("anchor_lon") is not None
+        and (
+            result.get("location_status") in {"ok", "geocoded"}
+            or result.get("search_intent_v2") is not None
+            or result.get("parser_mode") in {"v2_pipeline", "deterministic_fuzzy_fast"}
+        )
     )
     if not v2_has_coords:
-        result["anchor_name"] = location.get("anchor_name")
+        result["anchor_name"] = clean_display_label(location.get("anchor_name"))
         result["anchor_kind"] = location.get("anchor_kind")
         result["anchor_lat"] = location.get("anchor_lat")
         result["anchor_lon"] = location.get("anchor_lon")
@@ -516,7 +542,7 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         result["provider"] = location.get("provider")
         result["geocoder_called"] = bool(location.get("geocoder_called"))
         result["geocoder_reason"] = location.get("geocoder_reason")
-        result["location_display_label"] = location.get("location_display_label")
+        result["location_display_label"] = clean_display_label(location.get("location_display_label"))
     else:
         # anchor_name/anchor_kind/anchor_lat/anchor_lon are sourced from v2 and
         # must not be touched here. Only fill in optional metadata that v2 may
@@ -528,11 +554,48 @@ def _attach_filter_tree_payload(result: dict[str, Any], text: str) -> None:
         if not result.get("geocoder_reason"):
             result["geocoder_reason"] = location.get("geocoder_reason")
         if not result.get("location_display_label"):
-            v2_anchor = result.get("anchor_name")
+            v2_anchor = clean_display_label(result.get("anchor_name"))
             if v2_anchor and v2_anchor not in {"TP HCM", "Hà Nội", "Đà Nẵng"}:
                 result["location_display_label"] = f"gần {v2_anchor}"
             else:
-                result["location_display_label"] = location.get("location_display_label")
+                result["location_display_label"] = clean_display_label(location.get("location_display_label"))
+        else:
+            result["location_display_label"] = clean_display_label(result.get("location_display_label"))
+
+        # IMPORTANT: also inject the v2-resolved anchor into the filter_tree so
+        # downstream policy (usable_filter_count, has_usable_filters,
+        # can_show_recommendations) sees a valid location filter.
+        if "location" in tree_dict:
+            ft_location = tree_dict["location"]
+            ft_location["mode"] = "near_anchor"
+            ft_location["anchor_name"] = result.get("anchor_name") or ft_location.get("anchor_name")
+            ft_location["anchor_lat"] = result.get("anchor_lat")
+            ft_location["anchor_lon"] = result.get("anchor_lon")
+            ft_location["anchor_radius_km"] = result.get("anchor_radius_km") or ft_location.get("anchor_radius_km") or 3.0
+            ft_location["unresolved_location"] = False
+            ft_location["provider"] = result.get("provider") or ft_location.get("provider")
+            ft_location["location_display_label"] = result.get("location_display_label")
+            # Recompute usable filter count: at minimum "location" is now valid
+            from .filter_tree import FilterStrength
+            filters_list = tree_dict.get("filters") or []
+            has_location_filter = any(
+                isinstance(f, dict) and f.get("key") == "location" for f in filters_list
+            )
+            if not has_location_filter:
+                filters_list.append({
+                    "key": "location",
+                    "value": result.get("anchor_name"),
+                    "operator": "near",
+                    "strength": FilterStrength.SOFT.value,
+                    "confidence": 0.9,
+                    "priority": "important",
+                    "source": "v2_anchor",
+                    "reason": "v2_resolved_anchor",
+                })
+                tree_dict["filters"] = filters_list
+            # Bump usable_filter_count so policy treats this as a real signal
+            current_usable = int(tree_dict.get("usable_filter_count") or 0)
+            tree_dict["usable_filter_count"] = max(current_usable, 1)
 
     result["search_radius_km"] = location.get("search_radius_km") or slots.get("search_radius_km")
     result["resolved_place"] = location.get("resolved_place")

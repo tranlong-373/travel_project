@@ -429,10 +429,11 @@ class TestAmbiguousOrUnsupportedStrategy(unittest.TestCase):
         self.assertEqual(result.status, LocationStatus.UNRESOLVED)
 
     def test_landmark_exhausted_ambiguous(self):
+        # landmark_or_poi exhausted → UNRESOLVED + NEAR_ANCHOR (pending geocode retry)
         ctx = _ctx(input_kind="landmark_or_poi", location_phrase="some unresolved place")
         result = self.strategy.resolve(ctx)
-        self.assertEqual(result.status, LocationStatus.AMBIGUOUS)
-        self.assertEqual(result.mode, LocationMode.AMBIGUOUS)
+        self.assertEqual(result.status, LocationStatus.UNRESOLVED)
+        self.assertEqual(result.mode, LocationMode.NEAR_ANCHOR)
 
     def test_always_returns_resolved_location_not_none(self):
         ctx = _ctx(input_kind="mixed_search", location_phrase="somewhere")
