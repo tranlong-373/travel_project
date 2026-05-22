@@ -114,8 +114,27 @@ class Room(models.Model):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
 
+    image_url = models.URLField(blank=True, null=True)
+    image_urls = models.JSONField(default=list, blank=True)
+
     def __str__(self):
         return f"{self.accommodation.name} - {self.name}"
+    @property
+    def all_image_urls(self):
+        urls = []
+
+        if self.image_url:
+            urls.append(self.image_url)
+
+        if isinstance(self.image_urls, list):
+            urls.extend([url for url in self.image_urls if url])
+
+        if isinstance(self.amenities, dict):
+            old_url = self.amenities.get("room_image_url")
+            if old_url:
+                urls.append(old_url)
+
+        return list(dict.fromkeys(urls))
 
     @property
     def has_discount(self):
