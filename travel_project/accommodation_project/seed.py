@@ -12326,16 +12326,24 @@ for i, item in enumerate(accommodation_data, start=1):
 
         Room.objects.create(
             accommodation=accommodation,
-            room_code=f"{accommodation.accommodation_code}-R{j:02}",
-            room_type=room_type,
-            name=random.choice(room_name_map.get(room_type, ["Phòng mặc định"])),
-            price_per_night=room_price,
-            capacity=room_capacity,
-            total_rooms=total_rooms,
-            available_rooms=available_rooms,
-            amenities=random.sample(amenities_list, k=random.randint(2, 5)),
-            description=f"{room_type.title()} room với đầy đủ tiện nghi cơ bản.",
-            is_active=True
+            room_code="P101",
+            room_type="double",
+            name="Phòng Deluxe",
+            price_per_night=850000,
+            capacity=2,
+            total_rooms=5,
+            available_rooms=5,
+            amenities=["wifi", "air_conditioner"],
+            description="Phòng rộng rãi, đầy đủ tiện nghi.",
+
+            image_url="https://noithattrangtribh.com.vn/upload/images/Mau-thiet-ke-phong-ngu-master-don-gian-ma-dep%20(2).jpg",
+            image_urls=[
+                "https://noithattrangtribh.com.vn/upload/images/Mau-thiet-ke-phong-ngu-master-don-gian-ma-dep%20(2).jpg",
+                "https://noithattrangtribh.com.vn/upload/images/Mau-thiet-ke-phong-ngu-master-don-gian-ma-dep%20(2).jpg",
+                "https://noithattrangtribh.com.vn/upload/images/Mau-thiet-ke-phong-ngu-master-don-gian-ma-dep%20(2).jpg",
+            ],
+
+            is_active=True,
         )
 
         room_prices.append(room_price)
