@@ -284,6 +284,8 @@ class RoomAdmin(admin.ModelAdmin):
         'available_rooms',
         'total_rooms',
         'is_active',
+        'image_url',
+        'image_urls',
     )
 
     list_filter = ('room_type', 'is_active', 'accommodation__area')
