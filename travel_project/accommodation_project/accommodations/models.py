@@ -315,8 +315,8 @@ class PartnerAccommodationRequest(models.Model):
 
     class Meta:
         ordering = ['-created_at']
-        verbose_name = 'Yêu cầu hợp tác khách sạn'
-        verbose_name_plural = 'Yêu cầu hợp tác khách sạn'
+        verbose_name = 'Partner Request'
+        verbose_name_plural = 'Partner Request'
 
     def __str__(self):
         return f"{self.hotel_name} - {self.get_status_display()}"

@@ -36,8 +36,17 @@ SECRET_KEY = 'django-insecure-m24lci=zdve8=(8!%5&r^*)pdokrgvufxu)3tq5+3c-^egh#fs
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "127.0.0.1",
+    "localhost",
+    ".pinggy.link",
+    ".pinggy-free.link",
+]
 
+CSRF_TRUSTED_ORIGINS = [
+    "https://*.pinggy.link",
+    "https://*.pinggy-free.link",
+]
 
 # Application definition
 
