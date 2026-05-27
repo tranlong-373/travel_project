@@ -15,7 +15,7 @@ IMAGE_URLS = {
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378412/khach-san-binh-dan-nha-trang-2_ijjpqv.jpg",
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378411/khach_san_morin_gan_cau_trang_tien_ftns9c.jpg",
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378410/image-280-1024x1024_abgste.png",
-    "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378404/https://res.cloudinary.com/dukjwewdh/image/upload/v1779378404/k1-1778660590-1115-1778660882_ykbzpy.webpkhach-san-5-sao-nha-trang-kt25849-4_ykbzpy.webp",
+    "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378404/k1-1778660590-1115-1778660882_ykbzpy.webp",
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378401/image-1_s2dn6z.png",
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378398/756217083_flkyd7.jpg",
     "https://res.cloudinary.com/dukjwewdh/image/upload/q_100,f_auto/v1779378397/images_w14rgk.jpg",
